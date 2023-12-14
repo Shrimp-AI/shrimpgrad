@@ -1,0 +1,15 @@
+__pycache__
+.venv/
+.vscode
+.DS_Store
+notebooks
+.*.swp
+.*.swo
+*.pyc
+*.so
+*.txt
+build
+/dist
+*.egg-info
+/env
+.ipynb_checkpoints/

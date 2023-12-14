@@ -5,8 +5,6 @@ setup(
     author='Kevin Kenyon',
     license='MIT',
     version='0.0.1',
-    install_requires=[
-        'python_version >= "3.8"',
-    ],
+    python_requires='>=3.8',
     packages=['shrimpgrad']
 )
