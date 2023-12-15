@@ -7,5 +7,5 @@ setup(
     version='0.0.1',
     python_requires='>=3.8',
     packages=['shrimpgrad'],
-    install_requires=["graphviz"]
+    install_requires=["graphviz", 'numpy']
 )
