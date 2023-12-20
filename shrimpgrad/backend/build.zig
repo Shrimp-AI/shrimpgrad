@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const libfizzbuzz = b.addSharedLibrary(.{
+    const libshrimpgrad = b.addSharedLibrary(.{
         .name = "shrimpgrad",
         .root_source_file = .{ .path = "src/tensor.zig" },
         .target = target,
@@ -12,5 +12,5 @@ pub fn build(b: *std.Build) void {
         .version = .{ .major = 0, .minor = 1, .patch = 0 },
     });
 
-    b.installArtifact(libfizzbuzz);
+    b.installArtifact(libshrimpgrad);
 }

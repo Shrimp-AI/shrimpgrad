@@ -113,6 +113,34 @@ pub fn Strides() type {
     };
 }
 
+const CTensor = extern struct {
+    data: [*]f32,
+    size: usize,
+    shape_len: usize,
+    shape: [*]usize,
+    strides: [*]usize,
+};
+
+const FloatTensor = Tensor(f32);
+
+export fn zeros(shape: [*]usize, shape_len: usize) CTensor {
+    const allocator = std.heap.page_allocator;
+    const tensor = FloatTensor.zeros(allocator, shape[0..shape_len]) catch unreachable;
+
+    return CTensor{
+        .data = tensor.items.ptr,
+        .size = tensor.size,
+        .shape_len = shape_len,
+        .shape = shape,
+        .strides = tensor.strides.items.ptr,
+    };
+}
+
+export fn tensorDeinit(tensor: *CTensor) void {
+    const allocator = std.heap.page_allocator;
+    allocator.free(tensor.data[0..tensor.size]);
+}
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -123,8 +151,3 @@ pub fn main() !void {
     var index = [3]usize{ 1, 1, 1 };
     debug.print("strides={},{},{}, capacity={} tensor[0]={}", .{ strides[0], strides[1], strides[2], tensor.capacity, try tensor.get(&index) });
 }
-
-// test "tensor.calc_strides" {
-//     var shape: [3]usize = .{ 4, 5, 6 };
-
-// }
