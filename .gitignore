@@ -13,3 +13,5 @@ build
 *.egg-info
 /env
 .ipynb_checkpoints/
+shrimpgrad/backend/zig-cache/
+shrimpgrad/backend/zig-out/
