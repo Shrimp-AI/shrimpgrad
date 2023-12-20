@@ -12,7 +12,7 @@ ffi.cdef("""
     } CTensor;
 
     CTensor zeros(const size_t* shape, size_t shape_len);
-    void tensorDeinit(CTensor tensor);
+    void deinit(CTensor tensor);
 """)
 
 C = ffi.dlopen(

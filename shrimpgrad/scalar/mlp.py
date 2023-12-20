@@ -1,5 +1,5 @@
 import numpy as np
-from shrimpgrad.value import Value
+from shrimpgrad.scalar.value import Value
 
 
 class Neuron:

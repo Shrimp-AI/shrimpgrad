@@ -136,7 +136,7 @@ export fn zeros(shape: [*]usize, shape_len: usize) CTensor {
     };
 }
 
-export fn tensorDeinit(tensor: *CTensor) void {
+export fn deinit(tensor: *CTensor) void {
     const allocator = std.heap.page_allocator;
     allocator.free(tensor.data[0..tensor.size]);
 }

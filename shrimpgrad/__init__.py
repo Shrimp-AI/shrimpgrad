@@ -1,3 +1,3 @@
-from shrimpgrad.value import *
-from shrimpgrad.graph import build_graph
-from shrimpgrad.mlp import *
+from shrimpgrad.scalar.value import *
+from shrimpgrad.scalar.graph import build_graph
+from shrimpgrad.scalar.mlp import *
