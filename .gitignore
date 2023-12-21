@@ -7,11 +7,12 @@ notebooks
 .*.swo
 *.pyc
 *.so
+*.dylib
 *.txt
 build
 /dist
 *.egg-info
 /env
 .ipynb_checkpoints/
-shrimpgrad/backend/zig-cache/
-shrimpgrad/backend/zig-out/
+backend/zig-cache/
+backend/zig-out/
