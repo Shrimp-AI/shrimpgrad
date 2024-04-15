@@ -3,7 +3,7 @@ import pkg_resources
 
 ffi = FFI()
 
-ffi.cdef("""
+ffi.cdef("""  
     typedef struct {
         float *data;
         size_t size;
