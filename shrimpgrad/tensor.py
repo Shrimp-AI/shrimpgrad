@@ -2,7 +2,10 @@ from typing import Iterable, Optional, Self, TypeAlias, Union
 from functools import reduce
 import operator
 from pprint import pformat
+import ctypes
+from ctypes.util import find_library
 
+libcblas = ctypes.CDLL(find_library('cblas'))
 Num: TypeAlias = Union[float, int, complex]
 DType: TypeAlias = Union[float, int]
 Shape: TypeAlias = tuple[int]
@@ -112,6 +115,7 @@ class Tensor:
     if len(self.shape) == 2 and len(other.shape) == 2:
       if self.shape[1] != other.shape[0]:
         raise RuntimeError('mat1 and mat2 shapes cannot be multiplied ({self.shape[0]}x{self.shape[1]} and {other.shape[0]}x{other.shape[1]})')
+      return cblas_matmul(self, other)
 
   def reshape(self, *args) -> Self: 
     new_size = prod(args)
@@ -131,3 +135,47 @@ def zeros(shape: Shape) -> Tensor:
 
 def arange(x: int) -> Tensor:
   return Tensor((x,), [i for i in range(x)]) 
+
+# Define the types for the function arguments and return value
+libcblas.cblas_dgemm.restype = None
+libcblas.cblas_dgemm.argtypes = [
+    ctypes.c_int,  # order
+    ctypes.c_int,  # transa
+    ctypes.c_int,  # transb
+    ctypes.c_int,  # m
+    ctypes.c_int,  # n
+    ctypes.c_int,  # k
+    ctypes.c_int,  # alpha
+    ctypes.POINTER(ctypes.c_int),  # A
+    ctypes.c_int,  # lda
+    ctypes.POINTER(ctypes.c_int),  # B
+    ctypes.c_int,  # ldb
+    ctypes.c_int,  # beta
+    ctypes.POINTER(ctypes.c_int),  # C
+    ctypes.c_int,  # ldc
+]
+
+def cblas_matmul(a, b):
+  # Allocate memory for result matrix
+  m, k  = a.shape
+  k, n = b.shape
+  result = [0] * (m * n)
+
+  # Call cblas_dgemm function
+  libcblas.cblas_dgemm(
+      ctypes.c_int(101),  # CblasRowMajor
+      ctypes.c_int(111),  # CblasNoTrans
+      ctypes.c_int(111),  # CblasNoTrans
+      ctypes.c_int(m),
+      ctypes.c_int(n),
+      ctypes.c_int(k),
+      ctypes.c_int(1),
+      (ctypes.c_int * a.size)(*a.data),
+      ctypes.c_int(k),
+      (ctypes.c_int * b.size)(*b.data),
+      ctypes.c_int(n),
+      ctypes.c_int(0),
+      (ctypes.c_int * len(result))(*result),
+      ctypes.c_int(n)
+  )
+

@@ -3,6 +3,7 @@
 // Initial dtype will be float64.
 
 const std = @import("std");
+const matmul = @import("matmul.zig");
 const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
