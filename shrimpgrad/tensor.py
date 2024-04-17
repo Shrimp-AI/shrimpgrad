@@ -115,7 +115,8 @@ class Tensor:
     if len(self.shape) == 2 and len(other.shape) == 2:
       if self.shape[1] != other.shape[0]:
         raise RuntimeError('mat1 and mat2 shapes cannot be multiplied ({self.shape[0]}x{self.shape[1]} and {other.shape[0]}x{other.shape[1]})')
-      return cblas_matmul(self, other)
+      result = cblas_matmul(self, other)
+      return Tensor((self.shape[0], self.shape[1]), [x for x in result])
 
   def reshape(self, *args) -> Self: 
     new_size = prod(args)
@@ -134,24 +135,24 @@ def zeros(shape: Shape) -> Tensor:
   return Tensor(shape, [0]*prod(shape))
 
 def arange(x: int) -> Tensor:
-  return Tensor((x,), [i for i in range(x)]) 
+  return Tensor((x,), [float(i) for i in range(x)]) 
 
 # Define the types for the function arguments and return value
-libcblas.cblas_dgemm.restype = None
-libcblas.cblas_dgemm.argtypes = [
+libcblas.cblas_sgemm.restype = None
+libcblas.cblas_sgemm.argtypes = [
     ctypes.c_int,  # order
     ctypes.c_int,  # transa
     ctypes.c_int,  # transb
     ctypes.c_int,  # m
     ctypes.c_int,  # n
     ctypes.c_int,  # k
-    ctypes.c_int,  # alpha
-    ctypes.POINTER(ctypes.c_int),  # A
+    ctypes.c_float,  # alpha
+    ctypes.POINTER(ctypes.c_float),  # A
     ctypes.c_int,  # lda
-    ctypes.POINTER(ctypes.c_int),  # B
+    ctypes.POINTER(ctypes.c_float),  # B
     ctypes.c_int,  # ldb
-    ctypes.c_int,  # beta
-    ctypes.POINTER(ctypes.c_int),  # C
+    ctypes.c_float,  # beta
+    ctypes.POINTER(ctypes.c_float),  # C
     ctypes.c_int,  # ldc
 ]
 
@@ -159,23 +160,25 @@ def cblas_matmul(a, b):
   # Allocate memory for result matrix
   m, k  = a.shape
   k, n = b.shape
-  result = [0] * (m * n)
-
-  # Call cblas_dgemm function
-  libcblas.cblas_dgemm(
+  result = (ctypes.c_float * (m * n))()
+  # Call cblas_sgemm function
+  # If you are using row-major representation then the 
+  # number of "columns" will be leading dimension and
+  # vice versa in column-major representation number of "rows".
+  libcblas.cblas_sgemm(
       ctypes.c_int(101),  # CblasRowMajor
       ctypes.c_int(111),  # CblasNoTrans
       ctypes.c_int(111),  # CblasNoTrans
       ctypes.c_int(m),
       ctypes.c_int(n),
       ctypes.c_int(k),
-      ctypes.c_int(1),
-      (ctypes.c_int * a.size)(*a.data),
+      ctypes.c_float(1.0),
+      (ctypes.c_float * a.size)(*a.data),
       ctypes.c_int(k),
-      (ctypes.c_int * b.size)(*b.data),
+      (ctypes.c_float * b.size)(*b.data),
       ctypes.c_int(n),
-      ctypes.c_int(0),
-      (ctypes.c_int * len(result))(*result),
+      ctypes.c_float(0.0),
+      result,
       ctypes.c_int(n)
   )
-
+  return result
