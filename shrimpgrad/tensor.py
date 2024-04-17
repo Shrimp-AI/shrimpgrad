@@ -1,5 +1,5 @@
-from typing import Iterable, Self, TypeAlias, Union
-from functools import reduce 
+from typing import Iterable, Optional, Self, TypeAlias, Union
+from functools import reduce
 import operator
 from pprint import pformat
 
@@ -7,33 +7,39 @@ Num: TypeAlias = Union[float, int, complex]
 DType: TypeAlias = Union[float, int]
 Shape: TypeAlias = tuple[int]
 
-class IndexOutOfBounds(Exception):
-  pass
-
 def prod(xs: Iterable[int|float]) -> Union[float, int]:
   return reduce(operator.mul, xs, 1)
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Iterable[Num]) -> Self:
-    self.shape = shape 
-    self.data = data
-    self.size = prod(self.shape)
-    self.strides = [] 
+  def __init__(self, shape: Shape, data: Union[Iterable[Num], Num]) -> Self:
+    self.shape, self.data, self.size, self.strides = shape, data, prod(shape), [] 
+    # Scalar value
+    if not len(self.shape):
+      # Ensure it's a number not dimensional data
+      assert isinstance(data, Num)
+      self.data = data
+      self.base_view = data
+      return
+    self.__calc_strides()
+    self.base_view = self.__build_view(None)
+
+  def __calc_strides(self) -> None:
+    self.strides.clear()
     out: int = 1
-    for dim in self.shape: 
+    for dim in self.shape:
       out *= dim
       self.strides.append(self.size // out)
-    key = []
-    for dim in self.shape:
-      s = slice(0, dim, 1)
-      key.append(s)
-    self.base_view = self.__build_view(tuple(key))
 
-  def __build_view(self, key: Union[tuple, int]) -> Iterable:
+  def __build_view(self, key: Optional[slice|int]) -> Iterable:
+    if not key:
+      key = []
+      for dim in self.shape:
+        s = slice(0, dim, 1)
+        key.append(s)
     if isinstance(key, int) or isinstance(key, slice):
       key = (key,)
     if len(key) > len(self.shape):
-      raise IndexOutOfBounds('Index out of bounds.')
+      raise IndexError('index out of bounds.')
     extra_dim = 0
     if len(key) < len(self.shape):
       extra_dim = len(self.shape) - len(key)
@@ -41,7 +47,7 @@ class Tensor:
     for i, k in enumerate(key):
       if isinstance(k, int):
         if k >= self.shape[i]: 
-          raise IndexOutOfBounds(f'Index out of bounds: {self.shape[i]} <= {k}')
+          raise IndexError(f'index out of bounds: {self.shape[i]} <= {k}')
         start = k
         if start < 0:
           start = self.shape[i] + start
@@ -81,12 +87,41 @@ class Tensor:
           offset -= i*self.strides[dim]*step
       return tensor 
     return build(0, 0, loops, []) 
+  
+  def item(self) -> Num:
+    if len(self.shape):
+      raise RuntimeError(f'a Tensor with {self.size} elements cannot be converted to Scalar')
+    return self.data
 
   def __getitem__(self, key) -> Self:
+    if not len(self.shape):
+      raise IndexError('invalid index of a 0-dim tensor. Use `tensor.item()`')
     new_view = self.__build_view(key)
     new_tensor = Tensor(self.shape, self.data)
     new_tensor.base_view = new_view
     return new_tensor
+
+  def matmul(self, other: Self) -> Self:
+    # 1D x 1D (dot product) 
+    if len(self.shape) == 1 and len(other.shape) == 1:
+      if self.shape[0] != other.shape[0]:
+        raise RuntimeError(f'inconsistent tensor size, expected tensor [{self.shape[0]}] and src [{other.shape[0]}] to have the same number of elements, but got {self.shape[0]} and {other.shape[0]} elements respectively')
+      dot = sum(map(lambda x: x[0]*x[1], zip(self.data, other.data)))
+      return Tensor((), dot)
+
+    if len(self.shape) == 2 and len(other.shape) == 2:
+      if self.shape[1] != other.shape[0]:
+        raise RuntimeError('mat1 and mat2 shapes cannot be multiplied ({self.shape[0]}x{self.shape[1]} and {other.shape[0]}x{other.shape[1]})')
+
+  def reshape(self, *args) -> Self: 
+    new_size = prod(args)
+    if new_size != self.size:
+      raise RuntimeError('shape \'{args}\' is invalid for input of size {self.size}')
+    self.shape = tuple(args)
+    self.size = new_size
+    self.__calc_strides()
+    self.base_view = self.__build_view(None)
+    return self
 
   def __repr__(self):
     return f'tensor({pformat(self.base_view, width=40)})'
@@ -94,5 +129,5 @@ class Tensor:
 def zeros(shape: Shape) -> Tensor:
   return Tensor(shape, [0]*prod(shape))
 
-def arange(x: int, shape: Shape) -> Tensor:
-  return Tensor(shape, [i for i in range(x)]) 
+def arange(x: int) -> Tensor:
+  return Tensor((x,), [i for i in range(x)]) 
