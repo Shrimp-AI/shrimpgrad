@@ -92,6 +92,26 @@ class Tensor:
     new_tensor.base_view = new_view
     return new_tensor
 
+  @staticmethod
+  def pad(*args):
+    return tuple(args)
+
+  def __broadcast(self: Self, other: Self) -> Self:
+    a, b = (self.shape, other.shape) if len(self.shape) > len(other.shape) else (other.shape, self.shape)
+    new_shape = Tensor.pad(*[1]*(a-b),*b)
+    assert all(map(lambda x: x[0] == 1 or x[1] == 1 or x[0] == x[1], zip(a, new_shape))), f'invalid shapes for broadcasting {a} and {new_shape}'
+    new_shape = tuple(map(max, zip(a, new_shape)))
+    new_tensor = self.reshape(new_shape) 
+    # TODO: Figure out which tensor needs to be broadcast (maybe both), then reshape, and modify the strides
+    # where broadcast dimension strides are set to 0
+    return new_tensor
+
+  def __mult__(self, other: Self) -> Self:
+    pass
+
+  def __add__(self, other: Self) -> Self:
+    pass
+
   def __matmul__(self, other) -> Self:
     return self.matmul(other)
 
@@ -110,11 +130,12 @@ class Tensor:
   def reshape(self, *args) -> Self: 
     new_size = prod(args)
     if new_size != self.size: raise RuntimeError('shape \'{args}\' is invalid for input of size {self.size}')
-    self.shape = tuple(args)
-    self.size = new_size
-    self.__calc_strides()
-    self.base_view = self.__build_view(None)
-    return self
+    return Tensor(tuple(args), self.data, dtype=self.dtype)
+
+  def transpose(self, ax0=1, ax1=0):
+    new_shape = list(self.shape)
+    new_shape[ax0], new_shape[ax1] = new_shape[ax1], new_shape[ax0]
+    return Tensor(tuple(new_shape), self.data, dtype=self.dtype) 
 
   def __repr__(self): return f'tensor({pformat(self.base_view, width=40)})'
   def __str__(self): return self.__repr__()
