@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Self, TypeAlias, Union
+from typing import Iterable, Optional, Self, Tuple, TypeAlias, Union
 from functools import reduce
 import operator
 from pprint import pformat
@@ -9,6 +9,8 @@ Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = tuple[int]
 
 def prod(x: Iterable[int|float]) -> Union[float, int]: return reduce(operator.mul, x, 1)
+def pad_left(*shps: Tuple[int, ...], v=1): return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
+def broadcast_shape(*shps: Tuple[int, ...]): return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32) -> Self:
@@ -97,14 +99,9 @@ class Tensor:
     return tuple(args)
 
   def __broadcast(self: Self, other: Self) -> Self:
-    a, b = (self.shape, other.shape) if len(self.shape) > len(other.shape) else (other.shape, self.shape)
-    new_shape = Tensor.pad(*[1]*(a-b),*b)
-    assert all(map(lambda x: x[0] == 1 or x[1] == 1 or x[0] == x[1], zip(a, new_shape))), f'invalid shapes for broadcasting {a} and {new_shape}'
-    new_shape = tuple(map(max, zip(a, new_shape)))
-    new_tensor = self.reshape(new_shape) 
     # TODO: Figure out which tensor needs to be broadcast (maybe both), then reshape, and modify the strides
     # where broadcast dimension strides are set to 0
-    return new_tensor
+    pass
 
   def __mult__(self, other: Self) -> Self:
     pass
