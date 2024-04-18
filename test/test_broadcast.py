@@ -20,3 +20,23 @@ class TestBroadcast(unittest.TestCase):
   def test_broadcast_shape(self):
     bs = broadcast_shape((1,1,3,4), (5,2,1,4))
     self.assertEqual(bs, (5,2,3,4))
+
+  def test_broadcast_to(self):
+    t1 = Tensor.arange(2*2*2*2).reshape(2,2,2,2)
+    t2 = Tensor.arange(2).reshape(1,2)
+    new_shapes = pad_left(t1.shape, t2.shape)
+    self.assertEqual(new_shapes, [(2,2,2,2), (1,1,1,2)])
+    bs = broadcast_shape(*new_shapes)
+    self.assertEqual(bs, (2,2,2,2))
+    t3 = t1.broadcast_to(bs)
+    self.assertEqual(t1,t3)
+    t4 = t2.broadcast_to(bs)
+    self.assertEqual(t4.shape, bs)
+    self.assertEqual(t4.strides, [0,0,0,1])
+
+  def test_broadcasted_mul1(self):
+    t1 = Tensor.arange(2*2*2*2).reshape(2,2,2,2)
+    t2 = Tensor.arange(2).reshape(1,2)
+    t3 = t1*t2 
+
+    self.assertEqual([0.0,1.0,0.0,3.0,0.0,5.0,0.0,7.0,0.0,9.0], t3.data[0:10])

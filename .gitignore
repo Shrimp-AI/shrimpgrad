@@ -16,3 +16,5 @@ build
 .ipynb_checkpoints/
 backend/zig-cache/
 backend/zig-out/
+.hypothesis/unicode_data/14.0.0/codec-utf-8.json.gz
+*.gz

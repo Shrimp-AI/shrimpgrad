@@ -6,15 +6,15 @@ from shrimpgrad.cblas import sgemm
 from shrimpgrad.dtype import DType, dtypes
 
 Num: TypeAlias = Union[float, int, complex]
-Shape: TypeAlias = tuple[int]
+Shape: TypeAlias = Tuple[int, ...]
 
 def prod(x: Iterable[int|float]) -> Union[float, int]: return reduce(operator.mul, x, 1)
 def pad_left(*shps: Tuple[int, ...], v=1): return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]): return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32) -> Self:
-    self.shape, self.data, self.size, self.strides, self.dtype = shape, data, prod(shape), [], dtype
+  def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, lazy=False) -> Self:
+    self.shape, self.data, self.size, self.strides, self.dtype, self.lazy = shape, data, prod(shape), [], dtype, lazy
     # Scalar value
     if not len(self.shape):
       # Ensure it's a number not dimensional data
@@ -23,7 +23,8 @@ class Tensor:
       self.base_view = data
       return
     self.__calc_strides()
-    self.base_view = self.__build_view(None)
+    if not self.lazy:
+      self.base_view = self.__build_view(None)
 
   def __calc_strides(self) -> None:
     self.strides.clear()
@@ -31,8 +32,8 @@ class Tensor:
     for dim in self.shape:
       out *= dim
       self.strides.append(self.size // out)
-
-  def __build_view(self, key: Optional[slice|int]) -> Iterable:
+  
+  def __calc_loops(self, key: Optional[slice|int]) -> Iterable[int]:
     if not key:  key = [slice(0, dim, 1) for dim in self.shape]
     if isinstance(key, int) or isinstance(key, slice): key = (key,)
     if len(key) > len(self.shape): raise IndexError(f'index of {key} is larger than dim {self.shape}.')
@@ -63,7 +64,10 @@ class Tensor:
         loops.append((start, end, step))
     if extra_dim: 
       for ed in range(len(key), len(key) + extra_dim): loops.append((0, self.shape[ed], 1))
+    return loops
 
+  def __build_view(self, key: Optional[slice|int]) -> Iterable:
+    self.lazy = False
     def build(dim:int, offset:int, loops:Iterable[tuple], tensor:Iterable[Num]) -> Iterable[Num]:
       if not loops: return tensor
       s, e, step = loops[0]
@@ -81,7 +85,7 @@ class Tensor:
           build(dim+1, offset, loops[1:], new_dim)
           offset -= i*self.strides[dim]*step
       return tensor 
-    return build(0, 0, loops, []) 
+    return build(0, 0, self.__calc_loops(key), []) 
   
   def item(self) -> Num:
     if len(self.shape): raise RuntimeError(f'a Tensor with {self.size} elements cannot be converted to Scalar')
@@ -93,18 +97,50 @@ class Tensor:
     new_tensor = Tensor(self.shape, self.data)
     new_tensor.base_view = new_view
     return new_tensor
+    
+  def broadcast_to(self: Self, broadcast_shape: Shape) -> Self:
+    if self.shape == broadcast_shape:
+      return self
+    pad_s = pad_left(self.shape, broadcast_shape)
+    nt = Tensor(broadcast_shape, self.data, self.dtype, lazy=True)
+    for i, v in enumerate(pad_s[0]): 
+      if v == 1: nt.strides[i] = 0
+    nt.__build_view(None)  
+    return nt
 
-  @staticmethod
-  def pad(*args):
-    return tuple(args)
+  def __broadcast(self: Self, other: Self):
+    new_shapes = pad_left(self.shape, other.shape)
+    bs = broadcast_shape(*new_shapes)
+    a = self.broadcast_to(bs) 
+    b = other.broadcast_to(bs)
+    return a,b
 
-  def __broadcast(self: Self, other: Self) -> Self:
-    # TODO: Figure out which tensor needs to be broadcast (maybe both), then reshape, and modify the strides
-    # where broadcast dimension strides are set to 0
-    pass
+  def __mul__(self, other: Self) -> Self:
+    a, b = self.__broadcast(other)
+   # TODO: Call into Zig to do the looping
+    # For now we implement elementwise product using python
+    def iterate(tnsr: Self, dim:int, offset:int, loops:Iterable[tuple], result:Iterable[Num]) -> None:
+      if not loops: 
+        return 
+      s, e, step = loops[0]
+      for i in range(s, e, step):
+        if len(loops) == 1:
+          # add elements
+          offset += i*step
+          result.append(tnsr.data[offset])
+          offset -= i*step
+        else:
+          offset += i*tnsr.strides[dim]*step
+          iterate(tnsr, dim+1, offset, loops[1:], result)
+          offset -= i*tnsr.strides[dim]*step
+      return 
 
-  def __mult__(self, other: Self) -> Self:
-    pass
+    r1 = [] 
+    r2 = []
+    iterate(a, 0, 0, a.__calc_loops(None), r1) 
+    iterate(b, 0, 0, b.__calc_loops(None), r2)
+    new_data = [r1[i]*r2[i] for i in range(len(r1))]
+    return Tensor(a.shape, new_data, dtype=a.dtype)
 
   def __add__(self, other: Self) -> Self:
     pass
