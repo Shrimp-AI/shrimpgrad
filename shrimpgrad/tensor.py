@@ -19,7 +19,7 @@ def binary_op(F: BinaryOp, a: 'Tensor', b: 'Tensor', dim:int, off_a:int, off_b:i
   if not loops:  return 
   s, e, step = loops[0]
   for i in range(s, e, step):
-    if len(loops) == 1: result.append(F(a.data[off_a + i*step] , b.data[off_b + i*step]))
+    if len(loops) == 1: result.append(F(a.data[off_a + i*step*a.strides[dim]] , b.data[off_b + i*step*b.strides[dim]]))
     else: binary_op(F, a, b, dim+1, off_a + i*a.strides[dim]*step, off_b + i*b.strides[dim]*step, loops[1:], result)
   return 
 
@@ -85,16 +85,11 @@ class Tensor:
       for i in range(s, e, step):
         if len(loops) == 1:
           # add elements
-          offset += i*step
-          tensor.append(self.data[offset])
-          offset -= i*step
+          tensor.append(self.data[offset+i*step*self.strides[dim]])
         else:
           # add dimension
-          new_dim = []
-          tensor.append(new_dim)
-          offset += i*self.strides[dim]*step
-          build(dim+1, offset, loops[1:], new_dim)
-          offset -= i*self.strides[dim]*step
+          tensor.append([])
+          build(dim+1, i*self.strides[dim]*step, loops[1:], tensor[-1])
       return tensor 
     return build(0, 0, self.__calc_loops(key), []) 
   
@@ -133,7 +128,10 @@ class Tensor:
     return Tensor(a.shape, result, dtype=a.dtype)
 
   def __add__(self, other: Self) -> Self:
-    pass
+    a, b = self.__broadcast(other)
+    result = []
+    binary_op(lambda x,y: x+y, a,b, 0, 0,0, a.__calc_loops(None), result) 
+    return Tensor(a.shape, result, dtype=a.dtype)
 
   def __matmul__(self, other) -> Self:
     return self.matmul(other)
@@ -165,6 +163,9 @@ class Tensor:
 
   @staticmethod
   def zeros(shape: Shape, dtype:DType=dtypes.float32) -> Self: return Tensor(shape, [0.0 if dtype == dtypes.float32 else 0]*prod(shape))
+
+  @staticmethod
+  def ones(shape: Shape, dtype:DType=dtypes.float32) -> Self: return Tensor(shape, [1.0 if dtype == dtypes.float32 else 1]*prod(shape))
 
   @staticmethod
   def arange(x: int, dtype:DType=dtypes.float32) -> Self: return Tensor((x,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(x)], dtype) 

@@ -40,3 +40,11 @@ class TestBroadcast(unittest.TestCase):
     t3 = t1*t2 
 
     self.assertEqual([0.0,1.0,0.0,3.0,0.0,5.0,0.0,7.0,0.0,9.0], t3.data[0:10])
+
+  def test_broadcasted_add(self):
+    t1 = Tensor.arange(2*2*2*2).reshape(2,2,2,2)
+    t2 = Tensor.arange(2).reshape(1,2)
+    t3 = t1+t2 
+
+    self.assertEqual([0.0, 2.0, 2.0, 4.0, 4.0, 6.0, 6.0, 8.0, 8.0, 10.0], t3.data[0:10])
+  
