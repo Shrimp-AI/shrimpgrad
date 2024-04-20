@@ -1,4 +1,4 @@
-from typing import Iterable, Optional, Self, Tuple, TypeAlias, Union
+from typing import Iterable, Optional, Self, Tuple, TypeAlias, Union, Callable, List
 from functools import reduce
 import operator
 from pprint import pformat
@@ -8,9 +8,20 @@ from shrimpgrad.dtype import DType, dtypes
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
 
+BinaryOp = Callable[['Tensor', 'Tensor'], 'Tensor']
+UnaryOp = Callable[['Tensor'], 'Tensor']
+
 def prod(x: Iterable[int|float]) -> Union[float, int]: return reduce(operator.mul, x, 1)
-def pad_left(*shps: Tuple[int, ...], v=1): return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
-def broadcast_shape(*shps: Tuple[int, ...]): return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
+def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
+def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
+
+def binary_op(F: BinaryOp, a: 'Tensor', b: 'Tensor', dim:int, off_a:int, off_b:int, loops:Iterable[Tuple], result:Iterable[Num]) -> None:
+  if not loops:  return 
+  s, e, step = loops[0]
+  for i in range(s, e, step):
+    if len(loops) == 1: result.append(F(a.data[off_a + i*step] , b.data[off_b + i*step]))
+    else: binary_op(F, a, b, dim+1, off_a + i*a.strides[dim]*step, off_b + i*b.strides[dim]*step, loops[1:], result)
+  return 
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, lazy=False) -> Self:
@@ -114,33 +125,12 @@ class Tensor:
     a = self.broadcast_to(bs) 
     b = other.broadcast_to(bs)
     return a,b
-
+  
   def __mul__(self, other: Self) -> Self:
     a, b = self.__broadcast(other)
-   # TODO: Call into Zig to do the looping
-    # For now we implement elementwise product using python
-    def iterate(tnsr: Self, dim:int, offset:int, loops:Iterable[tuple], result:Iterable[Num]) -> None:
-      if not loops: 
-        return 
-      s, e, step = loops[0]
-      for i in range(s, e, step):
-        if len(loops) == 1:
-          # add elements
-          offset += i*step
-          result.append(tnsr.data[offset])
-          offset -= i*step
-        else:
-          offset += i*tnsr.strides[dim]*step
-          iterate(tnsr, dim+1, offset, loops[1:], result)
-          offset -= i*tnsr.strides[dim]*step
-      return 
-
-    r1 = [] 
-    r2 = []
-    iterate(a, 0, 0, a.__calc_loops(None), r1) 
-    iterate(b, 0, 0, b.__calc_loops(None), r2)
-    new_data = [r1[i]*r2[i] for i in range(len(r1))]
-    return Tensor(a.shape, new_data, dtype=a.dtype)
+    result = []
+    binary_op(lambda x,y: x*y, a,b, 0, 0,0, a.__calc_loops(None), result) 
+    return Tensor(a.shape, result, dtype=a.dtype)
 
   def __add__(self, other: Self) -> Self:
     pass
@@ -178,4 +168,3 @@ class Tensor:
 
   @staticmethod
   def arange(x: int, dtype:DType=dtypes.float32) -> Self: return Tensor((x,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(x)], dtype) 
-
