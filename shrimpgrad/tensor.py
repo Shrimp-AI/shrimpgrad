@@ -1,4 +1,5 @@
-from typing import Iterable, Optional, Self, Tuple, TypeAlias, Union, Callable, List
+from __future__ import annotations
+from typing import Callable, Iterable, Optional, Self, Type, TypeAlias, Union, List, Tuple
 from functools import reduce
 import operator
 from pprint import pformat
@@ -8,14 +9,30 @@ from shrimpgrad.dtype import DType, dtypes
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
 
-BinaryOp = Callable[['Tensor', 'Tensor'], 'Tensor']
-UnaryOp = Callable[['Tensor'], 'Tensor']
-
 def prod(x: Iterable[int|float]) -> Union[float, int]: return reduce(operator.mul, x, 1)
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
-def binary_op(F: BinaryOp, a: 'Tensor', b: 'Tensor', dim:int, off_a:int, off_b:int, loops:Iterable[Tuple], result:Iterable[Num]) -> None:
+class Function:
+  def __init__(self, device, *tensors):
+    self.device = device
+    self.parents = tensors
+    self.needs_input_grad = [t.requires_grad for t in tensors]
+    self.requires_grad = True if any(self.needs_input_grad) else None if None in self.needs_input_grad else False
+    self.out = None
+  
+  def forward(self, *args, **kwargs): raise NotImplementedError(f'forward is not implemented for {type(self)}')
+  def backward(self, *args, **kwargs): raise RuntimeError(f'backward not implemented for {type(self)}')
+
+  @classmethod
+  def apply(fn: Type[Function], *tensors, **kwargs) -> Tensor:
+    ctx = fn(tensors[0].device, *tensors)
+    ret = ctx.forward(*tensors, **kwargs)
+    ret.ctx = ctx
+    ret.requires_grad = ctx.requires_grad
+    return ret
+
+def binary_op(F: Callable, a: Tensor, b: Tensor, dim:int, off_a:int, off_b:int, loops:Iterable[Tuple], result:Iterable[Union[int, float, complex]]) -> None:
   if not loops:  return 
   s, e, step = loops[0]
   for i in range(s, e, step):
@@ -23,9 +40,47 @@ def binary_op(F: BinaryOp, a: 'Tensor', b: 'Tensor', dim:int, off_a:int, off_b:i
     else: binary_op(F, a, b, dim+1, off_a + i*a.strides[dim]*step, off_b + i*b.strides[dim]*step, loops[1:], result)
   return 
 
+class Add(Function):
+  def forward(self, a: Tensor, b: Tensor) -> Tensor:
+    result = []
+    binary_op(operator.add, a,b, 0, 0,0, a.calc_loops(None), result) 
+    out = Tensor(a.shape, result, dtype=a.dtype)
+    self.out = out
+    return out
+
+  def backward(self):
+    a = self.parents[0]
+    b = self.parents[1]
+    a.grad = self.out.grad 
+    b.grad = self.out.grad
+
+class Mul(Function):
+  def forward(self, a: Tensor, b: Tensor) -> Tensor:
+    result = []
+    binary_op(operator.mul, a,b, 0, 0,0, a.calc_loops(None), result) 
+    self.out = Tensor(a.shape, result, dtype=a.dtype)
+    return self.out
+
+  def backward(self):
+    a = self.parents[0]
+    b = self.parents[1]
+    grad_out = self.out.grad
+    grad_a = b * grad_out
+    grad_b = a * grad_out
+
+    a.grad = grad_a 
+    b.grad = grad_b
+
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, lazy=False) -> Self:
+  def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, lazy=False, device='CPU', requires_grad:Optional[bool]=None) -> Self:
     self.shape, self.data, self.size, self.strides, self.dtype, self.lazy = shape, data, prod(shape), [], dtype, lazy
+    self.grad: Optional[Tensor] = None
+    self.requires_grad = requires_grad 
+    self.device = device
+
+    # If this tensor is produced via a computation we
+    # add this computational context enabling the backwards pass
+    self.ctx: Optional[Function] = None
     # Scalar value
     if not len(self.shape):
       # Ensure it's a number not dimensional data
@@ -37,6 +92,25 @@ class Tensor:
     if not self.lazy:
       self.base_view = self.__build_view(None)
 
+  def backward(self) -> Tensor:
+    self.grad = Tensor.ones(self.shape, self.dtype)
+    visited = set()
+    topo = []
+    def build_topo(tensor: Tensor) -> List[Tensor]:  
+      if tensor not in visited:
+        visited.add(tensor)
+        if not tensor.ctx:
+          topo.append(tensor)
+          return
+        for p in tensor.ctx.parents:
+          build_topo(p)
+        topo.append(tensor)
+    build_topo(self) 
+    for t in reversed(topo):
+      if not t.ctx:
+        continue
+      t.ctx.backward()
+
   def __calc_strides(self) -> None:
     self.strides.clear()
     out: int = 1
@@ -44,7 +118,7 @@ class Tensor:
       out *= dim
       self.strides.append(self.size // out)
   
-  def __calc_loops(self, key: Optional[slice|int]) -> Iterable[int]:
+  def calc_loops(self, key: Optional[slice|int]) -> Iterable[int]:
     if not key:  key = [slice(0, dim, 1) for dim in self.shape]
     if isinstance(key, int) or isinstance(key, slice): key = (key,)
     if len(key) > len(self.shape): raise IndexError(f'index of {key} is larger than dim {self.shape}.')
@@ -91,7 +165,7 @@ class Tensor:
           tensor.append([])
           build(dim+1, i*self.strides[dim]*step, loops[1:], tensor[-1])
       return tensor 
-    return build(0, 0, self.__calc_loops(key), []) 
+    return build(0, 0, self.calc_loops(key), []) 
   
   def item(self) -> Num:
     if len(self.shape): raise RuntimeError(f'a Tensor with {self.size} elements cannot be converted to Scalar')
@@ -123,16 +197,12 @@ class Tensor:
   
   def __mul__(self, other: Self) -> Self:
     a, b = self.__broadcast(other)
-    result = []
-    binary_op(lambda x,y: x*y, a,b, 0, 0,0, a.__calc_loops(None), result) 
-    return Tensor(a.shape, result, dtype=a.dtype)
+    return Mul.apply(a,b)
 
   def __add__(self, other: Self) -> Self:
     a, b = self.__broadcast(other)
-    result = []
-    binary_op(lambda x,y: x+y, a,b, 0, 0,0, a.__calc_loops(None), result) 
-    return Tensor(a.shape, result, dtype=a.dtype)
-
+    return Add.apply(a,b)
+    
   def __matmul__(self, other) -> Self:
     return self.matmul(other)
 
