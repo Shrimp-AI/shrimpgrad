@@ -48,3 +48,8 @@ class TestBroadcast(unittest.TestCase):
 
     self.assertEqual([0.0, 2.0, 2.0, 4.0, 4.0, 6.0, 6.0, 8.0, 8.0, 10.0], t3.data[0:10])
   
+  def test_invalid_shapes_for_broadcasting(self):
+    t1 = Tensor((2,2), [2,2,2,2])
+    t2 = Tensor((3,3), [1]*9)
+    with self.assertRaises(AssertionError):
+      _ = t1*t2

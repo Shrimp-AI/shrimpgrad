@@ -75,7 +75,7 @@ class Value:
     return out
 
   def __truediv__(self, other):
-    return self * (other ** - 1)
+    return self * (other ** -1)
 
   def tanh(self):
     x = 2 * self
