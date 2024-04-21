@@ -4,8 +4,8 @@ import unittest
 
 class TestOps(unittest.TestCase):
   def test_add_1d(self):
-    t1 = Tensor.arange(1)
-    t2 = Tensor.arange(1)
+    t1 = Tensor.arange(0,1)
+    t2 = Tensor.arange(0,1)
     self.assertEqual([0], (t1+t2).data)
   
   def test_add_3d_to_1d(self):

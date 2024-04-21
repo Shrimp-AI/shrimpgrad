@@ -353,13 +353,38 @@ class Tensor:
 
   @staticmethod
   def zeros(shape: Shape, dtype:DType=dtypes.float32) -> Self: 
-    if not len(shape): return Tensor(shape, 0.0)
-    return Tensor(shape, [0.0 if dtype == dtypes.float32 else 0]*prod(shape))
+    return Tensor.full(shape, fill_value=0.0, dtype=dtype)
 
   @staticmethod
   def ones(shape: Shape, dtype:DType=dtypes.float32) -> Self: 
-    if not len(shape): return Tensor(shape, 1.0)
-    return Tensor(shape, [1.0 if dtype == dtypes.float32 else 1]*prod(shape))
+    return Tensor.full(shape, fill_value=1.0, dtype=dtype)
 
   @staticmethod
-  def arange(x: int, dtype:DType=dtypes.float32) -> Self: return Tensor((x,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(x)], dtype) 
+  def arange(start: int, stop:int, step:int=1, dtype:DType=dtypes.float32) -> Self: return Tensor(((stop - start) // step,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype) 
+
+  @staticmethod
+  def full(shape: Shape, fill_value: Num, dtype=dtypes.float32) -> Tensor:
+    if not len(shape): return Tensor((), fill_value)
+    return Tensor(shape, [float(fill_value) if dtype == dtypes.float32 else int(fill_value)]*prod(shape))
+
+  @staticmethod
+  def full_like(t: Tensor, fill_value: Num) -> Tensor:
+    return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype)
+  
+  @staticmethod
+  def zeros_like(t: Tensor) -> Tensor:
+    return Tensor.full_like(t, 0.0)
+  
+  @staticmethod
+  def ones_like(t: Tensor) -> Tensor:
+    return Tensor.full_like(t, 1.0)
+  
+  @staticmethod
+  def eye(n: int, dtype=dtypes.float32) -> Tensor:
+    assert n > 0, 'identity matrix requires dimension > 0' 
+    data = [0.0] * (n**2) 
+    for i in range(n):
+      data[i*n + i] = 1.0
+    return Tensor((n,n), data, dtype)
+
+
