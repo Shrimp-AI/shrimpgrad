@@ -5,6 +5,7 @@ import operator
 from pprint import pformat
 from shrimpgrad.cblas import sgemm
 from shrimpgrad.dtype import DType, dtypes
+from random import uniform, gauss
 
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
@@ -352,39 +353,54 @@ class Tensor:
   def __str__(self): return self.__repr__()
 
   @staticmethod
-  def zeros(shape: Shape, dtype:DType=dtypes.float32) -> Self: 
-    return Tensor.full(shape, fill_value=0.0, dtype=dtype)
+  def zeros(shape: Shape, dtype:DType=dtypes.float32, **kwargs) -> Self: 
+    return Tensor.full(shape, fill_value=0.0, dtype=dtype, **kwargs)
 
   @staticmethod
-  def ones(shape: Shape, dtype:DType=dtypes.float32) -> Self: 
-    return Tensor.full(shape, fill_value=1.0, dtype=dtype)
+  def ones(shape: Shape, dtype:DType=dtypes.float32, **kwargs) -> Self: 
+    return Tensor.full(shape, fill_value=1.0, dtype=dtype, **kwargs)
 
   @staticmethod
-  def arange(start: int, stop:int, step:int=1, dtype:DType=dtypes.float32) -> Self: return Tensor(((stop - start) // step,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype) 
+  def arange(start: int, stop:int, step:int=1, dtype:DType=dtypes.float32, **kwargs) -> Self: return Tensor(((stop - start) // step,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype, **kwargs) 
 
   @staticmethod
-  def full(shape: Shape, fill_value: Num, dtype=dtypes.float32) -> Tensor:
+  def full(shape: Shape, fill_value: Num, dtype=dtypes.float32, **kwargs) -> Tensor:
     if not len(shape): return Tensor((), fill_value)
-    return Tensor(shape, [float(fill_value) if dtype == dtypes.float32 else int(fill_value)]*prod(shape))
+    return Tensor(shape, [float(fill_value) if dtype == dtypes.float32 else int(fill_value)]*prod(shape), **kwargs)
 
   @staticmethod
-  def full_like(t: Tensor, fill_value: Num) -> Tensor:
-    return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype)
+  def full_like(t: Tensor, fill_value: Num, **kwargs) -> Tensor:
+    return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype, **kwargs)
   
   @staticmethod
-  def zeros_like(t: Tensor) -> Tensor:
-    return Tensor.full_like(t, 0.0)
+  def zeros_like(t: Tensor, **kwargs) -> Tensor:
+    return Tensor.full_like(t, 0.0, **kwargs)
   
   @staticmethod
-  def ones_like(t: Tensor) -> Tensor:
-    return Tensor.full_like(t, 1.0)
+  def ones_like(t: Tensor, **kwargs) -> Tensor:
+    return Tensor.full_like(t, 1.0, **kwargs)
   
   @staticmethod
-  def eye(n: int, dtype=dtypes.float32) -> Tensor:
+  def eye(n: int, dtype=dtypes.float32, **kwargs) -> Tensor:
     assert n > 0, 'identity matrix requires dimension > 0' 
     data = [0.0] * (n**2) 
     for i in range(n):
       data[i*n + i] = 1.0
-    return Tensor((n,n), data, dtype)
+    return Tensor((n,n), data, dtype, **kwargs)
+  
+  @staticmethod
+  def rand(*shape, dtype=dtypes.float32, **kwargs) -> Tensor:
+    # TODO: Change to non lib based threefry or philox
+    return Tensor.uniform(*shape, low=0, high=1, dtype=dtype, **kwargs) 
+
+  @staticmethod
+  def randn(*shape, dtype=dtypes.float32, **kwargs) -> Tensor:
+    #TODO: Box Muller Transform 
+    return Tensor(shape, [gauss(0, 1) for _ in range(prod(shape))], dtype, **kwargs)
+
+  @staticmethod
+  def uniform(*shape, low:Union[int, float]=0, high:Union[int, float]=10, dtype=dtypes.float32, **kwargs) -> Tensor:
+    return Tensor(shape, [uniform(low, high) for _ in range(prod(shape))], dtype=dtype, **kwargs)
+
 
 
