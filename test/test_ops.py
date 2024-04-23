@@ -116,3 +116,14 @@ class TestOps(unittest.TestCase):
     self.assertEqual(y.shape, (4,1))
     self.assertEqual(y.data, [4,4,8,8])
 
+  def test_sum2(self):
+    x = Tensor((5,3,5,5), [1]*(5*3*5*5))
+    y = x.sum(axis=0, keepdim=True)
+    self.assertEqual(y.shape, (1,3,5,5))
+    self.assertEqual(y.data, [5]*(3*5*5))
+
+  def test_sum3(self):
+    x = Tensor((5,3,5,5), [1]*(5*3*5*5))
+    y = x.sum(axis=1, keepdim=True)
+    self.assertEqual(y.shape, (5,1,5,5))
+    self.assertEqual(y.data, [3]*(5*5*5))
