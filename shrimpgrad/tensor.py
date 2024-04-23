@@ -16,6 +16,7 @@ def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([ma
 
 class Function:
   def __init__(self, device, *tensors):
+    # TODO: Make sure require_grad are respected and set properly
     self.device = device
     self.parents = tensors
     for p in self.parents:
@@ -54,6 +55,7 @@ def unary_op(F: Callable, a: Tensor, dim: int, off: int, loops: Iterable[Tuple],
   return 
 
 def reduce_(F: Callable, x: Tensor, loops, off=0, dim=0, ax=0, keepdims=False):
+  assert x.ndim > 0, 'scalars cannot be reduced'
   ax = ax + x.ndim if ax < 0 else ax
   assert ax < x.ndim, f'axis={ax} is out of bounds for tensor with shape={x.shape}'
   s,e,step = loops[0]
@@ -140,6 +142,17 @@ class Pow(Function):
       a.grad += b * (a ** (b - 1)) * self.out.grad
     else:
       a.grad += b * (a ** (b - Tensor((1,), [1]))) * self.out.grad
+
+class Sum(Function):
+  def forward(self, x: Tensor, axis: int=0, keepdim=False) -> Tensor:
+    ret = reduce_(operator.add, x, x.calc_loops(None), 0, 0, ax=axis)
+    self.out = Tensor((*x.shape[0:axis],*[1]*(keepdim), *x.shape[axis+1:]), ret)
+    return self.out
+
+  def backward(self):
+    x = self.parents[0]
+    x.grad = self.out.grad.broadcast_to(x.shape)
+
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, lazy=False, device='CPU', requires_grad:Optional[bool]=None) -> Self:
@@ -276,6 +289,8 @@ class Tensor:
         other, Tensor) else Tensor((), other)
       return Mul.apply(self, other)
     a, b = self.__broadcast(other)
+    print(f'a.shape={a.shape} a.strd={a.strides} a.data={a.data}')
+    print(f'b.shape={b.shape} b.strd={b.strides} b.data={b.data}')
     return Mul.apply(a,b)
   
   def __rmul__(self, other):
@@ -351,8 +366,15 @@ class Tensor:
       return Tensor((self.shape[0], other.shape[1]), [x for x in result])
     
   def sum(self, axis=0, keepdim=False) -> Self:
-    ret = reduce_(operator.add, self, self.calc_loops(None), 0, 0, ax=axis)
-    return Tensor((*self.shape[0:axis],*[1]*(keepdim), *self.shape[axis+1:]), ret)
+    return Sum.apply(self, axis=axis, keepdim=keepdim) 
+  
+  def dot(self, w) -> Self:
+    assert self.ndim > 0 or w.ndim > 0, f'dot works only on tensors of 1D and higher not scalars: {self.shape}, {w.shape}'
+    assert self.shape[-1] == w.shape[-2] if w.ndim > 1 else True, f'last index of {self.shape} != 2nd to last index of {w.shape}' 
+    x = self.reshape(*self.shape[0:-1], *[1]*min(self.ndim-1, w.ndim-1, 1), *self.shape[-1:])
+    w = w.reshape(*w.shape[0:-2], *[1]*min(self.ndim-1, w.ndim-1, 1), *w.shape[-2:]).transpose(-1, -2) 
+    print(f'x.shape={x.shape}, w.shape={w.shape}')
+    return (x*w).sum(axis=-1)
 
   def reshape(self, *args) -> Self: 
     new_size = prod(args)
@@ -361,6 +383,7 @@ class Tensor:
 
   def transpose(self, ax0=1, ax1=0):
     new_shape = list(self.shape)
+    ax0,ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
     new_shape[ax0], new_shape[ax1] = new_shape[ax1], new_shape[ax0]
     return Tensor(tuple(new_shape), self.data, dtype=self.dtype) 
 

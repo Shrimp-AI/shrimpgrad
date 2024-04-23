@@ -127,3 +127,14 @@ class TestOps(unittest.TestCase):
     y = x.sum(axis=1, keepdim=True)
     self.assertEqual(y.shape, (5,1,5,5))
     self.assertEqual(y.data, [3]*(5*5*5))
+    y.backward()
+    self.assertEqual(x.grad.shape, x.shape)
+  
+  def test_dot(self):
+    a = [[1, 0], [0, 1]]
+    b = [[4, 1], [2, 2]]
+    x = Tensor((2,2), [1,0,0,1])
+    y = Tensor((2,2), [4,1,2,2])
+    print(f'test x.strides={x.strides}')
+    z = x.dot(y)
+    self.assertEqual(z.data, [4,1,2,2]) 
