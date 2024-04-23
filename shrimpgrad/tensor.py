@@ -268,9 +268,13 @@ class Tensor:
     if self.shape == broadcast_shape:
       return self
     pad_s = pad_left(self.shape, broadcast_shape)
-    nt = Tensor(broadcast_shape, self.data, self.dtype, lazy=True)
+    # Set shape to original size with 1s padded for broadcasting
+    nt = Tensor(pad_s[0], self.data, self.dtype, lazy=True)
+    # Where the shape is 1, change the stride to 0
     for i, v in enumerate(pad_s[0]): 
       if v == 1: nt.strides[i] = 0
+    # Set the shape to the broadcast shape
+    nt.shape = broadcast_shape
     nt.__build_view(None)  
     return nt
 
@@ -373,7 +377,6 @@ class Tensor:
     assert self.shape[-1] == w.shape[-2] if w.ndim > 1 else True, f'last index of {self.shape} != 2nd to last index of {w.shape}' 
     x = self.reshape(*self.shape[0:-1], *[1]*min(self.ndim-1, w.ndim-1, 1), *self.shape[-1:])
     w = w.reshape(*w.shape[0:-2], *[1]*min(self.ndim-1, w.ndim-1, 1), *w.shape[-2:]).transpose(-1, -2) 
-    print(f'x.shape={x.shape}, w.shape={w.shape}')
     return (x*w).sum(axis=-1)
 
   def reshape(self, *args) -> Self: 
@@ -385,7 +388,10 @@ class Tensor:
     new_shape = list(self.shape)
     ax0,ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
     new_shape[ax0], new_shape[ax1] = new_shape[ax1], new_shape[ax0]
-    return Tensor(tuple(new_shape), self.data, dtype=self.dtype) 
+    ret = Tensor(tuple(new_shape), self.data, dtype=self.dtype) 
+    ret.strides[ax0], ret.strides[ax1] = ret.strides[ax1], ret.strides[ax0]
+    ret.base_view = ret.__build_view(None)
+    return ret
 
   def __repr__(self): return f'tensor({pformat(self.base_view, width=40)})'
   def __str__(self): return self.__repr__()

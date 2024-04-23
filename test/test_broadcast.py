@@ -40,6 +40,13 @@ class TestBroadcast(unittest.TestCase):
     t3 = t1*t2 
 
     self.assertEqual([0.0,1.0,0.0,3.0,0.0,5.0,0.0,7.0,0.0,9.0], t3.data[0:10])
+  
+  def test_broadcast_no_padding(self):
+    t1 = Tensor.arange(0, 4).reshape(2,1,2)
+    t2 = Tensor.arange(0, 4).reshape(1,2,2)
+    t3 = t1*t2
+    self.assertEqual(t3.shape,(2,2,2))
+
 
   def test_broadcasted_add(self):
     t1 = Tensor.arange(0,2*2*2*2).reshape(2,2,2,2)
