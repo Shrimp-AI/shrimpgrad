@@ -53,6 +53,17 @@ def unary_op(F: Callable, a: Tensor, dim: int, off: int, loops: Iterable[Tuple],
     else: unary_op(F, a, dim+1, off + i*a.strides[dim]*step, loops[1:], result)
   return 
 
+def reduce_(F: Callable, x: Tensor, loops, off=0, dim=0, ax=0, keepdims=False):
+  ax = ax + x.ndim if ax < 0 else ax
+  assert ax < x.ndim, f'axis={ax} is out of bounds for tensor with shape={x.shape}'
+  s,e,step = loops[0]
+  res, accum = [], []
+  for _ in range(s,e,step):
+    if ax == dim: accum.append(x.data[off:off+x.strides[dim]])
+    else: res += reduce_(F, x, loops[1:], off, dim+1, ax, keepdims)
+    off += x.strides[dim]
+  return [reduce(F,r) for r in zip(*accum)] if accum else res 
+
 class Add(Function):
   def forward(self, a: Tensor, b: Tensor) -> Tensor:
     if a.is_scalar() and b.is_scalar():
@@ -338,6 +349,10 @@ class Tensor:
       if self.shape[1] != other.shape[0]: raise RuntimeError('mat1 and mat2 shapes cannot be multiplied ({self.shape[0]}x{self.shape[1]} and {other.shape[0]}x{other.shape[1]})')
       result = sgemm(self, other)
       return Tensor((self.shape[0], other.shape[1]), [x for x in result])
+    
+  def sum(self, axis=0, keepdim=False) -> Self:
+    ret = reduce_(operator.add, self, self.calc_loops(None), 0, 0, ax=axis)
+    return Tensor((*self.shape[0:axis],*[1]*(keepdim), *self.shape[axis+1:]), ret)
 
   def reshape(self, *args) -> Self: 
     new_size = prod(args)
