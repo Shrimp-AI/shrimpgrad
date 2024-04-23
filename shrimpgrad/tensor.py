@@ -249,7 +249,7 @@ class Tensor:
         else:
           # add dimension
           tensor.append([])
-          build(dim+1, i*self.strides[dim]*step, loops[1:], tensor[-1])
+          build(dim+1, offset + i*self.strides[dim]*step, loops[1:], tensor[-1])
       return tensor 
     return build(0, 0, self.calc_loops(key), []) 
   
@@ -293,8 +293,6 @@ class Tensor:
         other, Tensor) else Tensor((), other)
       return Mul.apply(self, other)
     a, b = self.__broadcast(other)
-    print(f'a.shape={a.shape} a.strd={a.strides} a.data={a.data}')
-    print(f'b.shape={b.shape} b.strd={b.strides} b.data={b.data}')
     return Mul.apply(a,b)
   
   def __rmul__(self, other):
@@ -370,14 +368,17 @@ class Tensor:
       return Tensor((self.shape[0], other.shape[1]), [x for x in result])
     
   def sum(self, axis=0, keepdim=False) -> Self:
-    return Sum.apply(self, axis=axis, keepdim=keepdim) 
+    return Sum.apply(self, axis=axis if axis >= 0 else axis + self.ndim, keepdim=keepdim) 
   
   def dot(self, w) -> Self:
     assert self.ndim > 0 or w.ndim > 0, f'dot works only on tensors of 1D and higher not scalars: {self.shape}, {w.shape}'
     assert self.shape[-1] == w.shape[-2] if w.ndim > 1 else True, f'last index of {self.shape} != 2nd to last index of {w.shape}' 
-    x = self.reshape(*self.shape[0:-1], *[1]*min(self.ndim-1, w.ndim-1, 1), *self.shape[-1:])
-    w = w.reshape(*w.shape[0:-2], *[1]*min(self.ndim-1, w.ndim-1, 1), *w.shape[-2:]).transpose(-1, -2) 
-    return (x*w).sum(axis=-1)
+    x = self.reshape(*self.shape[0:-1], *[1]*min(self.ndim-1, w.ndim-1, 1), self.shape[-1])
+    w = w.reshape(*w.shape[0:-2], *[1]*min(self.ndim-1, w.ndim-1, 1), *w.shape[-min(w.ndim, 2):]).transpose(-1, -min(w.ndim, 2)) 
+    # print(w.shape, w.strides, w)
+    z = (x*w)
+    # print(z.shape, z.strides, z.data, z)
+    return z.sum(axis=-1)
 
   def reshape(self, *args) -> Self: 
     new_size = prod(args)
@@ -389,7 +390,9 @@ class Tensor:
     ax0,ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
     new_shape[ax0], new_shape[ax1] = new_shape[ax1], new_shape[ax0]
     ret = Tensor(tuple(new_shape), self.data, dtype=self.dtype) 
-    ret.strides[ax0], ret.strides[ax1] = ret.strides[ax1], ret.strides[ax0]
+    # Symmetric shape[i] requires swapping strides[i]
+    if self.shape[ax0] == self.shape[ax1]:
+      ret.strides[ax0], ret.strides[ax1] = ret.strides[ax1], ret.strides[ax0]
     ret.base_view = ret.__build_view(None)
     return ret
 

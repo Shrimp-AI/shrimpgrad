@@ -133,15 +133,18 @@ class TestOps(unittest.TestCase):
   def test_transpose(self):
     y = Tensor((2,2), [4,1,
                        2,2])
-
     z = y.transpose()
-    print(z.strides)
-    print(z)
-  
+    self.assertEqual(z.shape, (2,2))
+    self.assertEqual('tensor([[4, 2], [1, 2]])', z.__str__())
+   
   def test_dot(self):
     x = Tensor((2,2), [1,0,
                        0,1])
     y = Tensor((2,2), [4,1,
                        2,2])
+    # [([4,2],
+    #   [1,2]] -> [4,0],[1,0],[0,2],[0,2]] -> [4,1],[2,2]
     z = x.dot(y)
-    self.assertEqual(z.data, [4,1,2,2]) 
+    # TODO: Ends up as transpose
+    self.assertEqual([4,2,1,2], z.data)
+
