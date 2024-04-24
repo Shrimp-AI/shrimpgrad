@@ -153,6 +153,35 @@ class Sum(Function):
     x = self.parents[0]
     x.grad = self.out.grad.broadcast_to(x.shape)
 
+class Reshape(Function):
+  def forward(self, x: Tensor, shape: Tuple[int,...] ) -> Tensor:
+    if prod(shape) != x.size: raise RuntimeError('shape \'{shape}\' is invalid for input of size {x.size}')
+    self.out = Tensor(shape, x.data, dtype=x.dtype)
+    return self.out
+
+  def backward(self):
+    x = self.parents[0]
+    return self.out.grad.reshape(*x.shape)
+def argsort(x): return type(x)(sorted(range(len(x)), key=x.__getitem__)) # https://stackoverflow.com/questions/3382352/equivalent-of-numpy-argsort-in-basic-python
+
+class Permute(Function):
+  def forward(self, x: Tensor, order: Tuple[int, ...]) -> Tensor:
+    self.order = order
+    new_shape = [x.shape[i] for i in order]
+    self.out = Tensor(tuple(new_shape), x.data, dtype=x.dtype) 
+    # TODO: If two dimensions are swapped but they have the same value
+    # swapping strides seems like a hack. Should we reorganize the data?
+    # See TODO in test_ops.test_transpose
+    return self.out
+  
+  def backward(self):
+    # [1,0,3,2]
+    # (1,2,3,4)
+    # [1,0,3,2]
+    # (2,1,4,3)
+    # (1,0,3,2)
+    # (1,2,3,4)
+    return self.out.grad.permute(argsort(self.order))
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, lazy=False, device='CPU', requires_grad:Optional[bool]=None) -> Self:
@@ -380,21 +409,17 @@ class Tensor:
     # print(z.shape, z.strides, z.data, z)
     return z.sum(axis=-1)
 
-  def reshape(self, *args) -> Self: 
-    new_size = prod(args)
-    if new_size != self.size: raise RuntimeError('shape \'{args}\' is invalid for input of size {self.size}')
-    return Tensor(tuple(args), self.data, dtype=self.dtype)
+  def reshape(self, *shps) -> Self: 
+    return Reshape.apply(self, shape=tuple(shps))
+
+  def permute(self, order: Tuple[int,...]) -> Self:
+    return Permute.apply(self, order=order)
 
   def transpose(self, ax0=1, ax1=0):
-    new_shape = list(self.shape)
-    ax0,ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
-    new_shape[ax0], new_shape[ax1] = new_shape[ax1], new_shape[ax0]
-    ret = Tensor(tuple(new_shape), self.data, dtype=self.dtype) 
-    # Symmetric shape[i] requires swapping strides[i]
-    if self.shape[ax0] == self.shape[ax1]:
-      ret.strides[ax0], ret.strides[ax1] = ret.strides[ax1], ret.strides[ax0]
-    ret.base_view = ret.__build_view(None)
-    return ret
+    ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
+    order = [i for i in range(len(self.shape))]
+    order[ax0], order[ax1] = order[ax1], order[ax0]
+    return self.permute(order) 
 
   def __repr__(self): return f'tensor({pformat(self.base_view, width=40)})'
   def __str__(self): return self.__repr__()
