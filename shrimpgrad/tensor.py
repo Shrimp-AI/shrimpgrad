@@ -13,6 +13,7 @@ Shape: TypeAlias = Tuple[int, ...]
 def prod(x: Iterable[int|float]) -> Union[float, int]: return reduce(operator.mul, x, 1)
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
+def argsort(x): return type(x)(sorted(range(len(x)), key=x.__getitem__)) # https://stackoverflow.com/questions/3382352/equivalent-of-numpy-argsort-in-basic-python
 
 class Function:
   def __init__(self, device, *tensors):
@@ -162,34 +163,27 @@ class Reshape(Function):
   def backward(self):
     x = self.parents[0]
     return self.out.grad.reshape(*x.shape)
-def argsort(x): return type(x)(sorted(range(len(x)), key=x.__getitem__)) # https://stackoverflow.com/questions/3382352/equivalent-of-numpy-argsort-in-basic-python
 
 class Permute(Function):
   def forward(self, x: Tensor, order: Tuple[int, ...]) -> Tensor:
     self.order = order
     new_shape = [x.shape[i] for i in order]
+    new_strides = [x.strides[i] for i in order]
     self.out = Tensor(tuple(new_shape), x.data, dtype=x.dtype) 
-    # TODO: If two dimensions are swapped but they have the same value
-    # swapping strides seems like a hack. Should we reorganize the data?
-    # See TODO in test_ops.test_transpose
+    self.out.strides = new_strides
     return self.out
   
   def backward(self):
-    # [1,0,3,2]
-    # (1,2,3,4)
-    # [1,0,3,2]
-    # (2,1,4,3)
-    # (1,0,3,2)
-    # (1,2,3,4)
     return self.out.grad.permute(argsort(self.order))
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, lazy=False, device='CPU', requires_grad:Optional[bool]=None) -> Self:
-    self.shape, self.data, self.size, self.strides, self.dtype, self.lazy = shape, data, prod(shape), [], dtype, lazy
+  def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, device='CPU', requires_grad:Optional[bool]=None) -> Self:
+    self.shape, self.data, self.size, self.strides, self.dtype = shape, data, prod(shape), [], dtype
     self.grad: Optional[Tensor] = None
     self.requires_grad = requires_grad 
     self.device = device
     self.ndim = len(self.shape)
+    self.__index_view = None # Set by get_item for use in repr
     # If this tensor is produced via a computation we
     # add this computational context enabling the backwards pass
     self.ctx: Optional[Function] = None
@@ -198,12 +192,9 @@ class Tensor:
       # Ensure it's a number not dimensional data
       assert isinstance(data, Num)
       self.data = data
-      self.base_view = data
       return
     self.__calc_strides()
-    if not self.lazy:
-      self.base_view = self.__build_view(None)
-
+  
   def is_scalar(self):
     return not self.ndim 
 
@@ -267,16 +258,12 @@ class Tensor:
     return loops
 
   def __build_view(self, key: Optional[slice|int]) -> Iterable:
-    self.lazy = False
     def build(dim:int, offset:int, loops:Iterable[tuple], tensor:Iterable[Num]) -> Iterable[Num]:
       if not loops: return tensor
       s, e, step = loops[0]
       for i in range(s, e, step):
-        if len(loops) == 1:
-          # add elements
-          tensor.append(self.data[offset+i*step*self.strides[dim]])
+        if len(loops) == 1: tensor.append(self.data[offset+i*step*self.strides[dim]])
         else:
-          # add dimension
           tensor.append([])
           build(dim+1, offset + i*self.strides[dim]*step, loops[1:], tensor[-1])
       return tensor 
@@ -288,23 +275,21 @@ class Tensor:
 
   def __getitem__(self, key) -> Self:
     if not len(self.shape): raise IndexError('invalid index of a 0-dim tensor. Use `tensor.item()`')
-    new_view = self.__build_view(key)
-    new_tensor = Tensor(self.shape, self.data)
-    new_tensor.base_view = new_view
-    return new_tensor
+    x = Tensor(self.shape, self.data)
+    self.__index_view = x.__build_view(key)
+    return x
     
   def broadcast_to(self: Self, broadcast_shape: Shape) -> Self:
     if self.shape == broadcast_shape:
       return self
     pad_s = pad_left(self.shape, broadcast_shape)
     # Set shape to original size with 1s padded for broadcasting
-    nt = Tensor(pad_s[0], self.data, self.dtype, lazy=True)
+    nt = Tensor(pad_s[0], self.data, self.dtype)
     # Where the shape is 1, change the stride to 0
     for i, v in enumerate(pad_s[0]): 
       if v == 1: nt.strides[i] = 0
     # Set the shape to the broadcast shape
     nt.shape = broadcast_shape
-    nt.__build_view(None)  
     return nt
 
   def __broadcast(self: Self, other: Self):
@@ -417,11 +402,13 @@ class Tensor:
 
   def transpose(self, ax0=1, ax1=0):
     ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
-    order = [i for i in range(len(self.shape))]
+    order = [i for i in range(self.ndim)]
     order[ax0], order[ax1] = order[ax1], order[ax0]
     return self.permute(order) 
 
-  def __repr__(self): return f'tensor({pformat(self.base_view, width=40)})'
+  def __repr__(self): 
+    if self.is_scalar(): return f'tensor({self.data})'
+    return f'tensor({pformat(self.__build_view(None) if not self.__index_view else self.__index_view, width=40)})'
   def __str__(self): return self.__repr__()
 
   @staticmethod

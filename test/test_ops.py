@@ -131,12 +131,11 @@ class TestOps(unittest.TestCase):
     self.assertEqual(x.grad.shape, x.shape)
   
   def test_transpose(self):
-    _ = Tensor((2,2), [4,1,
+    y = Tensor((2,2), [4,1,
                        2,2])
-    # TODO: Determine what to do (mod strides or data)
-    # z = y.transpose()
-    # self.assertEqual(z.shape, (2,2))
-    # self.assertEqual('tensor([[4, 2], [1, 2]])', z.__str__())
+    z = y.transpose()
+    self.assertEqual(z.shape, (2,2))
+    self.assertEqual('tensor([[4, 2], [1, 2]])', z.__str__())
    
   def test_dot(self):
     x = Tensor((2,2), [1,0,
