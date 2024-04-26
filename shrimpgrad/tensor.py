@@ -183,7 +183,7 @@ class Tensor:
     self.requires_grad = requires_grad 
     self.device = device
     self.ndim = len(self.shape)
-    self.__index_view = None # Set by get_item for use in repr
+    self.index_view = None # Set by get_item for use in repr
     # If this tensor is produced via a computation we
     # add this computational context enabling the backwards pass
     self.ctx: Optional[Function] = None
@@ -225,7 +225,7 @@ class Tensor:
       self.strides.append(self.size // out)
   
   def calc_loops(self, key: Optional[slice|int]) -> Iterable[int]:
-    if not key:  key = [slice(0, dim, 1) for dim in self.shape]
+    if not key and not isinstance(key, int):  key = [slice(0, dim, 1) for dim in self.shape]
     if isinstance(key, int) or isinstance(key, slice): key = (key,)
     if len(key) > len(self.shape): raise IndexError(f'index of {key} is larger than dim {self.shape}.')
     extra_dim = 0
@@ -236,7 +236,7 @@ class Tensor:
         if k >= self.shape[i]:  raise IndexError(f'index of {k} is out of bounds for dim with size {self.shape[i]}')
         start = k
         if start < 0:
-          if abs(start) >= self.shape[i]:
+          if abs(start) > self.shape[i]:
             raise IndexError(f'index of {start} is out of bounds for dim with size {self.shape[i]}')
           k = self.shape[i] + start
         start, end = k, k + 1
@@ -244,11 +244,11 @@ class Tensor:
       elif isinstance(k, slice):
         start, end, step = k.indices(self.shape[i])
         if start < 0:
-          if abs(start) >= self.shape[i]:
+          if abs(start) > self.shape[i]:
             raise IndexError(f'index of {start} is out of bounds for dim with size {self.shape[i]}')
           start = self.shape[i] + start 
         if end < 0:
-          if abs(end) >= self.shape[i]:
+          if abs(end) > self.shape[i]:
             raise IndexError(f'index of {end} is out of bounds for dim with size {self.shape[i]}')
           end = self.shape[i] + end
         if start >= end: return [] 
@@ -262,8 +262,9 @@ class Tensor:
       if not loops: return tensor
       s, e, step = loops[0]
       for i in range(s, e, step):
-        if len(loops) == 1: tensor.append(self.data[offset+i*step*self.strides[dim]])
-        else:
+        if len(loops) == 1: 
+          tensor.append(self.data[offset+i*step*self.strides[dim]])
+        else: 
           tensor.append([])
           build(dim+1, offset + i*self.strides[dim]*step, loops[1:], tensor[-1])
       return tensor 
@@ -276,7 +277,7 @@ class Tensor:
   def __getitem__(self, key) -> Self:
     if not len(self.shape): raise IndexError('invalid index of a 0-dim tensor. Use `tensor.item()`')
     x = Tensor(self.shape, self.data)
-    self.__index_view = x.__build_view(key)
+    x.index_view = x.__build_view(key)
     return x
     
   def broadcast_to(self: Self, broadcast_shape: Shape) -> Self:
@@ -389,9 +390,7 @@ class Tensor:
     assert self.shape[-1] == w.shape[-2] if w.ndim > 1 else True, f'last index of {self.shape} != 2nd to last index of {w.shape}' 
     x = self.reshape(*self.shape[0:-1], *[1]*min(self.ndim-1, w.ndim-1, 1), self.shape[-1])
     w = w.reshape(*w.shape[0:-2], *[1]*min(self.ndim-1, w.ndim-1, 1), *w.shape[-min(w.ndim, 2):]).transpose(-1, -min(w.ndim, 2)) 
-    # print(w.shape, w.strides, w)
     z = (x*w)
-    # print(z.shape, z.strides, z.data, z)
     return z.sum(axis=-1)
 
   def reshape(self, *shps) -> Self: 
@@ -408,7 +407,7 @@ class Tensor:
 
   def __repr__(self): 
     if self.is_scalar(): return f'tensor({self.data})'
-    return f'tensor({pformat(self.__build_view(None) if not self.__index_view else self.__index_view, width=40)})'
+    return f'tensor({pformat(self.__build_view(None) if not self.index_view else self.index_view, width=40)})'
   def __str__(self): return self.__repr__()
 
   @staticmethod
