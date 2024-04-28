@@ -6,14 +6,13 @@ from pprint import pformat
 from shrimpgrad.cblas import sgemm
 from shrimpgrad.dtype import DType, dtypes
 from random import uniform, gauss
+from .util import calc_loops, to_nested_list, prod, argsort
 
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
 
-def prod(x: Iterable[int|float]) -> Union[float, int]: return reduce(operator.mul, x, 1)
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
-def argsort(x): return type(x)(sorted(range(len(x)), key=x.__getitem__)) # https://stackoverflow.com/questions/3382352/equivalent-of-numpy-argsort-in-basic-python
 
 class Function:
   def __init__(self, device, *tensors):
@@ -73,7 +72,7 @@ class Add(Function):
       self.out = Tensor((), a.data + b.data)
       return self.out
     result = []
-    binary_op(operator.add, a,b, 0, 0,0, a.calc_loops(None), result) 
+    binary_op(operator.add, a,b, 0, 0,0, calc_loops(a, None), result) 
     self.out = Tensor(a.shape, result, dtype=a.dtype)
     return self.out
 
@@ -89,7 +88,7 @@ class Mul(Function):
       self.out = Tensor((), a.data * b.data)
       return self.out
     result = []
-    binary_op(operator.mul, a,b, 0, 0,0, a.calc_loops(None), result) 
+    binary_op(operator.mul, a,b, 0, 0,0, calc_loops(a, None), result) 
     self.out = Tensor(a.shape, result, dtype=a.dtype)
     return self.out
 
@@ -110,7 +109,7 @@ class ReLU(Function):
       return self.out
 
     result = []
-    unary_op(lambda x: 0.0 if x < 0 else x, a, 0, 0, a.calc_loops(None), result)
+    unary_op(lambda x: 0.0 if x < 0 else x, a, 0, 0, calc_loops(a, None), result)
     self.out = Tensor(a.shape, result, dtype=a.dtype)
     return self.out
   
@@ -121,7 +120,7 @@ class ReLU(Function):
       return
 
     result = []
-    unary_op(lambda x: 1 if x > 0 else 0, a,  0, 0, a.calc_loops(None), result)
+    unary_op(lambda x: 1 if x > 0 else 0, a,  0, 0, calc_loops(a, None), result)
     x = Tensor(a.shape, result, dtype=a.dtype, requires_grad=False) 
     a.grad += x * a * self.out.grad
 
@@ -132,7 +131,7 @@ class Pow(Function):
       return self.out
     
     result = []
-    binary_op(operator.pow, a, b, 0, 0, 0, a.calc_loops(None), result)
+    binary_op(operator.pow, a, b, 0, 0, 0, calc_loops(a, None), result)
     self.out = Tensor(a.shape, result, dtype=a.dtype)
 
     return self.out
@@ -146,7 +145,7 @@ class Pow(Function):
 
 class Sum(Function):
   def forward(self, x: Tensor, axis: int=0, keepdim=False) -> Tensor:
-    ret = reduce_(operator.add, x, x.calc_loops(None), 0, 0, ax=axis)
+    ret = reduce_(operator.add, x, calc_loops(x, None), 0, 0, ax=axis)
     self.out = Tensor((*x.shape[0:axis],*[1]*(keepdim), *x.shape[axis+1:]), ret)
     return self.out
 
@@ -224,60 +223,16 @@ class Tensor:
       out *= dim
       self.strides.append(self.size // out)
   
-  def calc_loops(self, key: Optional[slice|int]) -> Iterable[int]:
-    if not key and not isinstance(key, int):  key = [slice(0, dim, 1) for dim in self.shape]
-    if isinstance(key, int) or isinstance(key, slice): key = (key,)
-    if len(key) > len(self.shape): raise IndexError(f'index of {key} is larger than dim {self.shape}.')
-    extra_dim = 0
-    if len(key) < len(self.shape): extra_dim = len(self.shape) - len(key)
-    loops = []
-    for i, k in enumerate(key):
-      if isinstance(k, int):
-        if k >= self.shape[i]:  raise IndexError(f'index of {k} is out of bounds for dim with size {self.shape[i]}')
-        start = k
-        if start < 0:
-          if abs(start) > self.shape[i]:
-            raise IndexError(f'index of {start} is out of bounds for dim with size {self.shape[i]}')
-          k = self.shape[i] + start
-        start, end = k, k + 1
-        loops.append((start,end, 1))
-      elif isinstance(k, slice):
-        start, end, step = k.indices(self.shape[i])
-        if start < 0:
-          if abs(start) > self.shape[i]:
-            raise IndexError(f'index of {start} is out of bounds for dim with size {self.shape[i]}')
-          start = self.shape[i] + start 
-        if end < 0:
-          if abs(end) > self.shape[i]:
-            raise IndexError(f'index of {end} is out of bounds for dim with size {self.shape[i]}')
-          end = self.shape[i] + end
-        if start >= end: return [] 
-        loops.append((start, end, step))
-    if extra_dim: 
-      for ed in range(len(key), len(key) + extra_dim): loops.append((0, self.shape[ed], 1))
-    return loops
-
-  def __build_view(self, key: Optional[slice|int]) -> Iterable:
-    def build(dim:int, offset:int, loops:Iterable[tuple], tensor:Iterable[Num]) -> Iterable[Num]:
-      if not loops: return tensor
-      s, e, step = loops[0]
-      for i in range(s, e, step):
-        if len(loops) == 1: 
-          tensor.append(self.data[offset+i*step*self.strides[dim]])
-        else: 
-          tensor.append([])
-          build(dim+1, offset + i*self.strides[dim]*step, loops[1:], tensor[-1])
-      return tensor 
-    return build(0, 0, self.calc_loops(key), []) 
-  
   def item(self) -> Num:
     if len(self.shape): raise RuntimeError(f'a Tensor with {self.size} elements cannot be converted to Scalar')
     return self.data
 
   def __getitem__(self, key) -> Self:
+    # TODO: Remove dimensions when indexing down from NDim to MDim (m < n)
+    # i.e.) indexing x[0,0,0] x.shape=(2,2,2) should return a scalar view of x
     if not len(self.shape): raise IndexError('invalid index of a 0-dim tensor. Use `tensor.item()`')
     x = Tensor(self.shape, self.data)
-    x.index_view = x.__build_view(key)
+    x.index_view = to_nested_list(self, key)
     return x
     
   def broadcast_to(self: Self, broadcast_shape: Shape) -> Self:
@@ -407,7 +362,7 @@ class Tensor:
 
   def __repr__(self): 
     if self.is_scalar(): return f'tensor({self.data})'
-    return f'tensor({pformat(self.__build_view(None) if not self.index_view else self.index_view, width=40)})'
+    return f'tensor({pformat(to_nested_list(self, None) if not self.index_view else self.index_view, width=40)})'
   def __str__(self): return self.__repr__()
 
   @staticmethod

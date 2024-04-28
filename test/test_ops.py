@@ -1,5 +1,4 @@
-from shrimpgrad import Tensor, reduce_
-import operator
+from shrimpgrad import Tensor
 import unittest
 
 class TestOps(unittest.TestCase):
@@ -94,16 +93,6 @@ class TestOps(unittest.TestCase):
     t3 = t1 / t2
     self.assertEqual(t3.shape, (2,2,2))
     self.assertEqual(t3.data, [10.0, 20.0, 30.0, 40.0, 10.0, 20.0, 30.0, 40.0])
-  
-  def test_reduce(self):
-    t1 = Tensor((2,2), [1,2,1,2])
-    reduce_(operator.add, t1, t1.calc_loops(None), 0, 0)
-    reduce_(operator.add, t1, t1.calc_loops(None), 0, ax=1)
-    t2 = Tensor((4,4), [1]*8 + ([2]*8))
-    y = reduce_(operator.add, t2, t2.calc_loops(None), 0, 0)
-    x = reduce_(operator.add, t2, t2.calc_loops(None), 0, ax=1)
-    self.assertEqual(y, [6,6,6,6])
-    self.assertEqual(x, [4,4,8,8])
 
   def test_sum(self):
     x = Tensor((4,4), [1]*8 + ([2]*8))
