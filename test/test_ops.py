@@ -24,8 +24,8 @@ class TestOps(unittest.TestCase):
     b = Tensor((), 2.0)
     c = a + b
     self.assertEqual(c.data, -2.0)
-    d = a * b + b**3
-    self.assertEqual(d.data, -4.0*2+2.0**3)
+    d = a * b + (b*b*b)
+    self.assertEqual(d.data, -4.0*2+2.0*2.0*2.0)
     c += c + 1
     self.assertEqual(c.data, -3.0)
     c += 1 + c + (-a)
@@ -36,7 +36,7 @@ class TestOps(unittest.TestCase):
     self.assertEqual(d.data, 3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0)
     e = c - d
     self.assertEqual(e.data, (-3.0+(1+-3.0+4.0)) - (3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0))
-    f = e**2
+    f = e * e
     self.assertEqual(f.data, ((-3.0+(1+-3.0+4.0)) - (3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0))**2)
     g = f / 2.0
     g += 10.0 / f
@@ -55,32 +55,7 @@ class TestOps(unittest.TestCase):
     t2 = Tensor((), 4)
     with self.assertRaises(AssertionError):
       _ = t1 * t2
-
-  def test_pow_3d_scalar(self):
-    t1 = Tensor((2,2,2), [1,2,3,4,5,6,7,8])
-    t2 = Tensor((), 2)
-    t3 = t1 ** t2
-    self.assertEqual(t3.data,[1**2,2**2,3**2,4**2,5**2,6**2,7**2,8**2] )
-
-  def test_pow_0d_3d(self):
-    t1 = Tensor((2,2,2), [1,2,3,4,5,6,7,8])
-    t2 = Tensor((), 2)
-    with self.assertRaises(AssertionError):
-      _ = t2 ** t1
-  
-  def test_pow_2d_2d(self):
-    t1 = Tensor((2,2), [1,2,3,4])
-    t2 = Tensor((2,2), [-1, -1, -1, -1])
-    t3 = t1**t2
-    self.assertEqual(t3.data, [1**-1, 2**-1, 3**-1, 4**-1])
-  
-  def test_pow_6d_3d(self):
-    t1 = Tensor((2,2,2,2,2,2), [i for i in range(2*2*2*2*2*2)])
-    t2 = Tensor((2,2), [0,0,0,0])
-    t3 = t1**t2
-    self.assertEqual(t3.shape, (2,2,2,2,2,2))
-    self.assertEqual(t3.data, [1]*(2*2*2*2*2*2))
-  
+      
   def test_truediv_0d_0d(self):
     t1 = Tensor((), 100.0)
     t2 = Tensor((), 20.0)

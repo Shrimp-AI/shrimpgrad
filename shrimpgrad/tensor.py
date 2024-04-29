@@ -1,179 +1,17 @@
 from __future__ import annotations
-from typing import Callable, Iterable, Optional, Self, Type, TypeAlias, Union, List, Tuple
-from functools import reduce
-import operator
+from typing import Iterable, List, Optional, Self, TypeAlias, Union, Tuple
 from pprint import pformat
 from shrimpgrad.cblas import sgemm
 from shrimpgrad.dtype import DType, dtypes
 from random import uniform, gauss
-from .util import calc_loops, to_nested_list, prod, argsort
+# from shrimpgrad.autograd.function import Function, Add, Mul, Sum, ReLU, Reshape, Permute
+from shrimpgrad.util import prod, to_nested_list 
 
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
 
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
-
-class Function:
-  def __init__(self, device, *tensors):
-    # TODO: Make sure require_grad are respected and set properly
-    self.device = device
-    self.parents = tensors
-    for p in self.parents:
-      # Init parent tensors to zero if not init
-      if not p.grad:
-        p.grad = Tensor.zeros(p.shape, p.dtype) 
-    self.needs_input_grad = [t.requires_grad for t in tensors]
-    self.requires_grad = True if any(self.needs_input_grad) else None if None in self.needs_input_grad else False
-    self.out = None
-  
-  def forward(self, *args, **kwargs): raise NotImplementedError(f'forward is not implemented for {type(self)}')
-  def backward(self, *args, **kwargs): raise RuntimeError(f'backward not implemented for {type(self)}')
-
-  @classmethod
-  def apply(fn: Type[Function], *tensors, **kwargs) -> Tensor:
-    ctx = fn(tensors[0].device, *tensors)
-    ret = ctx.forward(*tensors, **kwargs)
-    ret.ctx = ctx
-    ret.requires_grad = ctx.requires_grad
-    return ret
-
-def binary_op(F: Callable, a: Tensor, b: Tensor, dim:int, off_a:int, off_b:int, loops:Iterable[Tuple], result:Iterable[Union[int, float, complex]]) -> None:
-  if not loops:  return 
-  s, e, step = loops[0]
-  for i in range(s, e, step):
-    if len(loops) == 1: result.append(F(a.data[off_a + i*step*a.strides[dim]] , b.data[off_b + i*step*b.strides[dim]]))
-    else: binary_op(F, a, b, dim+1, off_a + i*a.strides[dim]*step, off_b + i*b.strides[dim]*step, loops[1:], result)
-  return 
-
-def unary_op(F: Callable, a: Tensor, dim: int, off: int, loops: Iterable[Tuple], result: Iterable[Union[Num]]) -> None:
-  if not loops: return
-  s, e, step = loops[0]
-  for i in range(s, e, step):
-    if len(loops) == 1: result.append(F(a.data[off + i*step*a.strides[dim]]))
-    else: unary_op(F, a, dim+1, off + i*a.strides[dim]*step, loops[1:], result)
-  return 
-
-def reduce_(F: Callable, x: Tensor, loops, off=0, dim=0, ax=0, keepdims=False):
-  assert x.ndim > 0, 'scalars cannot be reduced'
-  ax = ax + x.ndim if ax < 0 else ax
-  assert ax < x.ndim, f'axis={ax} is out of bounds for tensor with shape={x.shape}'
-  s,e,step = loops[0]
-  res, accum = [], []
-  for _ in range(s,e,step):
-    if ax == dim: accum.append(x.data[off:off+x.strides[dim]])
-    else: res += reduce_(F, x, loops[1:], off, dim+1, ax, keepdims)
-    off += x.strides[dim]
-  return [reduce(F,r) for r in zip(*accum)] if accum else res 
-
-class Add(Function):
-  def forward(self, a: Tensor, b: Tensor) -> Tensor:
-    if a.is_scalar() and b.is_scalar():
-      self.out = Tensor((), a.data + b.data)
-      return self.out
-    result = []
-    binary_op(operator.add, a,b, 0, 0,0, calc_loops(a, None), result) 
-    self.out = Tensor(a.shape, result, dtype=a.dtype)
-    return self.out
-
-  def backward(self):
-    a = self.parents[0]
-    b = self.parents[1]
-    a.grad += self.out.grad 
-    b.grad += self.out.grad
-
-class Mul(Function):
-  def forward(self, a: Tensor, b: Tensor) -> Tensor:
-    if a.is_scalar() and b.is_scalar():
-      self.out = Tensor((), a.data * b.data)
-      return self.out
-    result = []
-    binary_op(operator.mul, a,b, 0, 0,0, calc_loops(a, None), result) 
-    self.out = Tensor(a.shape, result, dtype=a.dtype)
-    return self.out
-
-  def backward(self):
-    a = self.parents[0]
-    b = self.parents[1]
-    grad_out = self.out.grad
-    grad_a = b * grad_out
-    grad_b = a * grad_out
-
-    a.grad += grad_a 
-    b.grad += grad_b
-
-class ReLU(Function):
-  def forward(self, a: Tensor) -> Tensor:
-    if a.is_scalar():
-      self.out = Tensor((), (0 if a.data < 0 else a.data))
-      return self.out
-
-    result = []
-    unary_op(lambda x: 0.0 if x < 0 else x, a, 0, 0, calc_loops(a, None), result)
-    self.out = Tensor(a.shape, result, dtype=a.dtype)
-    return self.out
-  
-  def backward(self):
-    a = self.parents[0]
-    if a.is_scalar():
-      a.grad += (a.data > 0) * self.out.grad
-      return
-
-    result = []
-    unary_op(lambda x: 1 if x > 0 else 0, a,  0, 0, calc_loops(a, None), result)
-    x = Tensor(a.shape, result, dtype=a.dtype, requires_grad=False) 
-    a.grad += x * a * self.out.grad
-
-class Pow(Function):
-  def forward(self, a:Tensor, b: Tensor) -> Tensor:
-    if a.is_scalar():
-      self.out =  Tensor((), a.data ** b.data)
-      return self.out
-    
-    result = []
-    binary_op(operator.pow, a, b, 0, 0, 0, calc_loops(a, None), result)
-    self.out = Tensor(a.shape, result, dtype=a.dtype)
-
-    return self.out
-  
-  def backward(self):
-    a, b = self.parents[0], self.parents[1]
-    if a.is_scalar():
-      a.grad += b * (a ** (b - 1)) * self.out.grad
-    else:
-      a.grad += b * (a ** (b - Tensor((1,), [1]))) * self.out.grad
-
-class Sum(Function):
-  def forward(self, x: Tensor, axis: int=0, keepdim=False) -> Tensor:
-    ret = reduce_(operator.add, x, calc_loops(x, None), 0, 0, ax=axis)
-    self.out = Tensor((*x.shape[0:axis],*[1]*(keepdim), *x.shape[axis+1:]), ret)
-    return self.out
-
-  def backward(self):
-    x = self.parents[0]
-    x.grad = self.out.grad.broadcast_to(x.shape)
-
-class Reshape(Function):
-  def forward(self, x: Tensor, shape: Tuple[int,...] ) -> Tensor:
-    if prod(shape) != x.size: raise RuntimeError('shape \'{shape}\' is invalid for input of size {x.size}')
-    self.out = Tensor(shape, x.data, dtype=x.dtype)
-    return self.out
-
-  def backward(self):
-    x = self.parents[0]
-    return self.out.grad.reshape(*x.shape)
-
-class Permute(Function):
-  def forward(self, x: Tensor, order: Tuple[int, ...]) -> Tensor:
-    self.order = order
-    new_shape = [x.shape[i] for i in order]
-    new_strides = [x.strides[i] for i in order]
-    self.out = Tensor(tuple(new_shape), x.data, dtype=x.dtype) 
-    self.out.strides = new_strides
-    return self.out
-  
-  def backward(self):
-    return self.out.grad.permute(argsort(self.order))
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, device='CPU', requires_grad:Optional[bool]=None) -> Self:
@@ -185,6 +23,7 @@ class Tensor:
     self.index_view = None # Set by get_item for use in repr
     # If this tensor is produced via a computation we
     # add this computational context enabling the backwards pass
+    from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
     # Scalar value
     if self.is_scalar():
@@ -207,14 +46,18 @@ class Tensor:
         if not tensor.ctx:
           topo.append(tensor)
           return
-        for p in tensor.ctx.parents:
+        for p in tensor.ctx.saved_tensors:
           build_topo(p)
         topo.append(tensor)
     build_topo(self) 
     for t in reversed(topo):
+      assert t.grad, f'{t} has no grad'
       if not t.ctx:
         continue
-      t.ctx.backward()
+      grads = t.cls.backward(t.ctx, t.grad)
+      grads = grads if len(t.ctx.saved_tensors) > 1 else [grads]
+      for t0, g in zip(t.ctx.saved_tensors, grads):
+        t0.grad = g if t0.grad == None else t0.grad + g
 
   def __calc_strides(self) -> None:
     self.strides.clear()
@@ -258,6 +101,7 @@ class Tensor:
     return a,b
   
   def __mul__(self, other: Self) -> Self:
+    from shrimpgrad.autograd.function import Mul
     if self.is_scalar():
       other = other if isinstance(
         other, Tensor) else Tensor((), other)
@@ -269,6 +113,7 @@ class Tensor:
     return self * other
 
   def __add__(self, other: Self) -> Self:
+    from shrimpgrad.autograd.function import Add 
     if self.is_scalar():
       other = other if isinstance(
         other, Tensor) else Tensor((), other)
@@ -280,6 +125,7 @@ class Tensor:
     return self + other
   
   def __neg__(self):
+    from shrimpgrad.autograd.function import Mul
     if self.is_scalar():
       return self * -1
     a, b = self.__broadcast(Tensor((1,), [-1.0]))
@@ -295,31 +141,24 @@ class Tensor:
   def __rsub__(self, other):
     return self + (-other)
   
-  def __pow__(self, other):
-    if self.is_scalar():
-      if isinstance(other, Tensor):
-        assert other.ndim == 0, 'scalar to power of {other.dim} is undefined'
-      other = other if isinstance(
-        other, Tensor) else Tensor((), other)
-      return Pow.apply(self, other) 
-    if isinstance(other, Num):
-      return self ** Tensor((1,), [other])
-    if other.is_scalar():
-      return self ** other.data
-    a,b = self.__broadcast(other)
-    return Pow.apply(a, b)
-    
   def __truediv__(self, other):
-    return self * (other ** -1)
+    from shrimpgrad.autograd.function import Div
+    other = other if isinstance(
+      other, Tensor) else Tensor((), other)
+    if self.is_scalar():
+      return Div.apply(self, other)
+    a, b = self.__broadcast(other)
+    return Div.apply(a, b) 
   
   def __rtruediv__(self, other):
     if self.is_scalar():
       other = Tensor((), other)
-      return other * (self ** -1)
+      return other / self 
     other = Tensor((1,), [other]) 
-    return other * (self ** -1)
+    return other / self 
 
   def relu(self) -> Self:
+    from shrimpgrad.autograd.function import ReLU 
     return ReLU.apply(self)
     
   def __matmul__(self, other) -> Self:
@@ -338,6 +177,7 @@ class Tensor:
       return Tensor((self.shape[0], other.shape[1]), [x for x in result])
     
   def sum(self, axis=0, keepdim=False) -> Self:
+    from shrimpgrad.autograd.function import Sum 
     return Sum.apply(self, axis=axis if axis >= 0 else axis + self.ndim, keepdim=keepdim) 
   
   def dot(self, w) -> Self:
@@ -348,10 +188,12 @@ class Tensor:
     z = (x*w)
     return z.sum(axis=-1)
 
-  def reshape(self, *shps) -> Self: 
+  def reshape(self, *shps) -> Self:
+    from shrimpgrad.autograd.function import Reshape  
     return Reshape.apply(self, shape=tuple(shps))
 
   def permute(self, order: Tuple[int,...]) -> Self:
+    from shrimpgrad.autograd.function import Permute
     return Permute.apply(self, order=order)
 
   def transpose(self, ax0=1, ax1=0):

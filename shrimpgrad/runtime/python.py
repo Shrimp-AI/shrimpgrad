@@ -6,8 +6,6 @@ import math
 import operator
 from shrimpgrad.util import calc_loops
 
-Tensor = shrimp.Tensor
-
 # Tinygrad minimal ops set for reference
 class UnaryOps(Enum): EXP2 = auto(); LOG2 = auto(); CAST = auto(); SIN = auto(); SQRT = auto(); NEG = auto() # noqa: E702
 class BinaryOps(Enum):
@@ -20,10 +18,9 @@ class LoadOps(Enum): EMPTY = auto(); CONST = auto(); COPY = auto(); CONTIGUOUS =
 Op = Union[UnaryOps, BinaryOps, ReduceOps, LoadOps, TernaryOps, BufferOps]
 OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], Type[TernaryOps], Type[BufferOps]]
 
-def binary_op(F: Callable, a: Tensor, b: Tensor, result:Union[List[float|int]|int|float]) -> None:
+def binary_op(F: Callable, a: shrimp.Tensor, b: shrimp.Tensor, result:Union[List[float|int]|int|float]) -> None:
   if a.is_scalar() and b.is_scalar(): 
-    result = F(a.data, b.data)
-    return
+    return F(a.data, b.data)
   def run(loops, dim=0, off_a=0, off_b=0, result=result):
     if not loops:  return 
     s, e, step = loops[0]
@@ -32,8 +29,12 @@ def binary_op(F: Callable, a: Tensor, b: Tensor, result:Union[List[float|int]|in
       else: run(loops[1:], dim+1, off_a + i*a.strides[dim]*step, off_b + i*b.strides[dim]*step, result)
     return 
   run(calc_loops(a, None))
+  return result
 
-def unary_op(F: Callable, a: Tensor, result: List[float|int]) -> None:
+def unary_op(F: Callable, a: shrimp.Tensor, result: Union[List[float|int], int, float]) -> None:
+  if a.is_scalar():
+    return F(a.data)
+  
   def run(loops, dim=0, off=0, result=result):
     if not loops: return
     s, e, step = loops[0]
@@ -42,8 +43,9 @@ def unary_op(F: Callable, a: Tensor, result: List[float|int]) -> None:
       else: run(loops[1:], dim+1, off + i*a.strides[dim]*step, result)
     return 
   run(calc_loops(a, None))
+  return result
 
-def reduce_op(F: Callable, x: Tensor, ax=0):
+def reduce_op(F: Callable, x: shrimp.Tensor, ax=0):
   assert x.ndim > 0, 'scalars cannot be reduced'
   ax = ax + x.ndim if ax < 0 else ax
   assert ax < x.ndim, f'axis={ax} is out of bounds for tensor with shape={x.shape}'
@@ -56,7 +58,6 @@ def reduce_op(F: Callable, x: Tensor, ax=0):
       off += x.strides[dim]
     return [reduce(F,r) for r in zip(*accum)] if accum else res 
   return run(calc_loops(x, None))
-
 
 python_alu = {
   UnaryOps.LOG2: lambda x: math.log2(x) if x > 0 else -math.inf if x == 0 else math.nan,
@@ -73,11 +74,13 @@ class PythonRuntime:
   @staticmethod 
   def exec(op: Op, *tensors, **kwargs):
     if op in BinaryOps:
-      binary_op(python_alu[op], tensors[0], tensors[1], result:=[])
-      return result
+      result = binary_op(python_alu[op], x:=tensors[0], tensors[1], [])
+      return shrimp.Tensor(x.shape, result, dtype=x.dtype)
     
     if op in UnaryOps:
-      unary_op(python_alu[op], tensors[0], result:=[])
-      return result
-    
-    return reduce_op(python_alu[op], tensors[0], **kwargs)
+      result = unary_op(python_alu[op], x:=tensors[0], [])
+      return shrimp.Tensor(x.shape, result, dtype=x.dtype)
+
+    ax, kd = kwargs['ax'], kwargs['keepdim']
+    ret = reduce_op(operator.add, x:=tensors[0], ax=ax)
+    return shrimp.Tensor((*x.shape[0:ax],*[1]*(kd), *x.shape[ax+1:]), ret)
