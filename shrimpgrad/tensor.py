@@ -1,10 +1,8 @@
 from __future__ import annotations
 from typing import Iterable, List, Optional, Self, TypeAlias, Union, Tuple
 from pprint import pformat
-from shrimpgrad.cblas import sgemm
 from shrimpgrad.dtype import DType, dtypes
 from random import uniform, gauss
-# from shrimpgrad.autograd.function import Function, Add, Mul, Sum, ReLU, Reshape, Permute
 from shrimpgrad.util import prod, to_nested_list 
 
 Num: TypeAlias = Union[float, int, complex]
@@ -40,6 +38,8 @@ class Tensor:
     self.grad = Tensor.ones(self.shape, self.dtype)
     visited = set()
     topo = []
+    # TODO: Turn this into generator so we don't generate
+    # a massive list
     def build_topo(tensor: Tensor) -> List[Tensor]:  
       if tensor not in visited:
         visited.add(tensor)
@@ -84,6 +84,10 @@ class Tensor:
     pad_s = pad_left(self.shape, broadcast_shape)
     # Set shape to original size with 1s padded for broadcasting
     nt = Tensor(pad_s[0], self.data, self.dtype)
+    # pad prev stride to new length and copy original dim strides to nt
+    pad_strd = pad_left(tuple(self.strides), broadcast_shape)[0]
+    for i in range(len(pad_strd)-1, len(pad_strd) - len(self.strides), -1):
+      nt.strides[i] = pad_strd[i]
     # Where the shape is 1, change the stride to 0
     for i, v in enumerate(pad_s[0]): 
       if v == 1: nt.strides[i] = 0
@@ -164,28 +168,21 @@ class Tensor:
   def __matmul__(self, other) -> Self:
     return self.matmul(other)
 
-  def matmul(self, other: Self) -> Self:
-    # 1D x 1D (dot product) 
-    if len(self.shape) == 1 and len(other.shape) == 1:
-      if self.shape[0] != other.shape[0]: raise RuntimeError(f'inconsistent tensor size, expected tensor [{self.shape[0]}] and src [{other.shape[0]}] to have the same number of elements, but got {self.shape[0]} and {other.shape[0]} elements respectively')
-      return Tensor((), sum(map(lambda x: x[0]*x[1], zip(self.data, other.data))))
+  def matmul(self, other: Self, reverse=False) -> Self:
+    return other.dot(self) if reverse else self.dot(other) 
 
-    # Classic NxM * MxN matrix mult
-    if len(self.shape) == 2 and len(other.shape) == 2:
-      if self.shape[1] != other.shape[0]: raise RuntimeError('mat1 and mat2 shapes cannot be multiplied ({self.shape[0]}x{self.shape[1]} and {other.shape[0]}x{other.shape[1]})')
-      result = sgemm(self, other)
-      return Tensor((self.shape[0], other.shape[1]), [x for x in result])
-    
   def sum(self, axis=0, keepdim=False) -> Self:
     from shrimpgrad.autograd.function import Sum 
     return Sum.apply(self, axis=axis if axis >= 0 else axis + self.ndim, keepdim=keepdim) 
   
   def dot(self, w) -> Self:
-    assert self.ndim > 0 or w.ndim > 0, f'dot works only on tensors of 1D and higher not scalars: {self.shape}, {w.shape}'
-    assert self.shape[-1] == w.shape[-2] if w.ndim > 1 else True, f'last index of {self.shape} != 2nd to last index of {w.shape}' 
-    x = self.reshape(*self.shape[0:-1], *[1]*min(self.ndim-1, w.ndim-1, 1), self.shape[-1])
-    w = w.reshape(*w.shape[0:-2], *[1]*min(self.ndim-1, w.ndim-1, 1), *w.shape[-min(w.ndim, 2):]).transpose(-1, -min(w.ndim, 2)) 
-    z = (x*w)
+    # From https://github.com/tinygrad/tinygrad/blob/master/tinygrad/tensor.py 
+    n1, n2 = len(self.shape), len(w.shape)
+    assert n1 != 0 and n2 != 0, f"both arguments to matmul need to be at least 1D, but they are {n1}D and {n2}D"
+    assert (L:=self.shape[-1]) == (R:=w.shape[-min(n2, 2)]), f"Input Tensor shapes {self.shape} and {w.shape} cannot be multiplied ({L} != {R})"
+    x = self.reshape(*self.shape[0:-1], *[1]*min(n1-1, n2-1, 1), self.shape[-1])
+    w = w.reshape(*w.shape[0:-2], *[1]*min(n1-1, n2-1, 1), *w.shape[-min(n2, 2):]).transpose(-1, -min(n2, 2))
+    z = x*w
     return z.sum(axis=-1)
 
   def reshape(self, *shps) -> Self:

@@ -1,5 +1,24 @@
-from shrimpgrad import Tensor
+from shrimpgrad import Tensor, dtypes
+from shrimpgrad.util import prod
 import unittest
+import torch
+
+def gen_torch_tensors(*shapes): return [torch.arange(prod(s), dtype=torch.float32).reshape(*s) for s in shapes]
+def gen_shrimp_tensors(*shapes): return [Tensor.arange(0, prod(s), dtype=dtypes.float32).reshape(*s) for s in shapes]
+
+def helper_test_ops(x_shapes, y_shapes, torch_op, shrimp_op):
+  x_torch_ts = gen_torch_tensors(*x_shapes)
+  x_shrimp_ts = gen_shrimp_tensors(*x_shapes) 
+  if y_shapes:
+    y_torch_ts = gen_torch_tensors(*y_shapes) 
+    y_shrimp_ts = gen_shrimp_tensors(*y_shapes) 
+  if y_shapes:    
+    tr = [torch_op(x,y) for x,y in zip(x_torch_ts, y_torch_ts)]
+    sr = [shrimp_op(x,y) for x,y in zip(x_shrimp_ts, y_shrimp_ts)]
+    [compare(tt, st) for tt, st in zip(tr, sr)] 
+def compare(tts, sts):
+  print(tts, tts.shape)
+  print(sts, sts.shape, sts.strides)
 
 class TestOps(unittest.TestCase):
   def test_add_1d(self):
@@ -55,7 +74,7 @@ class TestOps(unittest.TestCase):
     t2 = Tensor((), 4)
     with self.assertRaises(AssertionError):
       _ = t1 * t2
-      
+
   def test_truediv_0d_0d(self):
     t1 = Tensor((), 100.0)
     t2 = Tensor((), 20.0)
@@ -106,9 +125,9 @@ class TestOps(unittest.TestCase):
                        0,1])
     y = Tensor((2,2), [4,1,
                        2,2])
-    # [([4,2],
-    #   [1,2]] -> [4,0],[1,0],[0,2],[0,2]] -> [4,1],[2,2]
-    z = x.dot(y)
-    # TODO: Ends up as transpose
-    self.assertEqual([4,2,1,2], z.data)
-
+    z = x.matmul(y)
+    self.assertEqual([4,1,2,2], z.data)
+  
+  def test_dotND(self):
+    helper_test_ops([(2,2),(3,2)], [(2,2) ,(2,4)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
+    helper_test_ops([(2,2,2)], [(2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)

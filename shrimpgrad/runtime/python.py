@@ -34,7 +34,6 @@ def binary_op(F: Callable, a: shrimp.Tensor, b: shrimp.Tensor, result:Union[List
 def unary_op(F: Callable, a: shrimp.Tensor, result: Union[List[float|int], int, float]) -> None:
   if a.is_scalar():
     return F(a.data)
-  
   def run(loops, dim=0, off=0, result=result):
     if not loops: return
     s, e, step = loops[0]
