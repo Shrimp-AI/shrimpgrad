@@ -54,6 +54,7 @@ class Tensor:
       assert t.grad, f'{t} has no grad'
       if not t.ctx:
         continue
+      print(t.cls)
       grads = t.cls.backward(t.ctx, t.grad)
       grads = grads if len(t.ctx.saved_tensors) > 1 else [grads]
       for t0, g in zip(t.ctx.saved_tensors, grads):
@@ -93,7 +94,11 @@ class Tensor:
       if v == 1: nt.strides[i] = 0
     # Set the shape to the broadcast shape
     nt.shape = broadcast_shape
-    return nt
+    # TODO: Need to use reshapes and expands here otherwise the graph disconnects
+    # on broadcasting via the return of nt
+    self.shape = broadcast_shape
+    self.strides = nt.strides
+    return self 
 
   def __broadcast(self: Self, other: Self):
     assert self.ndim != 0 and other.ndim != 0, 'invalid broadcasting with scalar'
@@ -173,7 +178,10 @@ class Tensor:
 
   def sum(self, axis=0, keepdim=False) -> Self:
     from shrimpgrad.autograd.function import Sum 
-    return Sum.apply(self, axis=axis if axis >= 0 else axis + self.ndim, keepdim=keepdim) 
+    axis_ = axis if axis >= 0 else axis + self.ndim
+    shape = tuple(s for i, s in enumerate(self.shape) if axis_ != i)
+    ret = Sum.apply(self, axis=axis_, keepdim=keepdim) 
+    return ret if keepdim else ret.reshape(*shape)
   
   def dot(self, w) -> Self:
     # From https://github.com/tinygrad/tinygrad/blob/master/tinygrad/tensor.py 

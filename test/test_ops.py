@@ -1,26 +1,35 @@
 from shrimpgrad import Tensor, dtypes
-from shrimpgrad.util import prod
+from shrimpgrad.util import prod, to_nested_list
 import unittest
 import torch
 
-def gen_torch_tensors(*shapes): return [torch.arange(prod(s), dtype=torch.float32).reshape(*s) for s in shapes]
+def gen_torch_tensors(*shapes): return [torch.arange(prod(s), dtype=torch.float32, requires_grad=True).reshape(*s)for s in shapes]
 def gen_shrimp_tensors(*shapes): return [Tensor.arange(0, prod(s), dtype=dtypes.float32).reshape(*s) for s in shapes]
 
-def helper_test_ops(x_shapes, y_shapes, torch_op, shrimp_op):
-  x_torch_ts = gen_torch_tensors(*x_shapes)
-  x_shrimp_ts = gen_shrimp_tensors(*x_shapes) 
-  if y_shapes:
-    y_torch_ts = gen_torch_tensors(*y_shapes) 
-    y_shrimp_ts = gen_shrimp_tensors(*y_shapes) 
-  if y_shapes:    
-    tr = [torch_op(x,y) for x,y in zip(x_torch_ts, y_torch_ts)]
-    sr = [shrimp_op(x,y) for x,y in zip(x_shrimp_ts, y_shrimp_ts)]
-    [compare(tt, st) for tt, st in zip(tr, sr)] 
-def compare(tts, sts):
-  print(tts, tts.shape)
-  print(sts, sts.shape, sts.strides)
-
 class TestOps(unittest.TestCase):
+  def helper_test_ops(self, x_shapes, y_shapes, torch_op, shrimp_op):
+    x_torch_ts = gen_torch_tensors(*x_shapes)
+    x_shrimp_ts = gen_shrimp_tensors(*x_shapes) 
+    if y_shapes:
+      y_torch_ts = gen_torch_tensors(*y_shapes) 
+      y_shrimp_ts = gen_shrimp_tensors(*y_shapes) 
+    if y_shapes:    
+      for x,y in zip(x_torch_ts, y_torch_ts):
+        x.retain_grad()
+        y.retain_grad()
+      tr = [torch_op(x,y) for x,y in zip(x_torch_ts, y_torch_ts)]
+      sr = [shrimp_op(x,y) for x,y in zip(x_shrimp_ts, y_shrimp_ts)]
+      [self.compare(tt, st) for tt, st in zip(tr, sr)] 
+      [t.backward(gradient=torch.ones_like(t)) for t in tr]
+      [s.backward() for s in sr]
+      [self.compare(xt.grad, xs.grad) for xt, xs in zip(x_torch_ts, x_shrimp_ts)]
+      [self.compare(yt.grad, ys.grad) for yt, ys in zip(y_torch_ts, y_shrimp_ts)]
+
+  def compare(self, tts, sts):
+    t = tts.tolist()
+    s = to_nested_list(sts, None)
+    self.assertEqual(t,s)
+
   def test_add_1d(self):
     t1 = Tensor.arange(0,1)
     t2 = Tensor.arange(0,1)
@@ -129,5 +138,17 @@ class TestOps(unittest.TestCase):
     self.assertEqual([4,1,2,2], z.data)
   
   def test_dotND(self):
-    helper_test_ops([(2,2),(3,2)], [(2,2) ,(2,4)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
-    helper_test_ops([(2,2,2)], [(2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
+    self.helper_test_ops([(2,2),(3,2)], [(2,2) ,(2,4)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
+    self.helper_test_ops([(2,2,2)], [(2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
+    self.helper_test_ops([(2,2,2,2,2,2)], [(2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
+    self.helper_test_ops([(3,1,4,1,5,3)], [(3,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
+  
+  def test_dot_backward(self):
+    x = Tensor((2,2), [1,2,3,4]) 
+    y = Tensor((2,2), [1,2,3,4])
+    z = x.matmul(y)
+    print("Start backward")
+    z.backward()
+    print(f'x.grad={x.grad}')
+    print(f'y.grad={y.grad}')
+    print(f'z.grad={z.grad}')

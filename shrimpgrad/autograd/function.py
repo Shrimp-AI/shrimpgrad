@@ -8,7 +8,7 @@ class FunctionContext:
     self.device = device
 
   def save_for_backward(self, *tensors: shrimp.Tensor):
-    self.saved_tensors= tuple(tensors)
+    self.saved_tensors = tuple(tensors)
   
 class Function(FunctionContext):
   @staticmethod
@@ -26,6 +26,7 @@ class Function(FunctionContext):
   @classmethod
   def apply(cls, *tensors, **kwargs):
     ctx = cls(tensors[0].device)
+    print(f"FORWARD {cls}")
     ret = cls.forward(ctx, *tensors, **kwargs)
     ret.cls = cls
     ret.ctx = ctx
@@ -122,3 +123,11 @@ class Permute(Function):
   @staticmethod 
   def backward(ctx: FunctionContext, grad_out):
     return grad_out.permute(shrimp.util.argsort(ctx.order))
+  
+class Expand(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x: shrimp.Tensor, shape: Tuple[int, ...]) -> shrimp.Tensor:
+    pass
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out) -> shrimp.Tensor:
+    pass

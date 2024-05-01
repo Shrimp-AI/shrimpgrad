@@ -80,6 +80,6 @@ class PythonRuntime:
       result = unary_op(python_alu[op], x:=tensors[0], [])
       return shrimp.Tensor(x.shape, result, dtype=x.dtype)
 
-    ax, kd = kwargs['ax'], kwargs['keepdim']
+    ax = kwargs['ax']
     ret = reduce_op(operator.add, x:=tensors[0], ax=ax)
-    return shrimp.Tensor((*x.shape[0:ax],*[1]*(kd), *x.shape[ax+1:]), ret)
+    return shrimp.Tensor((*x.shape[0:ax],*[1], *x.shape[ax+1:]), ret)
