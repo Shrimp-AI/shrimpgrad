@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, Tuple, Union
 import shrimpgrad as shrimp
 from shrimpgrad.runtime.python import PythonRuntime, BinaryOps, ReduceOps, UnaryOps
 from shrimpgrad.util import flatten
@@ -88,7 +88,7 @@ class ReLU(Function):
 
 class Sum(Function):
   @staticmethod
-  def forward(ctx: FunctionContext, x: shrimp.Tensor, axis: int=0, keepdim=False) -> shrimp.Tensor:
+  def forward(ctx: FunctionContext, x: shrimp.Tensor, axis: Tuple[int,...]=(0,), keepdim=False) -> shrimp.Tensor:
     ctx.save_for_backward(x)
     return PythonRuntime.exec(ReduceOps.SUM, x, ax=axis, keepdim=keepdim) 
     
@@ -101,7 +101,7 @@ class Reshape(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: shrimp.Tensor, shape: Tuple[int,...] ) -> shrimp.Tensor:
     ctx.save_for_backward(x)
-    if shrimp.util.prod(shape) != x.size: raise RuntimeError('shape \'{shape}\' is invalid for input of size {x.size}')
+    if shrimp.util.prod(shape) != x.size: raise RuntimeError(f'shape \'{shape}\' is invalid for input of size {x.size}')
     if x.contiguous:
       return shrimp.Tensor(shape, x.data, dtype=x.dtype)
     return shrimp.Tensor(shape, flatten(x), dtype=x.dtype)
@@ -130,6 +130,7 @@ class Permute(Function):
 class Expand(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: shrimp.Tensor, shape: Tuple[int, ...]) -> shrimp.Tensor:
+    ctx.save_for_backward(x)
     ctx.expanded_axis = []
     out = shrimp.Tensor.zeros_like(x)
     for i, (si, so) in enumerate(zip(x.shape, shape)):
@@ -142,4 +143,4 @@ class Expand(Function):
  
   @staticmethod
   def backward(ctx: FunctionContext, grad_out) -> shrimp.Tensor:
-    pass
+    return grad_out.sum(axis=tuple(ctx.expanded_axis)) 

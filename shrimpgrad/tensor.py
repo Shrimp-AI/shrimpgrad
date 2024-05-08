@@ -55,7 +55,6 @@ class Tensor:
       assert t.grad, f'{t} has no grad'
       if not t.ctx:
         continue
-      # print(t.cls)
       grads = t.cls.backward(t.ctx, t.grad)
       grads = grads if len(t.ctx.saved_tensors) > 1 else [grads]
       for t0, g in zip(t.ctx.saved_tensors, grads):
@@ -164,10 +163,10 @@ class Tensor:
   def matmul(self, other: Self, reverse=False) -> Self:
     return other.dot(self) if reverse else self.dot(other) 
 
-  def sum(self, axis=0, keepdim=False) -> Self:
+  def sum(self, axis:Union[int|Tuple[int,...]]=0, keepdim=False) -> Self:
     from shrimpgrad.autograd.function import Sum 
-    axis_ = axis if axis >= 0 else axis + self.ndim
-    shape = tuple(s for i, s in enumerate(self.shape) if axis_ != i)
+    axis_ = tuple(ax if ax >= 0 else ax + self.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,))) 
+    shape = tuple(s for i, s in enumerate(self.shape) if i not in axis_)
     ret = Sum.apply(self, axis=axis_, keepdim=keepdim) 
     return ret if keepdim else ret.reshape(*shape)
   
@@ -178,8 +177,7 @@ class Tensor:
     assert (L:=self.shape[-1]) == (R:=w.shape[-min(n2, 2)]), f"Input Tensor shapes {self.shape} and {w.shape} cannot be multiplied ({L} != {R})"
     x = self.reshape(*self.shape[0:-1], *[1]*min(n1-1, n2-1, 1), self.shape[-1])
     w = w.reshape(*w.shape[0:-2], *[1]*min(n1-1, n2-1, 1), *w.shape[-min(n2, 2):]).transpose(-1, -min(n2, 2))
-    z = x*w
-    return z.sum(axis=-1)
+    return (x*w).sum(axis=-1)
 
   def expand(self, *shps) -> Self:
     from shrimpgrad.autograd.function import Expand 
@@ -253,6 +251,3 @@ class Tensor:
   @staticmethod
   def uniform(*shape, low:Union[int, float]=0, high:Union[int, float]=10, dtype=dtypes.float32, **kwargs) -> Tensor:
     return Tensor(shape, [uniform(low, high) for _ in range(prod(shape))], dtype=dtype, **kwargs)
-
-
-
