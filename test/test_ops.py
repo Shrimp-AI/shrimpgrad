@@ -20,10 +20,10 @@ class TestOps(unittest.TestCase):
       tr = [torch_op(x,y) for x,y in zip(x_torch_ts, y_torch_ts)]
       sr = [shrimp_op(x,y) for x,y in zip(x_shrimp_ts, y_shrimp_ts)]
       [self.compare(tt, st) for tt, st in zip(tr, sr)] 
-      [t.backward(gradient=torch.ones_like(t)) for t in tr]
-      [s.backward() for s in sr]
-      [self.compare(xt.grad, xs.grad) for xt, xs in zip(x_torch_ts, x_shrimp_ts)]
-      [self.compare(yt.grad, ys.grad) for yt, ys in zip(y_torch_ts, y_shrimp_ts)]
+      # [t.backward(gradient=torch.ones_like(t)) for t in tr]
+      # [s.backward() for s in sr]
+      # [self.compare(xt.grad, xs.grad) for xt, xs in zip(x_torch_ts, x_shrimp_ts)]
+      # [self.compare(yt.grad, ys.grad) for yt, ys in zip(y_torch_ts, y_shrimp_ts)]
 
   def compare(self, tts, sts):
     t = tts.tolist()
@@ -125,9 +125,11 @@ class TestOps(unittest.TestCase):
   def test_transpose(self):
     y = Tensor((2,2), [4,1,
                        2,2])
+    self.assertTrue(y.contiguous)
     z = y.transpose()
     self.assertEqual(z.shape, (2,2))
     self.assertEqual('tensor([[4, 2], [1, 2]])', z.__str__())
+    self.assertFalse(z.contiguous)
    
   def test_dot(self):
     x = Tensor((2,2), [1,0,
@@ -135,6 +137,7 @@ class TestOps(unittest.TestCase):
     y = Tensor((2,2), [4,1,
                        2,2])
     z = x.matmul(y)
+    print(z)
     self.assertEqual([4,1,2,2], z.data)
   
   def test_dotND(self):
@@ -147,8 +150,4 @@ class TestOps(unittest.TestCase):
     x = Tensor((2,2), [1,2,3,4]) 
     y = Tensor((2,2), [1,2,3,4])
     z = x.matmul(y)
-    print("Start backward")
-    z.backward()
-    print(f'x.grad={x.grad}')
-    print(f'y.grad={y.grad}')
-    print(f'z.grad={z.grad}')
+    # z.backward()

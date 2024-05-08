@@ -40,7 +40,7 @@ def calc_loops(tensor, key: Optional[slice|int]) -> Iterable[int]:
 
 def to_nested_list(tensor, key: Optional[slice|int]) -> Iterable:
   def build(dim:int, offset:int, loops:Iterable[tuple], result:Iterable[float|int]) -> Iterable[float|int]:
-    if not loops: return tensor
+    if not loops: return result 
     s, e, step = loops[0]
     for i in range(s, e, step):
       if len(loops) == 1: 
@@ -50,3 +50,15 @@ def to_nested_list(tensor, key: Optional[slice|int]) -> Iterable:
         build(dim+1, offset + i*tensor.strides[dim]*step, loops[1:], result[-1])
     return result 
   return build(0, 0, calc_loops(tensor, key), []) 
+
+def flatten(tensor):
+  def build(dim:int, offset:int, loops:Iterable[tuple], result:Iterable[float|int]) -> Iterable[float|int]:
+    if not loops: return result 
+    s, e, step = loops[0]
+    for i in range(s, e, step):
+      if len(loops) == 1: 
+        result.append(tensor.data[offset+i*step*tensor.strides[dim]])
+      else: 
+        build(dim+1, offset + i*tensor.strides[dim]*step, loops[1:], result)
+    return result 
+  return build(0, 0, calc_loops(tensor, None), [])  

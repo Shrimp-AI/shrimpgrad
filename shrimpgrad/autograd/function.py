@@ -1,6 +1,7 @@
 from typing import Any, Tuple
 import shrimpgrad as shrimp
 from shrimpgrad.runtime.python import PythonRuntime, BinaryOps, ReduceOps, UnaryOps
+from shrimpgrad.util import flatten
 
 class FunctionContext:
   # TODO: Implement device abstraction
@@ -26,7 +27,6 @@ class Function(FunctionContext):
   @classmethod
   def apply(cls, *tensors, **kwargs):
     ctx = cls(tensors[0].device)
-    print(f"FORWARD {cls}")
     ret = cls.forward(ctx, *tensors, **kwargs)
     ret.cls = cls
     ret.ctx = ctx
@@ -102,7 +102,9 @@ class Reshape(Function):
   def forward(ctx: FunctionContext, x: shrimp.Tensor, shape: Tuple[int,...] ) -> shrimp.Tensor:
     ctx.save_for_backward(x)
     if shrimp.util.prod(shape) != x.size: raise RuntimeError('shape \'{shape}\' is invalid for input of size {x.size}')
-    return shrimp.Tensor(shape, x.data, dtype=x.dtype)
+    if x.contiguous:
+      return shrimp.Tensor(shape, x.data, dtype=x.dtype)
+    return shrimp.Tensor(shape, flatten(x), dtype=x.dtype)
 
   @staticmethod
   def backward(ctx: FunctionContext, grad_out):
@@ -118,6 +120,7 @@ class Permute(Function):
     new_strides = [x.strides[i] for i in order]
     out = shrimp.Tensor(tuple(new_shape), x.data, dtype=x.dtype) 
     out.strides = new_strides
+    out.contiguous = False
     return out 
 
   @staticmethod 
@@ -127,7 +130,16 @@ class Permute(Function):
 class Expand(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: shrimp.Tensor, shape: Tuple[int, ...]) -> shrimp.Tensor:
-    pass
+    ctx.expanded_axis = []
+    out = shrimp.Tensor.zeros_like(x)
+    for i, (si, so) in enumerate(zip(x.shape, shape)):
+      if si != so: 
+        out.strides[i] = 0
+        ctx.expanded_axis.append(i)
+    out.shape = shape
+    out.data = x.data
+    return out
+ 
   @staticmethod
   def backward(ctx: FunctionContext, grad_out) -> shrimp.Tensor:
     pass

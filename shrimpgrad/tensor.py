@@ -30,6 +30,7 @@ class Tensor:
       self.data = data
       return
     self.__calc_strides()
+    self.contiguous = all(self.strides[i] == self.shape[i+1]*self.strides[i+1] for i in range(0, self.ndim-1))
   
   def is_scalar(self):
     return not self.ndim 
@@ -54,7 +55,7 @@ class Tensor:
       assert t.grad, f'{t} has no grad'
       if not t.ctx:
         continue
-      print(t.cls)
+      # print(t.cls)
       grads = t.cls.backward(t.ctx, t.grad)
       grads = grads if len(t.ctx.saved_tensors) > 1 else [grads]
       for t0, g in zip(t.ctx.saved_tensors, grads):
@@ -84,21 +85,8 @@ class Tensor:
       return self
     pad_s = pad_left(self.shape, broadcast_shape)
     # Set shape to original size with 1s padded for broadcasting
-    nt = Tensor(pad_s[0], self.data, self.dtype)
-    # pad prev stride to new length and copy original dim strides to nt
-    pad_strd = pad_left(tuple(self.strides), broadcast_shape)[0]
-    for i in range(len(pad_strd)-1, len(pad_strd) - len(self.strides), -1):
-      nt.strides[i] = pad_strd[i]
-    # Where the shape is 1, change the stride to 0
-    for i, v in enumerate(pad_s[0]): 
-      if v == 1: nt.strides[i] = 0
-    # Set the shape to the broadcast shape
-    nt.shape = broadcast_shape
-    # TODO: Need to use reshapes and expands here otherwise the graph disconnects
-    # on broadcasting via the return of nt
-    self.shape = broadcast_shape
-    self.strides = nt.strides
-    return self 
+    x = self.reshape(*pad_s[0]) 
+    return x.expand(*broadcast_shape)
 
   def __broadcast(self: Self, other: Self):
     assert self.ndim != 0 and other.ndim != 0, 'invalid broadcasting with scalar'
@@ -192,6 +180,10 @@ class Tensor:
     w = w.reshape(*w.shape[0:-2], *[1]*min(n1-1, n2-1, 1), *w.shape[-min(n2, 2):]).transpose(-1, -min(n2, 2))
     z = x*w
     return z.sum(axis=-1)
+
+  def expand(self, *shps) -> Self:
+    from shrimpgrad.autograd.function import Expand 
+    return Expand.apply(self, shape=tuple(shps))
 
   def reshape(self, *shps) -> Self:
     from shrimpgrad.autograd.function import Reshape  
