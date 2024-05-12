@@ -1,9 +1,12 @@
 from __future__ import annotations
+from itertools import accumulate
+import math
+import operator
 from typing import Iterable, List, Optional, Self, TypeAlias, Union, Tuple
 from pprint import pformat
 from shrimpgrad.dtype import DType, dtypes
 from random import uniform, gauss
-from shrimpgrad.util import prod, to_nested_list 
+from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list 
 
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
@@ -13,7 +16,7 @@ def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([ma
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[Iterable[Num], Num], dtype:DType=dtypes.float32, device='CPU', requires_grad:Optional[bool]=None) -> Self:
-    self.shape, self.data, self.size, self.strides, self.dtype = shape, data, prod(shape), [], dtype
+    self.shape, self.data, self.numel, self.strides, self.dtype = shape, data, prod(shape), [], dtype
     self.grad: Optional[Tensor] = None
     self.requires_grad = requires_grad 
     self.device = device
@@ -29,7 +32,7 @@ class Tensor:
       assert isinstance(data, Num)
       self.data = data
       return
-    self.__calc_strides()
+    self._strides()
     self.contiguous = all(self.strides[i] == self.shape[i+1]*self.strides[i+1] for i in range(0, self.ndim-1))
   
   def is_scalar(self):
@@ -39,7 +42,7 @@ class Tensor:
     self.grad = Tensor.ones(self.shape, self.dtype)
     visited = set()
     topo = []
-    # TODO: Turn this into generator so we don't generate
+    # TODO: Turn this into generator so we don't allocate memory for 
     # a massive list
     def build_topo(tensor: Tensor) -> List[Tensor]:  
       if tensor not in visited:
@@ -60,15 +63,12 @@ class Tensor:
       for t0, g in zip(t.ctx.saved_tensors, grads):
         t0.grad = g if t0.grad == None else t0.grad + g
 
-  def __calc_strides(self) -> None:
-    self.strides.clear()
-    out: int = 1
-    for dim in self.shape:
-      out *= dim
-      self.strides.append(self.size // out)
+  def _strides(self) -> None:
+    self.strides = list(accumulate(self.shape[-1:0:-1], func=operator.mul, initial=(1 if len(self.shape)else None)))[::-1]
+    return self.strides
   
   def item(self) -> Num:
-    if len(self.shape): raise RuntimeError(f'a Tensor with {self.size} elements cannot be converted to Scalar')
+    if len(self.shape): raise RuntimeError(f'a Tensor with {self.numel} elements cannot be converted to Scalar')
     return self.data
 
   def __getitem__(self, key) -> Self:
@@ -196,6 +196,9 @@ class Tensor:
     order = [i for i in range(self.ndim)]
     order[ax0], order[ax1] = order[ax1], order[ax0]
     return self.permute(order) 
+  
+  def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
+    return self.dot(w) + bias if bias else self.dot(w) 
 
   def __repr__(self): 
     if self.is_scalar(): return f'tensor({self.data})'
@@ -251,3 +254,15 @@ class Tensor:
   @staticmethod
   def uniform(*shape, low:Union[int, float]=0, high:Union[int, float]=10, dtype=dtypes.float32, **kwargs) -> Tensor:
     return Tensor(shape, [uniform(low, high) for _ in range(prod(shape))], dtype=dtype, **kwargs)
+
+  @staticmethod
+  def kaiming_uniform(*shape, mode:str='fan_in', nonlinearity:str='leaky_relu', a=0.1, **kwargs) -> Tensor:
+    bound = math.sqrt(3.0) * calc_gain(a) / calc_fan_in_fan_out(shape)[0]
+    return Tensor.uniform(*shape, low=-bound, high=bound, **kwargs)
+  
+  # Niceties
+  def size(self, dim:int|None=None) -> Tuple[int,...]|int:
+    assert dim == None or 0 <= dim < self.ndim, f'invalid dimension {dim} for tensor with shape of {self.ndim}-d'
+    if dim: return self.shape[dim]
+    return tuple(self.shape)
+  

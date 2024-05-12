@@ -1,6 +1,7 @@
 from functools import reduce
-from typing import Iterable, Optional, Union
+from typing import Iterable, Optional, Tuple, Union
 import operator
+import math
 
 def argsort(x): return type(x)(sorted(range(len(x)), key=x.__getitem__)) # https://stackoverflow.com/questions/3382352/equivalent-of-numpy-argsort-in-basic-python
 def prod(x: Iterable[int|float]) -> Union[float, int]: return reduce(operator.mul, x, 1)
@@ -62,3 +63,16 @@ def flatten(tensor):
         build(dim+1, offset + i*tensor.strides[dim]*step, loops[1:], result)
     return result 
   return build(0, 0, calc_loops(tensor, None), [])  
+
+## Used for Kaiming init
+def calc_fan_in_fan_out(shape:Tuple[int,...]):
+  # Similar to pytorch 
+  dim = len(shape)
+  assert dim >= 2, 'fan in/out requires tensors with dim >= 2'
+  r = prod(shape[2:]) if dim > 2 else 1
+  return shape[1] * r, shape[0] * r 
+
+def calc_gain(a=0.01):
+  # TODO: Only support leaky ReLU which is used for affine transformation
+  # in torch
+  return math.sqrt(2.0 / (1 + a ** 2))
