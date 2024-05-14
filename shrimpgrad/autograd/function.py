@@ -1,3 +1,4 @@
+import math
 from typing import Any, Tuple 
 import shrimpgrad as shrimp
 from shrimpgrad.runtime.python import PythonRuntime, BinaryOps, ReduceOps, UnaryOps
@@ -72,6 +73,18 @@ class Div(Function):
     denominator = PythonRuntime.exec(BinaryOps.MUL, y ,y)
     dydx = PythonRuntime.exec(BinaryOps.DIV, numerator, denominator)
     return PythonRuntime.exec(BinaryOps.DIV, grad_out, y), dydx 
+
+class Exp(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x: shrimp.Tensor) -> shrimp.Tensor:
+    ctx.save_for_backward(x)
+    ctx.ret = PythonRuntime.exec(UnaryOps.EXP2, PythonRuntime.exec(BinaryOps.MUL, x, x.const(1/math.log(2))))
+    return ctx.ret
+
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
+    # f(x) = e^x then dy/dx = e^x
+    return PythonRuntime.exec(BinaryOps.MUL, ctx.ret, grad_out)
 
 class ReLU(Function):
   @staticmethod

@@ -178,6 +178,9 @@ class Tensor:
     x = self.reshape(*self.shape[0:-1], *[1]*min(n1-1, n2-1, 1), self.shape[-1])
     w = w.reshape(*w.shape[0:-2], *[1]*min(n1-1, n2-1, 1), *w.shape[-min(n2, 2):]).transpose(-1, -min(n2, 2))
     return (x*w).sum(axis=-1)
+  
+  def const(self, val:Num, **kwargs) -> Self:
+    return Tensor.full_like(self, val, **kwargs)
 
   def expand(self, *shps) -> Self:
     from shrimpgrad.autograd.function import Expand 
@@ -199,6 +202,14 @@ class Tensor:
   
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
     return self.dot(w) + bias if bias else self.dot(w) 
+  
+  def exp(self):
+    from shrimpgrad.autograd.function import Exp
+    return Exp.apply(self)
+
+  # Loss Functions
+  def mse(self, y: Tensor):
+    return (self-y)**2
 
   def __repr__(self): 
     if self.is_scalar(): return f'tensor({self.data})'
@@ -215,6 +226,10 @@ class Tensor:
 
   @staticmethod
   def arange(start: int, stop:int, step:int=1, dtype:DType=dtypes.float32, **kwargs) -> Self: return Tensor(((stop - start) // step,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype, **kwargs) 
+
+  @staticmethod
+  def fromlist(shape: Shape, data:List[Num], dtype=dtypes.float32, **kwargs):
+    return Tensor(shape, data=data, dtype=dtype, **kwargs)
 
   @staticmethod
   def full(shape: Shape, fill_value: Num, dtype=dtypes.float32, **kwargs) -> Tensor:
@@ -260,9 +275,13 @@ class Tensor:
     bound = math.sqrt(3.0) * calc_gain(a) / calc_fan_in_fan_out(shape)[0]
     return Tensor.uniform(*shape, low=-bound, high=bound, **kwargs)
   
+  @staticmethod
+  def scalar(x: int|float) -> Self:
+    return Tensor((), data=x)
+  
   # Niceties
   def size(self, dim:int|None=None) -> Tuple[int,...]|int:
     assert dim == None or 0 <= dim < self.ndim, f'invalid dimension {dim} for tensor with shape of {self.ndim}-d'
     if dim: return self.shape[dim]
     return tuple(self.shape)
-  
+ 
