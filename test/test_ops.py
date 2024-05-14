@@ -1,12 +1,9 @@
-from shrimpgrad import Tensor, dtypes
-from shrimpgrad.util import prod, to_nested_list
+from shrimpgrad import Tensor 
+from shrimpgrad.util import to_nested_list
 import unittest
 import torch
 import numpy as np
 import time
-
-def gen_torch_tensors(*shapes): return [torch.arange(prod(s), dtype=torch.float32, requires_grad=True).reshape(*s)for s in shapes]
-def gen_shrimp_tensors(*shapes): return [Tensor.arange(0, prod(s), dtype=dtypes.float32).reshape(*s) for s in shapes]
 
 def prepare_tensors(shapes, low=-1.5, high=1.5):
   np.random.seed(0)
@@ -178,3 +175,25 @@ class TestOps(unittest.TestCase):
   def test_mean(self):
     self.helper_test_ops([(45,65)],torch.mean, Tensor.mean)
     self.helper_test_ops([()], torch.mean, Tensor.mean)
+  
+  def test_square(self):
+    self.helper_test_ops([(45,65)],torch.square, Tensor.square)
+    self.helper_test_ops([()], torch.square, Tensor.square)
+  
+  def test_mse(self):
+    out = Tensor((5,), data=[1.0,0.0,1.0,1.0,2.0])
+    target = Tensor(shape=(5,), data=[0,0,0,1,2])
+    sout = out.mse(target)
+    sout.backward()
+    sgrad = out.grad
+
+    out = torch.tensor([1.0,0.0,1.0,1.0,2.0], requires_grad=True)
+    out.retain_grad()
+    target = torch.Tensor([0,0,0,1,2])
+    loss = torch.nn.MSELoss()
+    tout = loss(out, target)
+    tout.backward()
+    tgrad = out.grad
+
+    self.compare(tout, sout, atol=1e-6, rtol=1e-3)
+    self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)

@@ -175,6 +175,9 @@ class Tensor:
     axis = axis if axis else tuple(i for i in range(self.ndim))
     axis_ = self._canonicalize_axis(axis)
     return  self.sum(axis=axis) / prod([self.shape[i] for i in axis_])
+  
+  def square(self) -> Self:
+    return self * self
 
   def sum(self, axis:Union[int|Tuple[int,...]]=0, keepdim=False) -> Self:
     from shrimpgrad.autograd.function import Sum 
@@ -222,13 +225,15 @@ class Tensor:
 
   # Loss Functions
   def mse(self, y: Tensor):
-    return (self-y)**2
+    return (self-y).square().mean()
 
+  # String
   def __repr__(self): 
     if self.is_scalar(): return f'tensor({self.data})'
     return f'tensor({pformat(to_nested_list(self, None) if not self.index_view else self.index_view, width=40)})'
   def __str__(self): return self.__repr__()
 
+  # Factory Methods
   @staticmethod
   def zeros(shape: Shape, dtype:DType=dtypes.float32, **kwargs) -> Self: 
     return Tensor.full(shape, fill_value=0.0, dtype=dtype, **kwargs)
