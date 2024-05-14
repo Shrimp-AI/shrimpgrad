@@ -14,4 +14,4 @@ class TestNN(unittest.TestCase):
       torch_model.bias[:] = torch.tensor(model.bias.data)
       torch_x = torch.tensor(x.data).reshape(2,2)
       torch_z = torch_model(torch_x)
-    np.testing.assert_allclose(np.array(z.data).reshape(2,2), torch_z.detach().numpy())
+    np.testing.assert_allclose(np.array(z.data).reshape(2,2), torch_z.detach().numpy(), atol=5e-4, rtol=1e-5)

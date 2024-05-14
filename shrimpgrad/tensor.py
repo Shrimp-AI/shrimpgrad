@@ -290,6 +290,7 @@ class Tensor:
 
   @staticmethod
   def kaiming_uniform(*shape, mode:str='fan_in', nonlinearity:str='leaky_relu', a=0.1, **kwargs) -> Tensor:
+    # TODO: Add support for other nonlinearties and fan_out
     bound = math.sqrt(3.0) * calc_gain(a) / calc_fan_in_fan_out(shape)[0]
     return Tensor.uniform(*shape, low=-bound, high=bound, **kwargs)
   
