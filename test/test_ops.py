@@ -47,9 +47,9 @@ class TestOps(unittest.TestCase):
       (shapes, torch_fwd_t*1000, shrimp_fwd_t*1000, torch_bt*1000, shrimp_bt*1000), end="")
 
 
-  def compare(self, tts, sts, rtol, atol):
+  def compare(self, tts, sts, rtol, atol, show=False):
     t = tts.tolist()
-    s = to_nested_list(sts, None)
+    s = to_nested_list(sts, None) if not sts.is_scalar() else [sts.data]
     np.testing.assert_allclose(t,s, rtol=rtol, atol=atol) 
   
   def test_add_1d(self):
@@ -167,12 +167,14 @@ class TestOps(unittest.TestCase):
     self.helper_test_ops([(2,2,2,2,2,2), (2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
     self.helper_test_ops([(3,1,4,1,5,3), (3,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
   
-  def test_dot_backward(self):
-    x = Tensor((2,2), [1,2,3,4]) 
-    y = Tensor((2,2), [1,2,3,4])
-    z = x.matmul(y)
-    z.backward()
-  
   def test_exp(self):
     self.helper_test_ops([(45,65)],torch.exp, Tensor.exp)
     self.helper_test_ops([()], torch.exp, Tensor.exp)
+  
+  def test_log(self):
+    self.helper_test_ops([(45,65)],torch.log, Tensor.log)
+    self.helper_test_ops([()], torch.log, Tensor.log)
+  
+  def test_mean(self):
+    self.helper_test_ops([(45,65)],torch.mean, Tensor.mean)
+    self.helper_test_ops([()], torch.mean, Tensor.mean)

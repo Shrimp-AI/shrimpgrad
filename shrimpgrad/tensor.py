@@ -31,6 +31,7 @@ class Tensor:
       # Ensure it's a number not dimensional data
       assert isinstance(data, Num)
       self.data = data
+      self.contiguous = True
       return
     self._strides()
     self.contiguous = all(self.strides[i] == self.shape[i+1]*self.strides[i+1] for i in range(0, self.ndim-1))
@@ -152,6 +153,10 @@ class Tensor:
       return other / self 
     other = Tensor((1,), [other]) 
     return other / self 
+  
+  def log(self) -> Self:
+    from shrimpgrad.autograd.function import Log
+    return Log.apply(self) 
 
   def relu(self) -> Self:
     from shrimpgrad.autograd.function import ReLU 
@@ -162,10 +167,18 @@ class Tensor:
 
   def matmul(self, other: Self, reverse=False) -> Self:
     return other.dot(self) if reverse else self.dot(other) 
+  
+  def _canonicalize_axis(self, axis):
+    return tuple(ax if ax >= 0 else ax + self.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,))) 
+
+  def mean(self, axis=None) -> Self:
+    axis = axis if axis else tuple(i for i in range(self.ndim))
+    axis_ = self._canonicalize_axis(axis)
+    return  self.sum(axis=axis) / prod([self.shape[i] for i in axis_])
 
   def sum(self, axis:Union[int|Tuple[int,...]]=0, keepdim=False) -> Self:
     from shrimpgrad.autograd.function import Sum 
-    axis_ = tuple(ax if ax >= 0 else ax + self.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,))) 
+    axis_ = self._canonicalize_axis(axis) 
     shape = tuple(s for i, s in enumerate(self.shape) if i not in axis_)
     ret = Sum.apply(self, axis=axis_, keepdim=keepdim) 
     return ret if keepdim else ret.reshape(*shape)

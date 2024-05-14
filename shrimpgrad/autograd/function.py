@@ -26,7 +26,7 @@ class Function(FunctionContext):
     )
 
   @classmethod
-  def apply(cls, *tensors, **kwargs):
+  def apply(cls, *tensors, **kwargs) -> shrimp.Tensor:
     ctx = cls(tensors[0].device)
     ret = cls.forward(ctx, *tensors, **kwargs)
     ret.cls = cls
@@ -40,7 +40,7 @@ class Add(Function):
     return PythonRuntime.exec(BinaryOps.ADD, x, y)
 
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     return (grad_out, grad_out)
 
 class Mul(Function):
@@ -50,7 +50,7 @@ class Mul(Function):
     return PythonRuntime.exec(BinaryOps.MUL, x, y)
 
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     x, y = ctx.saved_tensors
     return (PythonRuntime.exec(BinaryOps.MUL, y, grad_out), PythonRuntime.exec(BinaryOps.MUL, x, grad_out))
 
@@ -61,18 +61,18 @@ class Div(Function):
     return PythonRuntime.exec(BinaryOps.DIV, x, y)
 
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out:shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     x, y = ctx.saved_tensors
     '''
-    dx/dy = x/y = x * y^-1 = 1/y
-    dy/dx = x/y = x*(1/y) = -x * 1/(x*x)
+    dz/dx -> x/y = x * y^-1 = 1/y
+    dz/dy -> x/y = x * y^-1 = -x*y^-2 = -x/y^2
     
     ''' 
     numerator = PythonRuntime.exec(UnaryOps.NEG, x)
     numerator = PythonRuntime.exec(BinaryOps.MUL, numerator, grad_out)
     denominator = PythonRuntime.exec(BinaryOps.MUL, y ,y)
-    dydx = PythonRuntime.exec(BinaryOps.DIV, numerator, denominator)
-    return PythonRuntime.exec(BinaryOps.DIV, grad_out, y), dydx 
+    dzdy = PythonRuntime.exec(BinaryOps.DIV, numerator, denominator)
+    return PythonRuntime.exec(BinaryOps.DIV, grad_out, y), dzdy
 
 class Exp(Function):
   @staticmethod
@@ -93,7 +93,7 @@ class ReLU(Function):
     return PythonRuntime.exec(BinaryOps.MAX, x, shrimp.Tensor.zeros_like(x))
 
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
     x = ctx.saved_tensors[0]
     # dx' = 0 if x < else 1
     dx = PythonRuntime.exec(BinaryOps.CMPLT, shrimp.Tensor.zeros_like(x), x)
@@ -106,9 +106,23 @@ class Sum(Function):
     return PythonRuntime.exec(ReduceOps.SUM, x, ax=axis, keepdim=keepdim) 
     
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
     x = ctx.saved_tensors[0]
-    return grad_out.broadcast_to(x.shape)
+    return grad_out.expand(*x.shape)
+
+class Log(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x: shrimp.Tensor, axis: Tuple[int,...]=(0,)) -> shrimp.Tensor:
+    ctx.save_for_backward(x)
+    # ln(x) = log2(x)/log2(e) <by change of base>
+    #       = log2(x) / (1/ln(2)) = log2(x) * ln(2)
+    return PythonRuntime.exec(BinaryOps.MUL, PythonRuntime.exec(UnaryOps.LOG2, x), x.const(math.log(2)))
+
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+    # dL/dx = 1/x * grad_out
+    x = ctx.saved_tensors[0]
+    return PythonRuntime.exec(BinaryOps.DIV, grad_out, x)
 
 class Reshape(Function):
   @staticmethod
@@ -116,11 +130,16 @@ class Reshape(Function):
     ctx.save_for_backward(x)
     if shrimp.util.prod(shape) != x.numel: raise RuntimeError(f'shape \'{shape}\' is invalid for input of size {x.numel}')
     if x.contiguous:
-      return shrimp.Tensor(shape, x.data, dtype=x.dtype)
+      if shape == x.shape:
+        return shrimp.Tensor(shape, x.data, dtype=x.dtype)
+      # Reshape from scalar to n-dim tensor 
+      if x.is_scalar() and len(shape):
+        return shrimp.Tensor(shape, [x.data], dtype=x.dtype)
+      return shrimp.Tensor(shape, x.data if len(shape) else x.data[0], dtype=x.dtype)
     return shrimp.Tensor(shape, flatten(x), dtype=x.dtype)
 
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
     x = ctx.saved_tensors[0] 
     return grad_out.reshape(*x.shape)
 
@@ -137,7 +156,7 @@ class Permute(Function):
     return out 
 
   @staticmethod 
-  def backward(ctx: FunctionContext, grad_out):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
     return grad_out.permute(shrimp.util.argsort(ctx.order))
   
 class Expand(Function):
@@ -155,5 +174,5 @@ class Expand(Function):
     return out
  
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out) -> shrimp.Tensor:
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     return grad_out.sum(axis=tuple(ctx.expanded_axis)) 

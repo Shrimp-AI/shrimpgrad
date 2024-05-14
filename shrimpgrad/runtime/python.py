@@ -82,6 +82,9 @@ class PythonRuntime:
 
     axis = kwargs['ax']
     x = tensors[0]
+    if not axis:
+      # Reduction of scalar yields no changes
+      return shrimp.Tensor((), x.data, x.dtype)
     for ax in axis: 
       ret = reduce_op(operator.add, x, ax=ax)
       x = shrimp.Tensor((*x.shape[0:ax],*[1], *x.shape[ax+1:]), ret)
