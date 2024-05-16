@@ -1,3 +1,4 @@
+from typing import List
 from shrimpgrad import Tensor
 import math
 
@@ -9,3 +10,6 @@ class Linear:
 
   def __call__(self, x:Tensor) -> Tensor:
     return x.linear(self.w.transpose(), self.bias) 
+
+  def parameters(self) -> List[Tensor]:
+    return [self.w, self.bias]

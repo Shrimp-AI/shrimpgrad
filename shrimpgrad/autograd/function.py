@@ -2,7 +2,7 @@ import math
 from typing import Any, Tuple 
 import shrimpgrad as shrimp
 from shrimpgrad.runtime.python import PythonRuntime, BinaryOps, ReduceOps, UnaryOps
-from shrimpgrad.util import flatten
+from shrimpgrad.util import flatten, prod, argsort
 
 class FunctionContext:
   # TODO: Implement device abstraction
@@ -66,7 +66,6 @@ class Div(Function):
     '''
     dz/dx -> x/y = x * y^-1 = 1/y
     dz/dy -> x/y = x * y^-1 = -x*y^-2 = -x/y^2
-    
     ''' 
     numerator = PythonRuntime.exec(UnaryOps.NEG, x)
     numerator = PythonRuntime.exec(BinaryOps.MUL, numerator, grad_out)
@@ -128,7 +127,7 @@ class Reshape(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: shrimp.Tensor, shape: Tuple[int,...] ) -> shrimp.Tensor:
     ctx.save_for_backward(x)
-    if shrimp.util.prod(shape) != x.numel: raise RuntimeError(f'shape \'{shape}\' is invalid for input of size {x.numel}')
+    if prod(shape) != x.numel: raise RuntimeError(f'shape \'{shape}\' is invalid for input of size {x.numel}')
     if x.contiguous:
       if shape == x.shape:
         return shrimp.Tensor(shape, x.data, dtype=x.dtype)
@@ -157,7 +156,7 @@ class Permute(Function):
 
   @staticmethod 
   def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
-    return grad_out.permute(shrimp.util.argsort(ctx.order))
+    return grad_out.permute(argsort(ctx.order))
   
 class Expand(Function):
   @staticmethod

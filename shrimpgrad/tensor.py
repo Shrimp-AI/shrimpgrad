@@ -1,8 +1,9 @@
 from __future__ import annotations
+import functools
 from itertools import accumulate
 import math
 import operator
-from typing import Iterable, List, Optional, Self, TypeAlias, Union, Tuple
+from typing import Callable, Iterable, List, Optional, Self, TypeAlias, Union, Tuple
 from pprint import pformat
 from shrimpgrad.dtype import DType, dtypes
 from random import uniform, gauss
@@ -91,17 +92,26 @@ class Tensor:
   def __broadcast(self: Self, other: Self):
     assert self.ndim != 0 and other.ndim != 0, 'invalid broadcasting with scalar'
     new_shapes = pad_left(self.shape, other.shape)
-    assert all(x == y or x == 1 or y == 1 for x, y in zip(*new_shapes)), 'invalid shapes for broadcasting {self.shape} and {other.shape}'
+    assert all(x == y or x == 1 or y == 1 for x, y in zip(*new_shapes)), f'invalid shapes for broadcasting {self.shape} and {other.shape}'
     bs = broadcast_shape(*new_shapes)
     a = self.broadcast_to(bs) 
     b = other.broadcast_to(bs)
     return a,b
   
-  def __mul__(self, other: Self) -> Self:
+  def assign(self, x: Tensor) -> Tensor:
+    assert(x.shape == self.shape), f'shape mismatch on assign {self.shape} != {x.shape}'
+    assert(x.dtype == self.dtype), f'dtype mismatch on assign {self.dtype} != {x.dtype}'
+    self.data = x.data
+    return self
+  
+  def __mul__(self, other: Tensor) -> Tensor:
     from shrimpgrad.autograd.function import Mul
     if self.is_scalar():
       other = other if isinstance(
         other, Tensor) else Tensor((), other)
+      return Mul.apply(self, other)
+    if not isinstance(other, Tensor):
+      other = Tensor((), other) 
       return Mul.apply(self, other)
     a, b = self.__broadcast(other)
     return Mul.apply(a,b)
@@ -109,11 +119,16 @@ class Tensor:
   def __rmul__(self, other):
     return self * other
 
+  # def __iadd__(self, other): return self.assign(self + other)
+
   def __add__(self, other: Self) -> Self:
     from shrimpgrad.autograd.function import Add 
     if self.is_scalar():
       other = other if isinstance(
         other, Tensor) else Tensor((), other)
+      return Add.apply(self, other)
+    other = other if isinstance(other, Tensor) else Tensor((), other)
+    if other.is_scalar():
       return Add.apply(self, other)
     a, b = self.__broadcast(other)
     return Add.apply(a,b)
@@ -179,8 +194,9 @@ class Tensor:
   def square(self) -> Self:
     return self * self
 
-  def sum(self, axis:Union[int|Tuple[int,...]]=0, keepdim=False) -> Self:
+  def sum(self, axis:Union[int|Tuple[int,...]]=None, keepdim=False) -> Self:
     from shrimpgrad.autograd.function import Sum 
+    axis = axis if axis != None else tuple(i for i in range(self.ndim))
     axis_ = self._canonicalize_axis(axis) 
     shape = tuple(s for i, s in enumerate(self.shape) if i not in axis_)
     ret = Sum.apply(self, axis=axis_, keepdim=keepdim) 
@@ -219,6 +235,9 @@ class Tensor:
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
     return self.dot(w) + bias if bias else self.dot(w) 
   
+  # TODO: from tinygrad nice impl, see what we can change here
+  def sequential(self, ll:List[Callable[[Self], Self]]): return functools.reduce(lambda x,f: f(x), ll, self)
+
   def exp(self):
     from shrimpgrad.autograd.function import Exp
     return Exp.apply(self)

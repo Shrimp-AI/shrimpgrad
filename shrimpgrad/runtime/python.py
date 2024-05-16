@@ -21,6 +21,10 @@ OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], 
 def binary_op(F: Callable, a: shrimp.Tensor, b: shrimp.Tensor, result:Union[List[float|int]|int|float]) -> None:
   if a.is_scalar() and b.is_scalar(): 
     return F(a.data, b.data)
+  if a.is_scalar(): 
+    return [F(a.data, x) for x in b.data] 
+  if b.is_scalar():
+    return [F(b.data, x) for x in a.data]
   def run(loops, dim=0, off_a=0, off_b=0, result=result):
     if not loops:  return 
     s, e, step = loops[0]
@@ -73,7 +77,11 @@ class PythonRuntime:
   @staticmethod 
   def exec(op: Op, *tensors, **kwargs):
     if op in BinaryOps:
-      result = binary_op(python_alu[op], x:=tensors[0], tensors[1], [])
+      result = binary_op(python_alu[op], x:=tensors[0], y:=tensors[1], [])
+      if x.is_scalar():
+        return shrimp.Tensor(y.shape, result, dtype=x.dtype)
+      if y.is_scalar():
+        return shrimp.Tensor(x.shape, result, dtype=x.dtype)
       return shrimp.Tensor(x.shape, result, dtype=x.dtype)
     
     if op in UnaryOps:

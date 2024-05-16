@@ -3,4 +3,5 @@ from shrimpgrad.scalar.graph import *
 from shrimpgrad.scalar.mlp import *
 from shrimpgrad.tensor import * 
 from shrimpgrad.autograd import *
+from shrimpgrad.util import *
 from shrimpgrad.runtime import python
