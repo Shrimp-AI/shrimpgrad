@@ -56,6 +56,7 @@ class Tensor:
       grads = grads if len(t.ctx.saved_tensors) > 1 else [grads]
       for t0, g in zip(t.ctx.saved_tensors, grads):
         t0.grad = g if t0.grad is None else t0.grad + g
+      del t.ctx
 
   def _strides(self) -> List[int]:
     self.strides = list(accumulate(self.shape[-1:0:-1], func=operator.mul, initial=(1 if len(self.shape)else None)))[::-1]
@@ -126,6 +127,10 @@ class Tensor:
     from shrimpgrad.autograd.function import Add 
     return Add.apply(*self.__broadcast(other, reverse))
   
+  def sub(self, other, reverse=False) -> Tensor:
+    from shrimpgrad.autograd.function import Sub 
+    return Sub.apply(*self.__broadcast(other, reverse))
+  
   def div(self, other, reverse=False) -> Tensor:
     from shrimpgrad.autograd.function import Div
     return Div.apply(*self.__broadcast(other, reverse))
@@ -192,8 +197,8 @@ class Tensor:
   def __add__(self, other: Tensor) -> Tensor: return self.add(other)
   def __radd__(self, other): return self.add(other, reverse=True)
   def __neg__(self): return self.mul(-1)
-  def __sub__(self, other): return self.add(-other)
-  def __rsub__(self, other): return (-self).add(other)
+  def __sub__(self, other): return self.sub(other)
+  def __rsub__(self, other): return self.sub(other, True) 
   def __truediv__(self, other): return self.div(other)
   def __rtruediv__(self, other): return self.div(other, reverse=True)
   def __matmul__(self, other) -> Tensor: return self.matmul(other)
@@ -202,10 +207,12 @@ class Tensor:
   def relu(self) -> Tensor:
     from shrimpgrad.autograd.function import ReLU 
     return ReLU.apply(self)
-  def sigmoid(self) -> Tensor: return 1.0 / (1 + -self.exp())
+  def sigmoid(self) -> Tensor:
+    from shrimpgrad.autograd.function import Sigmoid 
+    return Sigmoid.apply(self)
 
   # Loss Functions
-  def binary_cross_entropy(self, y: Tensor) -> Tensor: return (-y*self.log() - (1-y)*(1-self).log()).mean()
+  def binary_cross_entropy(self, y: Tensor) -> Tensor: return ((-y)*self.log() - (1.0-y)*((1.0-self).log())).mean()
    
   def hinge_loss(self, target: Tensor) -> Tensor: return (1.0 + -target*self).relu().sum() * (1.0/target.shape[0])
   def mse(self, target: Tensor) -> Tensor: return (self-target).square().mean()

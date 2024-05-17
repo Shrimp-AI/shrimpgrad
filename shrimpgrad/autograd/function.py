@@ -46,6 +46,16 @@ class Add(Function):
   def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> OptionalGradients:
     return (grad_out, grad_out)
 
+class Sub(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x:shrimp.Tensor, y:shrimp.Tensor) -> shrimp.Tensor: 
+    ctx.save_for_backward(x,y)
+    return PythonRuntime.exec(BinaryOps.SUB, x, y) 
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_output:shrimp.Tensor) -> OptionalGradients: 
+    return grad_output, \
+           PythonRuntime.exec(UnaryOps.NEG, grad_output) 
+
 class Mul(Function):
   @staticmethod
   def forward(ctx:FunctionContext, x: shrimp.Tensor, y: shrimp.Tensor) -> shrimp.Tensor:
@@ -207,3 +217,16 @@ class Where(Function):
     cond = ctx.cond
     return PythonRuntime.exec(TernaryOps.WHERE, cond, grad_out, grad_out.const(0.0)), \
       PythonRuntime.exec(TernaryOps.WHERE, cond, grad_out.const(0.0), grad_out) 
+
+class Sigmoid(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x: shrimp.Tensor) -> shrimp.Tensor:
+    ctx.save_for_backward(x)
+    x_ = PythonRuntime.exec(BinaryOps.MUL, x, x.const(-1.0/math.log(2)))
+    x_ = PythonRuntime.exec(UnaryOps.EXP2, x_)
+    x_ = PythonRuntime.exec(BinaryOps.ADD, x_.const(1.0), x_)
+    ctx.ret = PythonRuntime.exec(BinaryOps.DIV, x_.const(1.0), x_)
+    return ctx.ret
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
+    return PythonRuntime.exec(BinaryOps.MUL, PythonRuntime.exec(BinaryOps.MUL, ctx.ret, PythonRuntime.exec(BinaryOps.SUB, ctx.ret.const(1.0), ctx.ret)), grad_out)

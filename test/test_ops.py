@@ -217,6 +217,16 @@ class TestOps(unittest.TestCase):
     self.helper_test_ops([(45,65)],torch.square, Tensor.square)
     self.helper_test_ops([()], torch.square, Tensor.square)
   
+  def test_square_mean(self):
+    self.helper_test_ops([(45,65)],lambda x: torch.square(x).mean(), lambda x: x.square().mean())
+    self.helper_test_ops([()], lambda x: torch.square(x).mean(), lambda x: x.square().mean())
+  
+  def test_transpose_(self):
+    self.helper_test_ops([(45,65)],lambda x: torch.transpose(x, 0, 1), Tensor.transpose)
+  
+  def test_dot_(self):
+    self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias)
+  
   def test_mse(self):
     out = Tensor((5,), data=[1.0,0.0,1.0,1.0,2.0])
     target = Tensor(shape=(5,), data=[0,0,0,1,2])
@@ -234,3 +244,14 @@ class TestOps(unittest.TestCase):
 
     self.compare(tout, sout, atol=1e-6, rtol=1e-3)
     self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)
+  
+  def test_sigmoid(self):
+    self.helper_test_ops([(45,65)],torch.sigmoid, Tensor.sigmoid)
+    self.helper_test_ops([()], torch.sigmoid, Tensor.sigmoid)
+  
+
+  def test_binary_cross_entropy(self):
+    self.helper_test_ops([(32,10), (32,10)], 
+                        lambda x, y: torch.nn.functional.binary_cross_entropy(x.sigmoid(), y.clip(0,1)), 
+                        lambda x, y: x.sigmoid().binary_cross_entropy(y.clamp(0,1)))
+    # self.helper_test_ops([(), ()], torch.sigmoid, Tensor.sigmoid)
