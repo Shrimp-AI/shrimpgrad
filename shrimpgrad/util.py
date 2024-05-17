@@ -75,4 +75,4 @@ def calc_fan_in_fan_out(shape:Tuple[int,...]):
 def calc_gain(a=0.01):
   # TODO: Only support leaky ReLU which is used for affine transformation
   # in torch
-  return math.sqrt(2.0 / (1 + a ** 2))
+  return math.sqrt(2.0 / (1.0 + a ** 2.0))

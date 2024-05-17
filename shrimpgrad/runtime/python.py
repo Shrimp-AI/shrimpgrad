@@ -18,13 +18,22 @@ class LoadOps(Enum): EMPTY = auto(); CONST = auto(); COPY = auto(); CONTIGUOUS =
 Op = Union[UnaryOps, BinaryOps, ReduceOps, LoadOps, TernaryOps, BufferOps]
 OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], Type[TernaryOps], Type[BufferOps]]
 
+def ternary_op(F: Callable, a: shrimp.Tensor, b: shrimp.Tensor, c: shrimp.Tensor, result:Union[List[float|int]|int|float]) -> None:
+  if a.is_scalar() and b.is_scalar() and c.is_scalar(): 
+    return F(a.data, b.data, c.data)
+  def run(loops, dim=0, off_a=0, off_b=0, off_c=0, result=result):
+    if not loops:  return 
+    s, e, step = loops[0]
+    for i in range(s, e, step):
+      if len(loops) == 1: result.append(F(a.data[off_a + i*step*a.strides[dim]], b.data[off_b + i*step*b.strides[dim]], c.data[off_c +i*step*c.strides[dim]]))
+      else: run(loops[1:], dim+1, off_a + i*a.strides[dim]*step, off_b + i*b.strides[dim]*step, off_c + i*c.strides[dim]*step, result)
+    return 
+  run(calc_loops(a, None))
+  return result
+
 def binary_op(F: Callable, a: shrimp.Tensor, b: shrimp.Tensor, result:Union[List[float|int]|int|float]) -> None:
   if a.is_scalar() and b.is_scalar(): 
     return F(a.data, b.data)
-  if a.is_scalar(): 
-    return [F(a.data, x) for x in b.data] 
-  if b.is_scalar():
-    return [F(b.data, x) for x in a.data]
   def run(loops, dim=0, off_a=0, off_b=0, result=result):
     if not loops:  return 
     s, e, step = loops[0]
@@ -77,15 +86,15 @@ class PythonRuntime:
   @staticmethod 
   def exec(op: Op, *tensors, **kwargs):
     if op in BinaryOps:
-      result = binary_op(python_alu[op], x:=tensors[0], y:=tensors[1], [])
-      if x.is_scalar():
-        return shrimp.Tensor(y.shape, result, dtype=x.dtype)
-      if y.is_scalar():
-        return shrimp.Tensor(x.shape, result, dtype=x.dtype)
+      result = binary_op(python_alu[op], x:=tensors[0], tensors[1], [])
       return shrimp.Tensor(x.shape, result, dtype=x.dtype)
     
     if op in UnaryOps:
       result = unary_op(python_alu[op], x:=tensors[0], [])
+      return shrimp.Tensor(x.shape, result, dtype=x.dtype)
+    
+    if op in TernaryOps:
+      result = ternary_op(python_alu[op], x:=tensors[0], tensors[1], tensors[2], [])
       return shrimp.Tensor(x.shape, result, dtype=x.dtype)
 
     axis = kwargs['ax']

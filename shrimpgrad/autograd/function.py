@@ -1,8 +1,12 @@
+import functools
 import math
-from typing import Any, Tuple 
+from typing import Any, Optional, Tuple, TypeAlias 
 import shrimpgrad as shrimp
-from shrimpgrad.runtime.python import PythonRuntime, BinaryOps, ReduceOps, UnaryOps
+from shrimpgrad.dtype import dtypes
+from shrimpgrad.runtime.python import PythonRuntime, BinaryOps, ReduceOps, TernaryOps, UnaryOps
 from shrimpgrad.util import flatten, prod, argsort
+
+OptionalGradients: TypeAlias = Tuple[Optional[shrimp.Tensor], ...]
 
 class FunctionContext:
   # TODO: Implement device abstraction
@@ -20,7 +24,7 @@ class Function(FunctionContext):
     )
 
   @staticmethod
-  def backward(ctx: Any, *grad_outputs: Any) -> Any:
+  def backward(ctx: FunctionContext, *grad_outputs: Any) -> Any: 
     raise NotImplementedError(
       "You must implement the backward function for autograd.Function. "
     )
@@ -38,9 +42,8 @@ class Add(Function):
   def forward(ctx: FunctionContext, x: shrimp.Tensor, y: shrimp.Tensor) -> shrimp.Tensor:
     ctx.save_for_backward(x, y)
     return PythonRuntime.exec(BinaryOps.ADD, x, y)
-
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> OptionalGradients:
     return (grad_out, grad_out)
 
 class Mul(Function):
@@ -48,9 +51,8 @@ class Mul(Function):
   def forward(ctx:FunctionContext, x: shrimp.Tensor, y: shrimp.Tensor) -> shrimp.Tensor:
     ctx.save_for_backward(x, y)
     return PythonRuntime.exec(BinaryOps.MUL, x, y)
-
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> OptionalGradients:
     x, y = ctx.saved_tensors
     return (PythonRuntime.exec(BinaryOps.MUL, y, grad_out), PythonRuntime.exec(BinaryOps.MUL, x, grad_out))
 
@@ -59,9 +61,8 @@ class Div(Function):
   def forward(ctx: FunctionContext, x: shrimp.Tensor, y: shrimp.Tensor) -> shrimp.Tensor:
     ctx.save_for_backward(x, y)
     return PythonRuntime.exec(BinaryOps.DIV, x, y)
-
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> OptionalGradients:
     x, y = ctx.saved_tensors
     '''
     dz/dx -> x/y = x * y^-1 = 1/y
@@ -79,7 +80,6 @@ class Exp(Function):
     ctx.save_for_backward(x)
     ctx.ret = PythonRuntime.exec(UnaryOps.EXP2, PythonRuntime.exec(BinaryOps.MUL, x, x.const(1/math.log(2))))
     return ctx.ret
-
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     # f(x) = e^x then dy/dx = e^x
@@ -90,9 +90,8 @@ class ReLU(Function):
   def forward(ctx: FunctionContext, x: shrimp.Tensor) -> shrimp.Tensor:
     ctx.save_for_backward(x)
     return PythonRuntime.exec(BinaryOps.MAX, x, shrimp.Tensor.zeros_like(x))
-
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     x = ctx.saved_tensors[0]
     # dx' = 0 if x < else 1
     dx = PythonRuntime.exec(BinaryOps.CMPLT, shrimp.Tensor.zeros_like(x), x)
@@ -103,9 +102,8 @@ class Sum(Function):
   def forward(ctx: FunctionContext, x: shrimp.Tensor, axis: Tuple[int,...]=(0,), keepdim=False) -> shrimp.Tensor:
     ctx.save_for_backward(x)
     return PythonRuntime.exec(ReduceOps.SUM, x, ax=axis, keepdim=keepdim) 
-    
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     x = ctx.saved_tensors[0]
     return grad_out.expand(*x.shape)
 
@@ -116,9 +114,8 @@ class Log(Function):
     # ln(x) = log2(x)/log2(e) <by change of base>
     #       = log2(x) / (1/ln(2)) = log2(x) * ln(2)
     return PythonRuntime.exec(BinaryOps.MUL, PythonRuntime.exec(UnaryOps.LOG2, x), x.const(math.log(2)))
-
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     # dL/dx = 1/x * grad_out
     x = ctx.saved_tensors[0]
     return PythonRuntime.exec(BinaryOps.DIV, grad_out, x)
@@ -136,9 +133,8 @@ class Reshape(Function):
         return shrimp.Tensor(shape, [x.data], dtype=x.dtype)
       return shrimp.Tensor(shape, x.data if len(shape) else x.data[0], dtype=x.dtype)
     return shrimp.Tensor(shape, flatten(x), dtype=x.dtype)
-
   @staticmethod
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     x = ctx.saved_tensors[0] 
     return grad_out.reshape(*x.shape)
 
@@ -153,9 +149,8 @@ class Permute(Function):
     out.strides = new_strides
     out.contiguous = False
     return out 
-
   @staticmethod 
-  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor):
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     return grad_out.permute(argsort(ctx.order))
   
 class Expand(Function):
@@ -171,7 +166,44 @@ class Expand(Function):
     out.shape = shape
     out.data = x.data
     return out
- 
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> shrimp.Tensor:
     return grad_out.sum(axis=tuple(ctx.expanded_axis)) 
+
+class Less(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x:shrimp.Tensor, y:shrimp.Tensor) -> shrimp.Tensor: 
+    return PythonRuntime.exec(BinaryOps.CMPLT, x, y)
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out:shrimp.Tensor) -> OptionalGradients: return None, None
+
+class Eq(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x:shrimp.Tensor, y:shrimp.Tensor) -> shrimp.Tensor:
+    return PythonRuntime.exec(BinaryOps.CMPEQ, x, y)
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out:shrimp.Tensor) -> OptionalGradients: return None, None
+
+class Cast(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x:shrimp.Tensor, dtype: shrimp.DType) -> shrimp.Tensor:
+    ctx.save_for_backward(x)
+    ctx.input_dtype = x.dtype
+    x.data = list(map(functools.partial(dtypes.cast, dtype), x.data)) if not x.is_scalar() else dtypes.cast(dtype, x.data)
+    return x 
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out:shrimp.Tensor) -> shrimp.Tensor:
+    grad_out.data = map(functools.partial(dtypes.cast, ctx.input_dtype), grad_out.data)
+    return grad_out
+
+class Where(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, condition: shrimp.Tensor, x: shrimp.Tensor, y: shrimp.Tensor) -> shrimp.Tensor:
+    ctx.save_for_backward(x, y)
+    ctx.cond = condition
+    return PythonRuntime.exec(TernaryOps.WHERE, condition, x, y)
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out: shrimp.Tensor) -> OptionalGradients:
+    cond = ctx.cond
+    return PythonRuntime.exec(TernaryOps.WHERE, cond, grad_out, grad_out.const(0.0)), \
+      PythonRuntime.exec(TernaryOps.WHERE, cond, grad_out.const(0.0), grad_out) 

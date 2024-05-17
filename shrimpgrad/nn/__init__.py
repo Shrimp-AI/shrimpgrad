@@ -13,7 +13,3 @@ class Linear:
 
   def parameters(self) -> List[Tensor]:
     return [self.w, self.bias]
-
-class Sigmoid:
-  def __call__(self, x: Tensor):
-    return 1.0 / (1.0 + -x.exp())
