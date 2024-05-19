@@ -114,7 +114,7 @@ class TestNN(unittest.TestCase):
     w1, w1_ = weights_shrimp[1], weights_torch[1]
     b1, b1_ = weights_shrimp[3], weights_torch[3]
 
-    X, y = dataset()
+    X, _ = dataset()
 
     x0, x0_ = Tensor.fromlist(X.shape, X.flatten().tolist()), torch.tensor(X, dtype=torch.float32)
     z0 = (x0.dot(w0.transpose()) + b0).relu()
@@ -149,8 +149,8 @@ class TestNN(unittest.TestCase):
     z1_ = (torch.matmul(z0_, w1_.transpose(0,1)) + b1_ ).sigmoid()
     np.testing.assert_allclose(np.array(z1.data).reshape(*z1.shape), z1_.detach().numpy(), atol=1e-6, rtol=1e-3)
 
-    z2 = z1.binary_cross_entropy(yb:=Tensor.fromlist(y.shape, y.flatten().tolist()))
-    z2_ = torch.nn.functional.binary_cross_entropy(z1_.reshape(100), torch.tensor(y, dtype=torch.float32))
+    _ = z1.binary_cross_entropy(_:=Tensor.fromlist(y.shape, y.flatten().tolist()))
+    _ = torch.nn.functional.binary_cross_entropy(z1_.reshape(100), torch.tensor(y, dtype=torch.float32))
     # TODO: BCE doesn't match up with torch unless I write a custom BCE for torch that matches our impl
     # np.testing.assert_allclose(np.array(z2.data), z2_.detach().numpy(), atol=1e-6, rtol=1e-3)
 

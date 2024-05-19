@@ -8,7 +8,7 @@ setup(
     python_requires='>=3.8',
     packages=['shrimpgrad', 'shrimpgrad.scalar'],
     package_data={'shrimpgrad': ['lib/*.dylib']},
-    install_requires=["graphviz", 'numpy', 'cffi'],
+    install_requires=["graphviz", 'numpy', 'cffi', 'llvmlite'],
     extras_require={
       'testing': [
           "torch",
