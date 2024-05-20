@@ -1,51 +1,12 @@
 from __future__ import annotations
 import ctypes
-from enum import Enum, auto
 import subprocess
-from typing import List, Tuple, Type, Union
+from typing import List, Tuple
 from shrimpgrad.dtype import DType, dtypes
 import tempfile
+from shrimpgrad.runtime.ops import Op, UnaryOps, BinaryOps, TernaryOps 
 from shrimpgrad.runtime.profiler import Profile
 
-class UnaryOps(Enum): EXP2 = auto(); LOG2 = auto(); CAST = auto(); SIN = auto(); SQRT = auto(); NEG = auto() # noqa: E702
-class BinaryOps(Enum):
-  ADD = auto(); SUB = auto(); MUL = auto(); DIV = auto(); MAX = auto(); MOD = auto(); CMPLT = auto(); CMPEQ = auto(); XOR = auto() # noqa: E702
-class TernaryOps(Enum): WHERE = auto(); MULACC = auto() # noqa: E702
-class ReduceOps(Enum): SUM = auto(); MAX = auto() # noqa: E702
-class BufferOps(Enum): LOAD = auto(); CONST = auto(); STORE = auto() # noqa: E702
-class LoadOps(Enum): EMPTY = auto(); CONST = auto(); COPY = auto(); CONTIGUOUS = auto(); CUSTOM = auto(); ASSIGN = auto() # noqa: E702
-
-Op = Union[UnaryOps, BinaryOps, ReduceOps, LoadOps, TernaryOps, BufferOps]
-OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], Type[TernaryOps], Type[BufferOps]]
-
-class Allocator:
-  def alloc(self): raise NotImplementedError('implement alloc')
-  def free(self): raise NotImplementedError('implement free')
-  def copyin(self): raise NotImplementedError('implement copyin')
-  def copyout(self): raise NotImplementedError('implement copyout')
-
-class MallocAllocator(Allocator):
-  def alloc(self, size:int):
-    return (ctypes.c_uint8 * size)()
-  def copyin(self, dst, src:memoryview):
-    ctypes.memmove(dst, src, len(src))
-  def copyout(self, dst:memoryview, src):
-    ctypes.memmove(dst, src, len(dst))
-  def free(self): return
-
-class Buffer:
-  def __init__(self, allocator: Allocator, size:int, dtype: DType):
-    self.allocator, self.dtype, self.size = allocator, dtype, size
-    self._ref_count = 1
-    self._data = memoryview(allocator.alloc(self.dtype.bytes * self.size))
-  def pointer(self, to_type=ctypes.c_byte):
-    return ctypes.cast(ctypes.addressof(to_type.from_buffer(self._data)), ctypes.POINTER(to_type*(ctypes.sizeof(to_type)*self.size))).contents
-  def copyin(self, src: memoryview): 
-    self.allocator.copyin(self.pointer(), src)
-  def copyout(self, dst: memoryview):
-    self.allocator.copyout(dst, self.pointer())
-  def view(self):
-    return Buffer(self.allocator, self.size, self.dtype) 
 
 c_alu = {
   UnaryOps.LOG2: lambda x: f'log2({x})',
@@ -73,7 +34,7 @@ class ClangProgram:
     for op in c_alu.keys():
       self.create_op(op, shape, strides, dtype)
 
-class ClangRenderer:
+class ClangCodeGenerator:
   def __init__(self, prg: ClangProgram): self.prg, self._preamble, self._src = prg, '#include<stdio.h>\n#include<math.h>\n', ''
   def render(self):
     for op, opts in self.prg.func.items():
@@ -105,7 +66,7 @@ class ClangCompiler:
     try:
       with tempfile.TemporaryFile() as outfile:
         subprocess.run(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
-                        '-o', str(outfile.name)], check=True, input=ClangRenderer(prg).render().encode('utf-8'))
+                        '-o', str(outfile.name)], check=True, input=ClangCodeGenerator(prg).render().encode('utf-8'))
         return ctypes.CDLL('./'+str(outfile.name))
     except subprocess.CalledProcessError as e:
       print(f"clang failure: {e}") 

@@ -1,22 +1,10 @@
-from enum import Enum, auto
-from typing import Callable, List, Type, Union
+from typing import Callable, List, Union
 import shrimpgrad as shrimp 
 from functools import reduce
 import math
 import operator
+from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps, Op
 from shrimpgrad.util import calc_loops
-
-# Tinygrad minimal ops set for reference
-class UnaryOps(Enum): EXP2 = auto(); LOG2 = auto(); CAST = auto(); SIN = auto(); SQRT = auto(); NEG = auto() # noqa: E702
-class BinaryOps(Enum):
-  ADD = auto(); SUB = auto(); MUL = auto(); DIV = auto(); MAX = auto(); MOD = auto(); CMPLT = auto(); CMPEQ = auto(); XOR = auto() # noqa: E702
-class TernaryOps(Enum): WHERE = auto(); MULACC = auto() # noqa: E702
-class ReduceOps(Enum): SUM = auto(); MAX = auto() # noqa: E702
-class BufferOps(Enum): LOAD = auto(); CONST = auto(); STORE = auto() # noqa: E702
-class LoadOps(Enum): EMPTY = auto(); CONST = auto(); COPY = auto(); CONTIGUOUS = auto(); CUSTOM = auto(); ASSIGN = auto() # noqa: E702
-
-Op = Union[UnaryOps, BinaryOps, ReduceOps, LoadOps, TernaryOps, BufferOps]
-OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], Type[TernaryOps], Type[BufferOps]]
 
 def ternary_op(F: Callable, a: shrimp.Tensor, b: shrimp.Tensor, c: shrimp.Tensor, result:Union[List[float|int]|int|float]) -> None:
   if a.is_scalar() and b.is_scalar() and c.is_scalar(): 
