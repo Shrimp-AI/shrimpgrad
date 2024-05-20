@@ -5,6 +5,7 @@ import subprocess
 from typing import List, Tuple, Type, Union
 from shrimpgrad.dtype import DType, dtypes
 import tempfile
+from shrimpgrad.runtime.profiler import Profile
 
 class UnaryOps(Enum): EXP2 = auto(); LOG2 = auto(); CAST = auto(); SIN = auto(); SQRT = auto(); NEG = auto() # noqa: E702
 class BinaryOps(Enum):
@@ -38,7 +39,7 @@ class Buffer:
     self._ref_count = 1
     self._data = memoryview(allocator.alloc(self.dtype.bytes * self.size))
   def pointer(self, to_type=ctypes.c_byte):
-    return ctypes.cast(ctypes.addressof(to_type.from_buffer(self._data)), ctypes.POINTER(to_type*ctypes.sizeof(to_type))).contents
+    return ctypes.cast(ctypes.addressof(to_type.from_buffer(self._data)), ctypes.POINTER(to_type*(ctypes.sizeof(to_type)*self.size))).contents
   def copyin(self, src: memoryview): 
     self.allocator.copyin(self.pointer(), src)
   def copyout(self, dst: memoryview):
@@ -47,16 +48,16 @@ class Buffer:
     return Buffer(self.allocator, self.size, self.dtype) 
 
 c_alu = {
-  UnaryOps.LOG2: 'log2',
-  UnaryOps.EXP2: 'exp2',
-  UnaryOps.SQRT: 'sqrt', UnaryOps.SIN: 'sin',
-  # UnaryOps.NEG: '-',
-  BinaryOps.MUL: '*', BinaryOps.ADD: '+', BinaryOps.SUB: '-', BinaryOps.XOR: '^',
-  # TODO: rendering binary op functions fix needed BinaryOps.MAX: 'MAX'
-  BinaryOps.CMPEQ: '==', BinaryOps.CMPLT: '<',
-  BinaryOps.MOD: '%',
-  BinaryOps.DIV: '/',
-  TernaryOps.WHERE: 'if else'}
+  UnaryOps.LOG2: lambda x: f'log2({x})',
+  UnaryOps.EXP2: lambda x: f'exp2({x})',
+  UnaryOps.SQRT: lambda x: f'sqrt({x})', UnaryOps.SIN: lambda x: f'sin({x})',
+  UnaryOps.NEG: lambda x: f'-{x}',
+  BinaryOps.MUL: lambda x,y: f'{x}*{y}', BinaryOps.ADD: lambda x,y: f'{x}+{y}', BinaryOps.SUB: lambda x,y: f'{x}-{y}', BinaryOps.XOR: lambda x,y: f'{x}^{y}',
+  BinaryOps.MAX: lambda x,y: f'fmax({x}, {y})',
+  BinaryOps.CMPEQ: lambda x,y: f'{x}=={y}', BinaryOps.CMPLT: lambda x,y: f'{x}<{y}',
+  BinaryOps.MOD: lambda x,y: f'{x}%{y}',
+  BinaryOps.DIV: lambda x,y: f'{x}/{y}',
+  TernaryOps.WHERE: lambda x,y,z: f'{x} ? {y} : {z}'}
 
 class ClangProgram:
   def __init__(self):  self.func = {}
@@ -78,7 +79,6 @@ class ClangRenderer:
     for op, opts in self.prg.func.items():
       self._src += self._function(opts['name'], opts['args'], self._loops(opts['shape'], self._op(op, opts['args'].keys(), opts['shape'], opts['strides']))) + '\n'
     return self._preamble + self._src
-
   # Code Generation (Private)
   def _loop(self,v, s, e, step, body): return f'for(int {v} = {s}; {v} < {e}; {v}+={step}) {{{body}}}'
   def _loops(self, shape: Tuple[int,...], body: str) -> str: 
@@ -87,14 +87,14 @@ class ClangRenderer:
       return self._loop(f'i{depth}', 0, shp[0], 1, build(shp[1:], depth+1))
     return build(shape)
   def _loop_vars(self, num_loops): return [f'i{num}' for num in range(num_loops)]
-  def _op(self, op: Op, in_bufs, shape, strides):
+  def _op(self, op: Op, args, shape, strides):
     offset = '+'.join([self._offset(i, strd, 1) for i, strd in zip(self._loop_vars(len(shape)), strides)])
-    if op in BinaryOps:
-      c_code = c_alu[op].join([f'{in_b}[{offset}]' for in_b in list(in_bufs)[0:2]]) + ';'
-      return f'out0[{offset}]={c_code}'
-    if op in UnaryOps:
-      return f'out0[{offset}]={c_alu[op]}({list(in_bufs)[0]}[{offset}])' + ';' 
-
+    if op in BinaryOps: c_code = c_alu[op](*self._many_ptrinc(list(args)[0:2], offset))
+    if op in UnaryOps: c_code = c_alu[op](self._ptrinc(list(args)[0], offset))
+    if op in TernaryOps: c_code = c_alu[op](*self._many_ptrinc(list(args)[0:3], offset))
+    return f'out0[{offset}]={c_code};'
+  def _ptrinc(self, arg, offset): return f'{arg}[{offset}]' # ptr[offset]
+  def _many_ptrinc(self, args, offset): return [self._ptrinc(arg, offset) for arg in args]
   def _offset(self, off:str, strd:int, step:int) -> str: return f'{off}*{strd}*{step}'
   def _function(self, name:str, args: dict, body:str) -> str: return f'void {name} ({self._unpack_args(args)}) {{ { body} }}'
   def _unpack_args(self, args: dict):  return ','.join([f'{typ} {name} ' for name, typ in args.items()])
@@ -110,12 +110,6 @@ class ClangCompiler:
     except subprocess.CalledProcessError as e:
       print(f"clang failure: {e}") 
 
-class ClangRuntime:
+class ClangRuntime(metaclass=Profile):
   def __init__(self, lib): self.lib = lib
-  def exec(self, op, *args):
-    if op == BinaryOps.ADD:
-      self.lib.addshrimp.argtypes = [ctypes.POINTER(ctypes.c_float),ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]
-      return self.lib.addshrimp(*args)
-    if op == BinaryOps.MUL:
-      self.lib.mulshrimp.argtypes = [ctypes.POINTER(ctypes.c_float),ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float)]
-      return self.lib.mulshrimp(*args)
+  def exec(self, op: Op, *args): return getattr(self.lib, op.name.lower() + 'shrimp')(*args)
