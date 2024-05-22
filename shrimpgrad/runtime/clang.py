@@ -2,11 +2,12 @@ from __future__ import annotations
 import ctypes
 import subprocess
 from typing import List, Tuple
+from shrimpgrad.device import Device
 from shrimpgrad.dtype import DType, dtypes
 import tempfile
+from shrimpgrad.memory.buffer import MallocAllocator
 from shrimpgrad.runtime.ops import Op, UnaryOps, BinaryOps, TernaryOps 
 from shrimpgrad.runtime.profiler import Profile
-
 
 c_alu = {
   UnaryOps.LOG2: lambda x: f'log2({x})',
@@ -61,8 +62,7 @@ class ClangCodeGenerator:
   def _unpack_args(self, args: dict):  return ','.join([f'{typ} {name} ' for name, typ in args.items()])
 
 class ClangCompiler:
-  @staticmethod
-  def compile(prg: ClangProgram):
+  def compile(self, prg: ClangProgram):
     try:
       with tempfile.TemporaryFile() as outfile:
         subprocess.run(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
@@ -74,3 +74,13 @@ class ClangCompiler:
 class ClangRuntime(metaclass=Profile):
   def __init__(self, lib): self.lib = lib
   def exec(self, op: Op, *args): return getattr(self.lib, op.name.lower() + 'shrimp')(*args)
+
+class ClangDevice(Device):
+  def __init__(self) -> None:
+    super().__init__(MallocAllocator, ClangCompiler, ClangRuntime)
+  
+  def allocator(self):
+    return self._allocator()
+
+  def compiler(self):
+    return self._compiler()

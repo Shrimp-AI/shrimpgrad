@@ -1,69 +1,77 @@
 from __future__ import annotations
-from typing import Any, List, Tuple, Union
-from shrimpgrad.dtype import ConstType, DType
-from shrimpgrad.runtime.ops import BinaryOps, BufferOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps
-from shrimpgrad.tensor import Tensor
-from shrimpgrad.memory.buffer import Buffer, Allocator
+import struct
+from typing import List, Optional, Tuple, Union
+from shrimpgrad.dtype import ConstType, DType, dtypes
+from shrimpgrad.runtime.ops import BinaryOps, BufferOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, MovementOps
+from shrimpgrad.view import View
+from shrimpgrad.memory.buffer import Buffer
 
-def create_dependent_future_tensor(): pass
-def create_independent_future_tensor(): pass
-
-class FutureTensor:
-  """An unresolved tensor described by future computations. 
+class Thunk:
+  """A lazy evaluated buffer described by future computation or memory operation.
+  Thunks are realized only when they are needed for an operation. Thunks form an abstract
+  syntax tree where root thunks have allocated buffers (inputs usually from tensor factory methods)
+  and child thunks are described by operations and their parent operands.
   """
-  def __init__(self, op: Op, in_tensors: Tuple[FutureTensor, ...], shape: Tuple[int,...], dtype: DType, device:str):
+  def __init__(self, op: Optional[Op], operands: Tuple[Thunk, ...], view: View, data: Union[ConstType, List, bytes, memoryview]=None):
     # initial tensor conditions
-    self._shape, self._dtype, self._device = shape, dtype, device
-    self._op, self._in_tensors = op, in_tensors
-    
-  def load(self, op: LoadOps, src: Union[ConstType, List[Any]]) -> FutureTensor: 
-    pass
-    
-  def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_tensors: Tuple[FutureTensor,...]) -> FutureTensor:
-    return FutureTensor(op, in_tensors, self._shape, self._dtype, self._device)
-
-  def reduce(self, op: ReduceOps, in_tensors: Tuple[FutureTensor, ...], *args, **kwargs) -> FutureTensor:
-    pass
-
-  def buffer(self, op: BufferOps, in_tensors: Tuple[FutureTensor], *args, **kwargs) -> FutureTensor:
-    pass
+    self._view = view
+    self._op, self._operands = op, operands 
+    # Unallocated buffer
+    self.buff = Buffer(self._view.device._allocator(), self._view.numel, self._view.dtype)
+    if data is not None and isinstance(data, List):
+      # Could be a root thunk
+      # We have data, need to allocate and load the buffer 
+      # TODO: Support other data types and dtypes (look at datas type in function sig)
+      if self._view.dtype == dtypes.float32:
+        self.buff.allocate()
+        self.buff.copyin(struct.pack('f'*len(data), *data))
   
-  def const(self, val:ConstType) -> FutureTensor:
-    pass
-  
+  @staticmethod
+  def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], view: View):
+    if op in BinaryOps: assert len(operands) > 1, f'binary ops require two operands, {len(operands)} given' 
+    if op in UnaryOps: assert len(operands) > 0, f'unary ops require one operands, {len(operands)} given'
+    if op in TernaryOps: assert len(operands) > 2, f'ternary ops require three operands, {len(operands)} given' 
+    return Thunk(op, tuple(operands), View.from_view(view))
+    
+  @staticmethod
+  def from_memory(op: Union[LoadOps, BufferOps], view: View, data: Union[memoryview, ConstType]) -> Thunk:
+    if op == LoadOps.EMPTY: return Thunk(op, (),  view)
+    if op == LoadOps.CONTIGUOUS: assert isinstance(data, memoryview), 'data for contiguous loads must come from a memoryview'
+    if op == LoadOps.CONST: assert isinstance(data, ConstType), 'data for const loads must come from a ConstType'
+    return Thunk(op, (), view,  data=data) 
+    
+  def load(self, op: LoadOps, data: Union[ConstType, memoryview]) -> Thunk:  return Thunk.from_memory(op, self._view, data)
+    
+  def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_thunks: Tuple[Thunk,...]) -> Thunk:
+    return Thunk.from_compute(op, (self, *in_thunks), self._view)
+
+  def reduce(self, op: ReduceOps, axis: Tuple[int,...]) -> Thunk: 
+    new_shape = tuple([1 if i in axis else s for i,s in enumerate(self._view.shape)])
+    return Thunk(op, (self,), View(self._view.device, new_shape, self._view.dtype))
+
   def reshape(self, shape: Tuple[int,...]):
-    # if prod(shape) != x.numel: raise RuntimeError(f'shape \'{shape}\' is invalid for input of size {x.numel}')
-    # if x.contiguous:
-    #   if shape == x.shape:
-    #     return FutureTensor(shape, x.data, dtype=x.dtype)
-    #   # Reshape from scalar to n-dim tensor 
-    #   if x.is_scalar() and len(shape):
-    #     return FutureTensor(shape, [x.data], dtype=x.dtype)
-    #   return FutureTensor(shape, x.data if len(shape) else x.data[0], dtype=x.dtype)
-    # return FutureTensor(shape, flatten(x), dtype=x.dtype)
-    pass
+    return Thunk(MovementOps.RESHAPE, (self,), self._view.reshape(shape))
 
-  def permute(self, order:Tuple[int,...]) -> FutureTensor:
-    # new_shape = [x._shape[i] for i in order]
-    # new_strides = [x._strides[i] for i in order]
-    # out = FutureTensor(tuple(new_shape), x._data, dtype=x._dtype) 
-    # out.strides = new_strides
-    # out.contiguous = False
-    pass
+  def permute(self, order:Tuple[int,...]) -> Thunk:
+    return Thunk(MovementOps.PERMUTE, (self,), self._view.permute(order))
 
-  def expand(self, shape: Tuple[int,...]) -> FutureTensor:
-    # out = FutureTensor.zeros_like(x)
-    # for i, (si, so) in enumerate(zip(x.shape, shape)):
-    #   if si != so: 
-    #     out.strides[i] = 0
-    #     ctx.expanded_axis.append(i)
-    # out.shape = shape
-    # out.data = x.data
-    pass
+  def expand(self, shape: Tuple[int,...]) -> Thunk:
+    return Thunk(MovementOps.PERMUTE, (self,), self._view.expand(shape))
 
-  def cast(self, dtype: DType) -> FutureTensor:
-    #  x.data = list(map(functools.partial(dtypes.cast, dtype), x.data)) if not x.is_scalar() else dtypes.cast(dtype, x.data)
-    pass
+  def cast(self, dtype: DType) -> Thunk:
+    return Thunk(MovementOps.CAST, (self,), self._view.cast(dtype))
 
-  def resolve(self) -> Tensor: 
-    pass
+  def const(self, val: ConstType):
+    return Thunk(LoadOps.CONST, (self,), self._view, val)
+
+  def __repr__(self) -> str:
+    return f"<THUNK {self._view.device} {self._view.shape} {str(self._view.dtype)[7:]} {self._op}>"
+  
+def _tree(thunk: Thunk, prefix="") -> str:
+  if len(thunk._operands) == 0: return [f"━━ {prefix}{thunk._op.name}"]
+  lines = [f"━┳ {prefix}{thunk._op.name}"]
+  childs = [_tree(c) for c in thunk._operands[:]]
+  for c in childs[:-1]: lines += [f" ┣{c[0]}"] + [f" ┃{l}" for l in c[1:]]
+  return lines + [" ┗"+childs[-1][0]] + ["  "+l for l in childs[-1][1:]]
+
+def print_ast(thunk: Thunk): print("\n".join([f"{str(i).rjust(3)} {s}" for i,s in enumerate(_tree(thunk))]))

@@ -21,9 +21,14 @@ class Buffer:
   def __init__(self, allocator: Allocator, size:int, dtype: DType):
     self.allocator, self.dtype, self.size = allocator, dtype, size
     self._ref_count = 1
-    self._data = memoryview(allocator.alloc(self.dtype.bytes * self.size))
+  def allocate(self, with_data=None):
+    if with_data is None: # Alloc empty buffer
+      self._buf = self.allocator.alloc(self.dtype.bytes * self.size)
+    else:
+      self._buf = with_data 
+    return self
   def pointer(self, to_type=ctypes.c_byte):
-    return ctypes.cast(ctypes.addressof(to_type.from_buffer(self._data)), ctypes.POINTER(to_type*(ctypes.sizeof(to_type)*self.size))).contents
+    return ctypes.cast(ctypes.addressof(to_type.from_buffer(self._buf)), ctypes.POINTER(to_type*self.size)).contents
   def copyin(self, src: memoryview): 
     self.allocator.copyin(self.pointer(), src)
   def copyout(self, dst: memoryview):
