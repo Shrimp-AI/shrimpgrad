@@ -11,21 +11,25 @@ class View:
   """
   def __init__(self, device: Device, shape: Tuple[int,...], dtype: DType):
     self.device, self.shape, self.dtype = device, shape, dtype
-    self.ndim = len(self.shape)
-    self.numel = prod(self.shape)
     self.elemsize = dtype.bytes
     self.nbytes = dtype.bytes * self.numel
     self._strides = self.strides()
-    self._contiguous = self.contiguous() 
+    self._contiguous = self.contiguous()
     self._scalar = self.ndim == 0
   def strides(self) -> Tuple[int,...]:
     return list(accumulate(self.shape[-1:0:-1], func=operator.mul, initial=(1 if len(self.shape)else None)))[::-1]
   def contiguous(self) -> bool:
     return all(self._strides[i] == self.shape[i+1]*self._strides[i+1] for i in range(0, self.ndim-1))
   def scalar(self): return self._scalar
+  @property 
+  def numel(self): return prod(self.shape)    
+  @property
+  def ndim(self): return len(self.shape)
 
   def reshape(self, new_shape: Tuple[int,...]) -> View:
-    assert prod(new_shape) == self.numel, f'shape \'{new_shape}\' is invalid for input of size {self.numel}'
+    if len(self.shape):
+      assert prod(new_shape) == self.numel, f'shape \'{new_shape}\' is invalid for input of size {self.numel} of shape {self.shape}'
+      return View(self.device, new_shape, self.dtype)  
     return View(self.device, new_shape, self.dtype)  
 
   def permute(self, order: Tuple[int,...]) -> View:

@@ -17,12 +17,13 @@ def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tupl
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[Iterable[ConstType], ConstType], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
+  def __init__(self, shape: Shape, data: Union[Iterable[ConstType], ConstType, Thunk], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
     self.requires_grad, self.index_view = requires_grad, None 
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
-    self.data = Thunk(LoadOps.EMPTY,(),View(device, shape, dtype), data)
+    if isinstance(data, Thunk): self.data = data
+    else: self.data = Thunk(LoadOps.EMPTY,(),View(device, shape, dtype), data)
   
   def backward(self) -> Tensor:
     self.grad = Tensor.ones(self.view.shape, self.view.dtype)
@@ -36,19 +37,20 @@ class Tensor:
         if not tensor.ctx:
           topo.append(tensor)
           return
-        for p in tensor.ctx.saved_tensors:
+        for p in tensor.ctx.tensors:
           build_topo(p)
         topo.append(tensor)
     build_topo(self) 
     for t in reversed(topo):
       assert t.grad, f'{t} has no grad'
-      if not t.ctx:
-        continue
-      grads = t.cls.backward(t.ctx, t.grad)
-      grads = grads if len(t.ctx.saved_tensors) > 1 else [grads]
-      for t0, g in zip(t.ctx.saved_tensors, grads):
+      if not t.ctx: continue
+      grads = t.cls.backward(t.ctx, t.grad.data)
+      grads = [Tensor(g.shape, g, g._view.dtype, g._view.device, requires_grad=False) 
+               for g in ([grads] if len(t.ctx.tensors) == 1 else grads)]
+      for t0, g in zip(t.ctx.tensors, grads):
         t0.grad = g if t0.grad is None else t0.grad + g
       del t.ctx
+    return self
 
   @property
   def view(self): return self.data._view

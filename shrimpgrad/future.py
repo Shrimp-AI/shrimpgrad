@@ -25,6 +25,9 @@ class Thunk:
       if self._view.dtype == dtypes.float32:
         self.buff.allocate()
         self.buff.copyin(struct.pack('f'*len(data), *data))
+
+  @property
+  def shape(self): return self._view.shape
   
   @staticmethod
   def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], view: View):
@@ -56,7 +59,7 @@ class Thunk:
     return Thunk(MovementOps.PERMUTE, (self,), self._view.permute(order))
 
   def expand(self, shape: Tuple[int,...]) -> Thunk:
-    return Thunk(MovementOps.PERMUTE, (self,), self._view.expand(shape))
+    return Thunk(MovementOps.EXPAND, (self,), self._view.expand(shape))
 
   def cast(self, dtype: DType) -> Thunk:
     return Thunk(MovementOps.CAST, (self,), self._view.cast(dtype))
