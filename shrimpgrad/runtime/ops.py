@@ -8,6 +8,6 @@ class TernaryOps(Enum): WHERE = auto(); MULACC = auto()
 class ReduceOps(Enum): SUM = auto(); MAX = auto() 
 class BufferOps(Enum): LOAD = auto(); CONST = auto(); STORE = auto() 
 class LoadOps(Enum): EMPTY = auto(); CONST = auto(); COPY = auto(); CONTIGUOUS = auto(); CUSTOM = auto(); ASSIGN = auto() 
-class MovementOps(Enum): RESHAPE = auto(); PERMUTE = auto(); EXPAND = auto(); CAST = auto() 
+
 Op = Union[UnaryOps, BinaryOps, ReduceOps, LoadOps, TernaryOps, BufferOps]
 OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], Type[TernaryOps], Type[BufferOps]]

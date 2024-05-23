@@ -30,12 +30,12 @@ class Function(FunctionContext):
 
   @classmethod
   def apply(cls, *tensors, **kwargs) -> Thunk:
-    ctx = cls(tensors[0].view.device, *tensors)
-    thunk = cls.forward(ctx, *[t.data for t in tensors], **kwargs)
+    ctx = cls(tensors[0].device, *tensors)
+    thunk = cls.forward(ctx, *[t.thunk for t in tensors], **kwargs)
     from shrimpgrad import Tensor
     ret = Tensor.__new__(Tensor)
     ret.grad, ret.requires_grad, ret.cls, ret.ctx = None, ctx.requires_grad, cls, ctx
-    ret.data = thunk
+    ret.thunk= thunk
     return ret
 
 class Add(Function):

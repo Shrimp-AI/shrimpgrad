@@ -22,11 +22,11 @@ class Tensor:
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
-    if isinstance(data, Thunk): self.data = data
-    else: self.data = Thunk(LoadOps.EMPTY,(),View(device, shape, dtype), data)
+    if isinstance(data, Thunk): self.thunk = data
+    else: self.thunk = Thunk(device, dtype, View(shape), (), LoadOps.EMPTY, data=data)
   
   def backward(self) -> Tensor:
-    self.grad = Tensor.ones(self.view.shape, self.view.dtype)
+    self.grad = Tensor.ones(self.shape, self.dtype)
     visited = set()
     topo = []
     # TODO: Turn this into generator so we don't allocate memory for 
@@ -44,8 +44,8 @@ class Tensor:
     for t in reversed(topo):
       assert t.grad, f'{t} has no grad'
       if not t.ctx: continue
-      grads = t.cls.backward(t.ctx, t.grad.data)
-      grads = [Tensor(g.shape, g, g._view.dtype, g._view.device, requires_grad=False) 
+      grads = t.cls.backward(t.ctx, t.grad.thunk)
+      grads = [Tensor(g.shape, g, g.dtype, g.device, requires_grad=False) 
                for g in ([grads] if len(t.ctx.tensors) == 1 else grads)]
       for t0, g in zip(t.ctx.tensors, grads):
         t0.grad = g if t0.grad is None else t0.grad + g
@@ -53,28 +53,36 @@ class Tensor:
     return self
 
   @property
-  def view(self): return self.data._view
+  def shape(self): return self.thunk.shape
+  @property
+  def dtype(self): return self.thunk.dtype
+  @property
+  def numel(self): return self.thunk.numel
+  @property
+  def device(self): return self.thunk.device
+  @property
+  def ndim(self): return self.thunk.ndim
 
   # Indexing 
   def item(self) -> ConstType:
-    if len(self.view.shape): raise RuntimeError(f'a Tensor with {self.view.numel} elements cannot be converted to Scalar')
-    return self.data
+    if len(self.shape): raise RuntimeError(f'a Tensor with {self.numel} elements cannot be converted to Scalar')
+    return self.thunk
 
   def __getitem__(self, key) -> Tensor:
     # TODO: Remove dimensions when indexing down from NDim to MDim (m < n)
-    # i.e.) indexing x[0,0,0] x.view.shape=(2,2,2) should return a scalar view of x
-    if not len(self.view.shape): raise IndexError('invalid index of a 0-dim tensor. Use `tensor.item()`')
-    x = Tensor(self.view.shape, self.data)
+    # i.e.) indexing x[0,0,0] x.shape=(2,2,2) should return a scalar view of x
+    if not len(self.shape): raise IndexError('invalid index of a 0-dim tensor. Use `tensor.item()`')
+    x = Tensor(self.shape, self.thunk)
     x.index_view = to_nested_list(self, key)
     return x
   
   # Broadcasting, Assignment, Casting and Data Augmentation
   def broadcast_to(self: Tensor, broadcast_shape: Shape) -> Tensor:
-    if self.view.shape == broadcast_shape:
+    if self.shape == broadcast_shape:
       return self
-    pad_s = pad_left(self.view.shape, broadcast_shape)
-    # Set shape to original size with 1s padded for broadcasting
-    x = self.reshape(*pad_s[0]) 
+    pad_s = pad_left(self.shape, broadcast_shape)
+    # Set shape to original size with 1s padded for broadcasting (unless padding had no effect)
+    x = self.reshape(*pad_s[0]) if pad_s[0] != self.shape else self 
     return x.expand(*broadcast_shape)
   
   def __broadcast(self, y: Union[Tensor, ConstType], reverse=False) -> Tuple[Tensor]:
@@ -82,17 +90,17 @@ class Tensor:
     if not isinstance(y, Tensor):
       assert isinstance(y, ConstType), f'type(y)={type(y)} is not a ConstType'
       y = Tensor((), data=y, dtype=dtypes.from_py(y))
-    new_shapes = pad_left(self.view.shape, y.view.shape)
-    assert all(x == y or x == 1 or y == 1 for x, y in zip(*new_shapes)), f'invalid shapes for broadcasting {self.view.shape} and {y.view.shape}'
+    new_shapes = pad_left(self.shape, y.shape)
+    assert all(x == y or x == 1 or y == 1 for x, y in zip(*new_shapes)), f'invalid shapes for broadcasting {self.shape} and {y.shape}'
     bs = broadcast_shape(*new_shapes)
     if reverse: x, y = y, x 
     return x.broadcast_to(bs), y.broadcast_to(bs)
   
   def assign(self, x: Tensor) -> Tensor:
     assert(self.requires_grad == False), 'l-value invalid since it requires gradients'
-    assert(x.view.shape == self.view.shape), f'shape mismatch on assign {self.view.shape} != {x.view.shape}'
-    assert(x.view.dtype == self.view.dtype), f'dtype mismatch on assign {self.view.dtype} != {x.view.dtype}'
-    self.data = x.data
+    assert(x.shape == self.shape), f'shape mismatch on assign {self.shape} != {x.shape}'
+    assert(x.dtype == self.dtype), f'dtype mismatch on assign {self.dtype} != {x.dtype}'
+    self.thunk = x.data
     return self
   
   def cast(self, dtype: DType) -> Tensor:
@@ -109,7 +117,7 @@ class Tensor:
     return Where.apply(cond.cast(dtypes.bool), *x.__broadcast(y_))
   
   def detach(self) -> Tensor:
-    return Tensor(self.view.shape, self.data, self.view.dtype, requires_grad=False)
+    return Tensor(self.shape, self.thunk, self.dtype, requires_grad=False)
 
   # Arithmetic and Logical Functions 
   def mul(self, other, reverse=False) -> Tensor: 
@@ -139,28 +147,28 @@ class Tensor:
   def square(self) -> Tensor: return self * self
 
   def _canonicalize_axis(self, axis):
-    return tuple(ax if ax >= 0 else ax + self.view.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,))) 
+    return tuple(ax if ax >= 0 else ax + self.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,))) 
 
   def mean(self, axis=None) -> Tensor:
-    axis = axis if axis else tuple(i for i in range(self.view.ndim))
+    axis = axis if axis else tuple(i for i in range(self.ndim))
     axis_ = self._canonicalize_axis(axis)
-    return  self.sum(axis=axis) / prod([self.view.shape[i] for i in axis_])
+    return  self.sum(axis=axis) / prod([self.shape[i] for i in axis_])
 
   def sum(self, axis:Union[int|Tuple[int,...]]=None, keepdim=False) -> Tensor:
     from shrimpgrad.autograd.function import Sum 
-    axis = axis if axis != None else tuple(i for i in range(self.view.ndim))
+    axis = axis if axis != None else tuple(i for i in range(self.ndim))
     axis_ = self._canonicalize_axis(axis) 
-    shape = tuple(s for i, s in enumerate(self.view.shape) if i not in axis_)
+    shape = tuple(s for i, s in enumerate(self.shape) if i not in axis_)
     ret = Sum.apply(self, axis=axis_) 
     return ret if keepdim else ret.reshape(*shape)
   
   def dot(self, w) -> Tensor:
     # From https://github.com/tinygrad/tinygrad/blob/master/tinygrad/tensor.py 
-    n1, n2 = len(self.view.shape), len(w.view.shape)
+    n1, n2 = len(self.shape), len(w.shape)
     assert n1 != 0 and n2 != 0, f"both arguments to matmul need to be at least 1D, but they are {n1}D and {n2}D"
-    assert (L:=self.view.shape[-1]) == (R:=w.view.shape[-min(n2, 2)]), f"Input Tensor shapes {self.view.shape} and {w.view.shape} cannot be multiplied ({L} != {R})"
-    x = self.reshape(*self.view.shape[0:-1], *[1]*min(n1-1, n2-1, 1), self.view.shape[-1])
-    w = w.reshape(*w.view.shape[0:-2], *[1]*min(n1-1, n2-1, 1), *w.view.shape[-min(n2, 2):]).transpose(-1, -min(n2, 2))
+    assert (L:=self.shape[-1]) == (R:=w.shape[-min(n2, 2)]), f"Input Tensor shapes {self.shape} and {w.shape} cannot be multiplied ({L} != {R})"
+    x = self.reshape(*self.shape[0:-1], *[1]*min(n1-1, n2-1, 1), self.shape[-1])
+    w = w.reshape(*w.shape[0:-2], *[1]*min(n1-1, n2-1, 1), *w.shape[-min(n2, 2):]).transpose(-1, -min(n2, 2))
     return (x*w).sum(axis=-1)
 
   def matmul(self, other: Tensor, reverse=False) -> Tensor:
@@ -207,7 +215,7 @@ class Tensor:
   # Loss Functions
   def binary_cross_entropy(self, y: Tensor) -> Tensor: return ((-y)*self.log() - (1.0-y)*((1.0-self).log())).mean()
    
-  def hinge_loss(self, target: Tensor) -> Tensor: return (1.0 + -target*self).relu().sum() * (1.0/target.view.shape[0])
+  def hinge_loss(self, target: Tensor) -> Tensor: return (1.0 + -target*self).relu().sum() * (1.0/target.shape[0])
   def mse(self, target: Tensor) -> Tensor: return (self-target).square().mean()
 
   # Shape Shift Functions
@@ -224,8 +232,8 @@ class Tensor:
     return Permute.apply(self, order=order)
 
   def transpose(self, ax0=1, ax1=0):
-    ax0, ax1 = (ax0 + self.view.ndim if ax0 < 0 else ax0), (ax1 + self.view.ndim if ax1 < 0 else ax1)
-    order = [i for i in range(self.view.ndim)]
+    ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
+    order = [i for i in range(self.ndim)]
     order[ax0], order[ax1] = order[ax1], order[ax0]
     return self.permute(order) 
 
@@ -255,7 +263,7 @@ class Tensor:
     return Tensor(shape, [float(fill_value) if dtype == dtypes.float32 else int(fill_value)]*prod(shape), **kwargs)
 
   @staticmethod
-  def full_like(t: Tensor, fill_value: Num, **kwargs) -> Tensor: return Tensor.full(t.view.shape, fill_value=fill_value, dtype=t.dtype, **kwargs)
+  def full_like(t: Tensor, fill_value: Num, **kwargs) -> Tensor: return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype, **kwargs)
   
   @staticmethod
   def zeros_like(t: Tensor, **kwargs) -> Tensor: return Tensor.full_like(t, 0.0, **kwargs)
@@ -298,13 +306,13 @@ class Tensor:
 
   # Nice to have
   def size(self, dim:int|None=None) -> Tuple[int,...]|int:
-    assert dim == None or 0 <= dim < self.view.ndim, f'invalid dimension {dim} for tensor with shape of {self.view.ndim}-d'
-    if not dim is None: return self.view.shape[dim]
-    return tuple(self.view.shape)
+    assert dim == None or 0 <= dim < self.ndim, f'invalid dimension {dim} for tensor with shape of {self.ndim}-d'
+    if not dim is None: return self.shape[dim]
+    return tuple(self.shape)
 
-  def is_scalar(self): return not self.view.ndim 
+  def is_scalar(self): return not self.ndim 
 
   # Object Representation
-  def __repr__(self): return f"<Tensor {self.data!r} on {self.view.device} with grad {(self.grad.data if self.grad is not None else None)!r}>"
+  def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"
   def __str__(self): return self.__repr__()
   def __hash__(self): return id(self)
