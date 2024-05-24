@@ -54,6 +54,8 @@ class Thunk:
   def ndim(self): return self._view.ndim
   @property
   def base(self): return self._base if self._base is not None else self
+  @property
+  def realized(self) -> Optional[Buffer]: return self.buff if hasattr(self, 'buff') and self.buff.allocated else None
   
   @staticmethod
   def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], view: View, device: Device, dtype: DType):

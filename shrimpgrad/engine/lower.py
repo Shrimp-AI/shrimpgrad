@@ -1,6 +1,7 @@
 from __future__ import annotations
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Tuple
+from typing import Any, DefaultDict, Dict, List, Set, Tuple
 from shrimpgrad.dtype import DType
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.ops import BufferOps, LoadOps, Op
@@ -30,6 +31,11 @@ class BuffsManager:
     self.buffs[thunk.base.buff] = buff
     self.idx+=1
     return buff
+  def real_buffs(self): 
+    buffs = [None]*len(self.buffs)
+    for rb, mb in self.buffs.items():
+      buffs[mb.index] = rb 
+    return buffs 
 
 def lower(root: Thunk) -> MLIR:
   visited = set()
@@ -49,11 +55,32 @@ def lower(root: Thunk) -> MLIR:
       for p in parents: 
         srcs.append(topo(p))
       return MLIR(op=root._op, inputs=srcs, arg=root.arg) 
-  return MLIR(op=BufferOps.STORE, inputs=(topo(root),), arg=buffs_mgr.get_mlir_buff(root))
+  return MLIR(op=BufferOps.STORE, inputs=(topo(root),), arg=buffs_mgr.get_mlir_buff(root)), buffs_mgr.real_buffs()
+
+def _recurse_thunk(thunk: Thunk, realizes: Dict[Thunk, None],allthunks: Dict[Thunk, None], children=Dict[Thunk, Dict[Thunk, None]], scheduled=False):
+  if thunk in allthunks or thunk.base.realized is not None: return 
+  if thunk.base != thunk:
+    return _recurse_thunk(thunk.base, realizes, allthunks, children)
+  # base
+  allthunks[thunk] = None
+  if thunk._op in LoadOps: realizes[thunk.base] = None
+  for child in thunk._operands:
+    children[child.base][thunk] = None
+    _recurse_thunk(child, realizes, allthunks, children)
+
+def graph_schedule(outs: List[Thunk], visited: Set[Thunk]):
+  # realize output thunks
+  realizes: Dict[Thunk, None] = {thunk.base:None for thunk in outs if thunk.realized is None}
+  allthunks: Dict[Thunk, None] = {}
+  children: DefaultDict[Thunk, Dict[Thunk, None]] = defaultdict(dict)
+  for out in outs: _recurse_thunk(out, realizes, allthunks, children, scheduled=True)
+  print(realizes)
+  print(allthunks)
+  print(children)
 
 def _tree(mlir: MLIR, prefix="") -> str:
-  if not len(mlir.inputs): return [f"━━ {prefix}{mlir.op.name}"]
-  lines = [f"━┳ {prefix}{mlir.op.name}"]
+  if not len(mlir.inputs): return [f"━━ {prefix}{mlir.op.name} {mlir.arg if mlir.arg is not None else ''}"]
+  lines = [f"━┳ {prefix}{mlir.op.name} {mlir.arg if mlir.arg is not None else ''}"]
   childs = [_tree(c) for c in mlir.inputs[:]]
   for c in childs[:-1]: lines += [f" ┣{c[0]}"] + [f" ┃{l}" for l in c[1:]]
   return lines + [" ┗"+childs[-1][0]] + ["  "+l for l in childs[-1][1:]]
