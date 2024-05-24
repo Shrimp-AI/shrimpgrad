@@ -23,9 +23,9 @@ class Thunk:
   syntax tree where root thunks have allocated buffers (inputs usually from tensor factory methods)
   and child thunks are described by operations and their parent operands.
   """
-  def __init__(self, device: Device, dtype: DType, view: View, operands: Tuple[Thunk, ...], op: Optional[Op]=None, data: Union[ConstType, List, bytes, memoryview]=None, base: Optional[Thunk]=None):
+  def __init__(self, device: Device, dtype: DType, view: View, operands: Tuple[Thunk, ...], op: Optional[Op]=None, data: Union[ConstType, List, bytes, memoryview]=None, base: Optional[Thunk]=None, arg=None):
     # initial buffer conditions
-    self._view, self.device, self.dtype = view, device, dtype
+    self._view, self.device, self.dtype, self.arg = view, device, dtype, arg
     self._op, self._operands = op, operands 
     
     # Am I the base thunk? Does the buffer reside with me or another thunk? Am I a view of the base thunk after a movement op? (same questions)
@@ -76,7 +76,7 @@ class Thunk:
 
   def reduce(self, op: ReduceOps, axis: Tuple[int,...]) -> Thunk: 
     new_shape = tuple([1 if i in axis else s for i,s in enumerate(self._view.shape)])
-    return Thunk(self.device, self.dtype, View(new_shape), (self,), op)
+    return Thunk(self.device, self.dtype, View(new_shape), (self,), op, arg=axis)
 
   def reshape(self, shape: Tuple[int,...]):
     return Thunk(self.device, self.dtype, self._view.reshape(shape), (), base=self.base)
@@ -101,17 +101,3 @@ class Thunk:
   def __repr__(self) -> str:
     return f"<THUNK {self.device} {self.shape} {str(self.dtype)[7:]} {self._op}>"
   def __hash__(self): return id(self)
-  
-def _tree(thunk: Thunk, prefix="") -> str:
-  if len(thunk._operands) == 0 and thunk.base == thunk: 
-    if thunk._op is not None:
-      return [f"━━ {prefix}{thunk._op.name}"]
-  if thunk._op is not None:
-    lines = [f"━┳ {prefix}{thunk._op.name}"]
-  else:
-    lines = [f"━┳ {prefix}VIRTUALOPS"]
-  childs = [_tree(c) for c in (thunk._operands[:] if len(thunk._operands) else [thunk.base])]
-  for c in childs[:-1]: lines += [f" ┣{c[0]}"] + [f" ┃{l}" for l in c[1:]]
-  return lines + [" ┗"+childs[-1][0]] + ["  "+l for l in childs[-1][1:]]
-
-def print_ast(thunk: Thunk): print("\n".join([f"{str(i).rjust(3)} {s}" for i,s in enumerate(_tree(thunk))]))

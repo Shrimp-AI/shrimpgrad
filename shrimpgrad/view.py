@@ -50,3 +50,5 @@ class View:
   @staticmethod
   def from_view(view: View):
     return View(view.shape)
+  
+  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous}>'

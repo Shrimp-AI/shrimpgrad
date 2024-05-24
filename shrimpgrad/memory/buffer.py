@@ -21,6 +21,8 @@ class Buffer:
   def __init__(self, allocator: Allocator, size:int, dtype: DType):
     self.allocator, self.dtype, self.size = allocator, dtype, size
     self._ref_count = 1
+  @property
+  def allocated(self): return hasattr(self, '_buf')
   def allocate(self, with_data=None):
     if with_data is None: # Alloc empty buffer
       self._buf = self.allocator.alloc(self.dtype.bytes * self.size)
@@ -35,3 +37,6 @@ class Buffer:
     self.allocator.copyout(dst, self.pointer())
   def view(self):
     return Buffer(self.allocator, self.size, self.dtype) 
+  def __repr__(self):
+    return f'<real buffer nbytes={self.dtype.bytes*self.size} dtype={self.dtype} allocated={self.allocated}> ref_count={self._ref_count}'
+  def __hash__(self): return id(self)
