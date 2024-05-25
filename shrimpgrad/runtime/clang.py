@@ -2,10 +2,8 @@ from __future__ import annotations
 import ctypes
 import subprocess
 from typing import List, Tuple
-from shrimpgrad.device import Device
 from shrimpgrad.dtype import DType, dtypes
 import tempfile
-from shrimpgrad.memory.buffer import MallocAllocator
 from shrimpgrad.runtime.ops import Op, UnaryOps, BinaryOps, TernaryOps 
 from shrimpgrad.runtime.profiler import Profile
 
@@ -75,12 +73,3 @@ class ClangRuntime(metaclass=Profile):
   def __init__(self, lib): self.lib = lib
   def exec(self, op: Op, *args): return getattr(self.lib, op.name.lower() + 'shrimp')(*args)
 
-class ClangDevice(Device):
-  def __init__(self) -> None:
-    super().__init__(MallocAllocator, ClangCompiler, ClangRuntime)
-  
-  def allocator(self):
-    return self._allocator()
-
-  def compiler(self):
-    return self._compiler()

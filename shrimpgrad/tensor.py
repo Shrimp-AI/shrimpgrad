@@ -1,14 +1,14 @@
 from __future__ import annotations
 import functools
 import math
-from typing import Callable, Iterable, List, Optional, TypeAlias, Union, Tuple
+from typing import Callable, List, Optional, TypeAlias, Union, Tuple
 from shrimpgrad.dtype import DType, dtypes, ConstType
 from random import uniform, gauss
 from shrimpgrad.future import Thunk
-from shrimpgrad.runtime.clang import ClangDevice
+from shrimpgrad.device import CPU, ClangDevice
 from shrimpgrad.runtime.ops import LoadOps
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list
-from shrimpgrad.view import View 
+import numpy as np
 
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
@@ -16,14 +16,22 @@ Shape: TypeAlias = Tuple[int, ...]
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
+def _from_cpu(data, dtype, shape):
+  thunk = Thunk.loadop(LoadOps.EMPTY, shape, dtype, CPU())
+  thunk.buff.allocate(with_data=data)
+  return thunk
+
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[Iterable[ConstType], ConstType, Thunk], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
+  def __init__(self, shape: Shape, data: Union[List, bytes, np.array, ConstType, Thunk], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
     self.requires_grad, self.index_view = requires_grad, None 
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
     if isinstance(data, Thunk): self.thunk = data
-    else: self.thunk = Thunk(device, dtype, View(shape), (), LoadOps.EMPTY, data=data)
+    else: self.thunk = _from_cpu(data, dtype, shape) 
+
+    if self.thunk.device != device:
+      self.thunk = self.thunk.copy_to_device(device)
   
   def backward(self) -> Tensor:
     self.grad = Tensor.ones(self.shape, self.dtype)

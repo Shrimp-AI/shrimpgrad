@@ -1,11 +1,9 @@
 from __future__ import annotations
-import struct
 from typing import List, Optional, Tuple, Union
-from shrimpgrad.device import Device
-from shrimpgrad.dtype import ConstType, DType, dtypes
+from shrimpgrad.device import Device, Buffer
+from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import BinaryOps, BufferOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps
 from shrimpgrad.view import View
-from shrimpgrad.memory.buffer import Buffer
 
 # Thunk
 #   - shapetracker
@@ -33,13 +31,7 @@ class Thunk:
     self._base = None
     if base is None:
       # I'm the base I own the real buffer 
-      self.buff = Buffer(self.device._allocator(), self._view.numel, self.dtype)
-      if data is not None and isinstance(data, List):
-        # We have data, need to allocate and load the buffer 
-        # TODO: This is naive, needs to be better to support a multitude of types but it's fine for pre-release 
-        self.buff.allocate()
-        if self.dtype == dtypes.float32: self.buff.copyin(struct.pack('f'*len(data), *data))
-        if self.dtype == dtypes.int32: self.buff.copyin(struct.pack('I'*len(data), *data))
+      self.buff = Buffer(self.device, self._view.numel, self.dtype)
     else:
       assert base.base == base, "base must be the base"
       self._base = base
@@ -93,8 +85,13 @@ class Thunk:
     return Thunk(self.device, dtype, self._view, (self,))
   
   @staticmethod
-  def loadop(op: LoadOps, shape, dtype, device, arg=None, src=()):
-    return Thunk(device, dtype, View(shape), src, data=arg)
+  def loadop(op: LoadOps, shape, dtype, device, arg=None, srcs=()):
+    return Thunk(device, dtype, View(shape), srcs, op=op, arg=arg)
+  
+  def copy_to_device(self, device: Device) -> Thunk:
+    # Generaly self is a LoadOps.EMPTY with device as CPU
+    # It may have been reshaped etc so ensure we copy from the base
+    return Thunk(device, self.dtype, self._view, (self.base, ), LoadOps.COPY, arg=self.base.buff.nbytes)
 
   def const(self, val: ConstType, shape: Tuple[int,...]=None):
     shape = self.shape if shape is None else shape
