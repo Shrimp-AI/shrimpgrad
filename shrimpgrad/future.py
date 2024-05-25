@@ -1,8 +1,8 @@
 from __future__ import annotations
 from typing import List, Optional, Tuple, Union
-from shrimpgrad.device import Device, Buffer
+from shrimpgrad.device import CPU, Device, Buffer
 from shrimpgrad.dtype import ConstType, DType 
-from shrimpgrad.runtime.ops import BinaryOps, BufferOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps
+from shrimpgrad.runtime.ops import BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps
 from shrimpgrad.view import View
 
 # Thunk
@@ -56,15 +56,6 @@ class Thunk:
     if op in TernaryOps: assert len(operands) > 2, f'ternary ops require three operands, {len(operands)} given' 
     return Thunk(device, dtype, View.from_view(view), tuple(operands), op)
 
-  @staticmethod
-  def from_memory(op: Union[LoadOps, BufferOps], view: View, data: Union[memoryview, ConstType], device: Device, dtype: DType) -> Thunk:
-    if op == LoadOps.EMPTY: return Thunk(device, dtype, op, (),  view)
-    if op == LoadOps.CONTIGUOUS: assert isinstance(data, memoryview), 'data for contiguous loads must come from a memoryview'
-    if op == LoadOps.CONST: assert isinstance(data, ConstType), 'data for const loads must come from a ConstType'
-    return Thunk(device, dtype, view, (), op, data=data) 
-    
-  def load(self, op: LoadOps, data: Union[ConstType, memoryview], device: Device, dtype: DType) -> Thunk:  return Thunk.from_memory(op, self._view, data, device, dtype)
-    
   def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_thunks: Tuple[Thunk,...]) -> Thunk:
     return Thunk.from_compute(op, (self, *in_thunks), self._view, self.device, self.dtype)
 
@@ -83,6 +74,14 @@ class Thunk:
 
   def cast(self, dtype: DType) -> Thunk:
     return Thunk(self.device, dtype, self._view, (self,))
+
+  @staticmethod 
+  def load_from_cpu(data, dtype, shape):
+    thunk = Thunk.loadop(LoadOps.EMPTY, shape, dtype, CPU())
+    thunk.buff.allocate(with_data=data)
+    # This ensures we schedule it early for realize
+    del thunk._operands
+    return thunk
   
   @staticmethod
   def loadop(op: LoadOps, shape, dtype, device, arg=None, srcs=()):
