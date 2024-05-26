@@ -1,7 +1,5 @@
 # ShrimpGrad - Yet Another Tensor Library
 
-![logo](https://github.com/kvkenyon/shrimpgrad/assets/1572831/806ab2ca-5a8c-4b46-b53e-4951eca122b4)
-
 ## Warning:
 You can't do much right now except build the compute graph and get a list of kernels that need to be code generated and compiled. We did have end-to-end execution, you can see this in examples, but it was just python looping over lists for testing purposes.
 
