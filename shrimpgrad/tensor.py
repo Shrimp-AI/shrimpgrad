@@ -15,7 +15,6 @@ Shape: TypeAlias = Tuple[int, ...]
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
-
 class Tensor:
   def __init__(self, shape: Shape, data: Union[List, bytes, np.array, ConstType, Thunk], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
     self.requires_grad, self.index_view = requires_grad, None 

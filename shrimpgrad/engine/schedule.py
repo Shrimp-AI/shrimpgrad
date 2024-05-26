@@ -6,6 +6,7 @@ from shrimpgrad.device import Buffer
 from shrimpgrad.dtype import DType
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.ops import BufferOps, LoadOps, Op
+from shrimpgrad.util import prod
 from shrimpgrad.view import View
 
 @dataclass(frozen=True, eq=False)
@@ -101,7 +102,7 @@ class Scheduler:
     schedule = []
     while frontier:
       pk = frontier.popleft()
-      schedule.append(ScheduledKernel(ast=pk.ast, inputs=tuple(x.buff for x in pk.inputs), outputs=tuple(x.buff for x in pk.outputs)))
+      schedule.append(ScheduledKernel(ast=pk.ast, inputs=tuple(x.buff for x in pk.inputs if hasattr(x, 'buff')), outputs=tuple(x.buff for x in pk.outputs if hasattr(x, 'buff'))))
       for x in graph[pk.outputs[0]]:
         in_degree[x] -= 1
         if in_degree[x] == 0:
@@ -119,8 +120,8 @@ class Scheduler:
     if thunk in self.visited or thunk.base.realized is not None: return
     # view: realize my base
     if thunk != thunk.base: 
-      # base is a target, realize pads, and expands
-      self.targets[thunk.base] = None
+      if prod(thunk.shape) < prod(thunk.base.shape):
+        self.targets[thunk.base] = None
       return self._search(thunk.base)
     # base
     self.visited.add(thunk)

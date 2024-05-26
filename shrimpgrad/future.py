@@ -30,8 +30,9 @@ class Thunk:
     # The base has no base because it is the base (so based)
     self._base = None
     if base is None:
-      # I'm the base I own the real buffer 
-      self.buff = Buffer(self.device, self._view.numel, self.dtype)
+      if op != LoadOps.CONST:
+        # I'm the base I own the real buffer 
+        self.buff = Buffer(self.device, self._view.numel, self.dtype)
     else:
       assert base.base == base, "base must be the base"
       self._base = base
@@ -77,6 +78,9 @@ class Thunk:
 
   @staticmethod 
   def load_from_cpu(data, dtype, shape):
+    if not len(shape):
+      assert isinstance(data, ConstType), 'scalar thunk requires a const argument'
+      return Thunk.loadop(LoadOps.CONST, shape, dtype, CPU(), arg=data) 
     thunk = Thunk.loadop(LoadOps.EMPTY, shape, dtype, CPU())
     thunk.buff.allocate(with_data=data)
     # This ensures we schedule it early for realize
@@ -88,6 +92,7 @@ class Thunk:
     return Thunk(device, dtype, View(shape), srcs, op=op, arg=arg)
   
   def copy_to_device(self, device: Device) -> Thunk:
+    if self._op == LoadOps.CONST: return self
     # Generaly self is a LoadOps.EMPTY with device as CPU
     # It may have been reshaped etc so ensure we copy from the base
     return Thunk(device, self.dtype, self._view, (self.base, ), LoadOps.COPY, arg=self.base.buff.nbytes)
