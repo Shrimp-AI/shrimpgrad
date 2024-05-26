@@ -2,6 +2,17 @@
 
 ![logo](https://github.com/kvkenyon/shrimpgrad/assets/1572831/806ab2ca-5a8c-4b46-b53e-4951eca122b4)
 
+## Warning:
+You can't do much right now except build the compute graph and get a list of kernels that need to be code generated and compiled. We did have end-to-end execution, you can see this in examples, but it was just python looping over lists for testing purposes.
+
+All the op tests now fail since we removed the python runtime in order to migrate to autogenerating kernels. Since no one is using it, it doesn't matter.
+
+### Goals
+1. Lower the scheduled kernels to the linearized IR
+2. Generate C code from the linearized IR
+3. Execute this code
+4. Add CUDA codegen (repeat)
+
 ## What?
 
 A python library to create tensor operations in python and automatically compile and execute them on an accelerator. Use the backward pass to compute gradients, and an optimizer to train your model.
