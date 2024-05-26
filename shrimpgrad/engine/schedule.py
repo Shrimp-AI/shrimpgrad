@@ -32,13 +32,8 @@ class BuffsManager:
     self.buffs[thunk.base.buff] = buff
     self.idx+=1
     return buff
-  def real_buffs(self): 
-    buffs = [None]*len(self.buffs)
-    for rb, mb in self.buffs.items():
-      buffs[mb.index] = rb 
-    return buffs 
 
-def lower(root: Thunk) -> MLIR:
+def build_mlir(root: Thunk) -> MLIR:
   visited = set()
   buffs_mgr = BuffsManager()
   def topo(root, i=1):
@@ -56,7 +51,7 @@ def lower(root: Thunk) -> MLIR:
       for p in parents: 
         srcs.append(topo(p))
       return MLIR(op=root._op, inputs=srcs, arg=root.arg) 
-  return MLIR(op=BufferOps.STORE, inputs=(topo(root),), arg=buffs_mgr.get_mlir_buff(root)), buffs_mgr.real_buffs()
+  return MLIR(op=BufferOps.STORE, inputs=(topo(root),), arg=buffs_mgr.get_mlir_buff(root))
 
 @dataclass(frozen=True)
 class ScheduledKernel:
@@ -65,7 +60,7 @@ class ScheduledKernel:
   outputs: List[Buffer]
 
 @dataclass(frozen=True)
-class PrescheduledKernel:
+class ThunkKernel:
   ast: MLIR
   inputs: Tuple[Thunk, ...]
   outputs: Tuple[Thunk, ...] 
@@ -75,7 +70,7 @@ class Scheduler:
     self.outs = outs
     self.visited: Set[Thunk] = set()
     self.targets: Dict[Thunk, None] = {}
-  
+
   def schedule(self) -> List[ScheduledKernel]:
     for out in self.outs: self.search_for_targets(out)
 
@@ -83,25 +78,24 @@ class Scheduler:
     for target in self.targets:
       if target.realized is not None or target._op is LoadOps.CONST: continue
       prescheduled[target] = self._preschedule(target)
-    
+
     schedule_targets = {out:ps for ps in prescheduled.values() for out in ps.outputs}
 
     graph: DefaultDict[Thunk, List[Thunk]] = defaultdict(list)
     in_degree: DefaultDict[Thunk, int] = defaultdict(int)
     for target, sched_kernel in prescheduled.items(): 
       if target not in in_degree: in_degree[target] = 0
-      
+
       # If any of the targets operands (parents) are also targets
       # we need to schedule them first in the DAG
-      scheduled_parents = set(schedule_targets[parent] for parent in sched_kernel.inputs if parent in schedule_targets)
+      scheduled_parents = set(schedule_targets[parent].outputs[0] for parent in sched_kernel.inputs if parent in schedule_targets)
 
       # Update the graph such that parent kernels point to children kernels
       for parent in scheduled_parents:
         graph[parent].append(target)
         in_degree[target] += 1
-    
-    from collections import deque
 
+    from collections import deque
     frontier = deque(pk for target, pk in prescheduled.items() if in_degree[target] == 0)
 
     schedule = []
@@ -111,8 +105,7 @@ class Scheduler:
       for x in graph[pk.outputs[0]]:
         in_degree[x] -= 1
         if in_degree[x] == 0:
-          frontier.append(x)
-
+          frontier.append(prescheduled[x])
     return schedule 
 
   def search_for_targets(self, out: Thunk):
@@ -121,7 +114,7 @@ class Scheduler:
     if out.base.realized is None: self.targets[out.base] = None
     # recurse on the output to find other targets (loads, view bases)
     self._search(out.base)
-  
+
   def _search(self, thunk: Thunk):
     if thunk in self.visited or thunk.base.realized is not None: return
     # view: realize my base
@@ -136,18 +129,16 @@ class Scheduler:
       # Realize my operands (usually empty load) base
       self.targets[thunk._operands[0].base] = None
     for operand in thunk._operands:
-      # recurese on my operands to find their targets 
+      # recurse on my operands to find their targets 
       self._search(operand)
-    
+
   def _preschedule(self, out):
     inputs: List[Thunk] = [] 
-    ast: List[MLIR]
     if (out._op in {LoadOps.COPY, LoadOps.EMPTY, LoadOps.CUSTOM}): 
       inputs = [x.base for x in out._operands]
-      ast = MLIR(out._op, (), out.arg)
+      return ThunkKernel(MLIR(out._op, (), out.arg), tuple(inputs), tuple([out]))
+    return ThunkKernel(build_mlir(out), tuple(out._operands), tuple([out])) 
 
-    return PrescheduledKernel(ast, tuple(inputs), tuple([out]))
-        
 def _tree(mlir: MLIR, prefix="") -> str:
   if not len(mlir.inputs): return [f"━━ {prefix}{mlir.op.name} {mlir.arg if mlir.arg is not None else ''}"]
   lines = [f"━┳ {prefix}{mlir.op.name} {mlir.arg if mlir.arg is not None else ''}"]
