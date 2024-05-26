@@ -47,8 +47,8 @@ In short, we are spending our precious and limited time on Earth stepping throug
 
 ## Install
 
-'''
+```
 git clone https://github.com/Shrimp-AI/shrimpgrad.git
 cd shrimpgrad
 python3 -m pip install .
-'''
+```
