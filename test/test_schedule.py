@@ -4,10 +4,6 @@ from shrimpgrad.nn import Linear
 from shrimpgrad import Tensor
 from shrimpgrad.engine.schedule import Scheduler
 from shrimpgrad.runtime.ops import BufferOps, LoadOps 
-from shrimpgrad.engine.graph import log_thunk
-from shrimpgrad.engine.fusion import semidominator, runDFS, NodeToInfo
-from pprint import pprint
-from shrimpgrad.future import reverse_graph
 
 class ScheduleTest(unittest.TestCase):
   def test_schedule_basic(self):
@@ -63,25 +59,5 @@ class ScheduleTest(unittest.TestCase):
     # Would expect 4 copy kernels, 1 const kernel?,  and 1 store kernel
     # 1 exec kernel
     out = Linear(10, 1)(x).mse(y)
-    log_thunk(out.thunk)
     sched = Scheduler([out.thunk]).schedule()
     self.assertEqual(6, len(sched))
-
-  def test_post_dominator(self):
-    x = Tensor.randn(10,10)
-    # LoadOps.EMPTY -> LoadOps.COPY
-    y = Tensor.randn(10,10)
-    z = Tensor.randn(10,10)
-    w = Tensor.randn(10,10)
-
-    a = x + y
-    b = a * z
-    c = b / w
-    out = b - c
-
-    log_thunk(out.thunk)
-    g = reverse_graph(out.thunk)
-    print(g)
-    ln, ni, nn = runDFS(g, out.thunk, 0, 0)
-
-    pprint(ni)
