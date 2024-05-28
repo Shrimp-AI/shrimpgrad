@@ -1,5 +1,7 @@
 from collections import defaultdict
-from shrimpgrad.future import Thunk, preorder_with_preds, reverse_graph
+from dataclasses import dataclass
+from typing import Dict, List, TypeAlias
+from shrimpgrad.future import Thunk, ThunkGraph, preorder_with_preds, reverse_graph
 
 class UnionFind:
   def __init__(self, n):
@@ -33,3 +35,45 @@ def semidominator(thunk: Thunk):
       if semi[z] < semi[rev_idx[t]]: semi[rev_idx[t]] = semi[z]
     uf.union(rev_idx[t], rev_idx[parent[t]])
   return {rpo[u]:rpo[s] for u, s in enumerate(semi)}
+
+@dataclass(frozen=False)
+class InfoRec:
+  DFSNum: int  = 0
+  Parent: int = 0
+  Semi: int = 0
+  Label: int = 0
+  ReverseChildren: List[int] =() 
+  IDom = None
+
+NodeToInfo: TypeAlias =  Dict[Thunk, InfoRec]
+NumToNode: List[Thunk] = []
+  
+def runDFS(G: ThunkGraph, v: Thunk, last_num:int, attach_to_num: int):
+  visited = set()
+  node_info: NodeToInfo = defaultdict(InfoRec)
+  assert(v)
+  WorkList = [v]
+  while len(WorkList):
+    BB: Thunk = WorkList.pop()
+    BBInfo: InfoRec = node_info[BB]
+    if BBInfo.DFSNum != 0: continue 
+    visited.add(BB)
+    BBInfo.DFSNum = BBInfo.Semi = BBInfo.Label = last_num + 1
+    last_num += 1
+    NumToNode.append(BB)
+    print(G[BB])
+    for succ in G[BB]:
+      print(succ)
+      succ_info = node_info[succ]
+      if succ in visited:
+        succ_info.ReverseChildren.append(succ)
+        continue
+
+      WorkList.append(succ)
+      succ_info.Parent = last_num
+      childs = list(succ_info.ReverseChildren)
+      childs.append(last_num)
+      succ_info.ReverseChildren = tuple(childs)
+  return last_num, node_info, NumToNode
+
+

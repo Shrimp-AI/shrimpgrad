@@ -5,8 +5,9 @@ from shrimpgrad import Tensor
 from shrimpgrad.engine.schedule import Scheduler
 from shrimpgrad.runtime.ops import BufferOps, LoadOps 
 from shrimpgrad.engine.graph import log_thunk
-from shrimpgrad.engine.fusion import semidominator
+from shrimpgrad.engine.fusion import semidominator, runDFS, NodeToInfo
 from pprint import pprint
+from shrimpgrad.future import reverse_graph
 
 class ScheduleTest(unittest.TestCase):
   def test_schedule_basic(self):
@@ -79,5 +80,8 @@ class ScheduleTest(unittest.TestCase):
     out = b - c
 
     log_thunk(out.thunk)
-    sdom = semidominator(out.thunk)
-    pprint(sdom)
+    g = reverse_graph(out.thunk)
+    print(g)
+    ln, ni, nn = runDFS(g, out.thunk, 0, 0)
+
+    pprint(ni)
