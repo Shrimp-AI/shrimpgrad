@@ -1,6 +1,6 @@
 import os, atexit, functools
 from collections import defaultdict
-from typing import List, Any, DefaultDict
+from typing import Any, DefaultDict
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, ReduceOps, LoadOps, BufferOps, TernaryOps
 from shrimpgrad.future import Thunk
 
@@ -8,6 +8,7 @@ try: import networkx as nx
 except ImportError: pass
 
 # **** debugging and graphing ****
+# From tinygrad with modifications
 
 def save_graph(G, fn, opt=""):
   print("saving", G, f"to {fn}.svg")

@@ -136,18 +136,3 @@ def reverse_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph:
       dfs(parent)
     return G
   return dfs(thunk) 
-
-def preorder_with_preds(root: Thunk, g: ThunkGraph, preds: ThunkGraph, parent: Dict[Thunk, Thunk], reverse=False) -> List[Thunk]: 
-  visited, preorder = set(), []
-  def dfs(thunk: Thunk) -> None:
-    if thunk in visited: return
-    visited.add(thunk)
-    preorder.append(thunk)
-    for child in g[thunk]:
-      preds[child].append(thunk)
-      if child in visited: continue
-      parent[child] = thunk
-      dfs(child)
-  dfs(root)
-  return preorder if not reverse else list(reversed(preorder))
-

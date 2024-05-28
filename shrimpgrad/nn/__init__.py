@@ -13,3 +13,10 @@ class Linear:
 
   def parameters(self) -> List[Tensor]:
     return [self.w, self.bias]
+
+def get_parameters(model) -> List[Tensor]:
+  params = []
+  for layer in model.layers:
+    if getattr(layer, 'parameters', None):
+      params+=layer.parameters()
+  return params

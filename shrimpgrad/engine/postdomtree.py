@@ -19,7 +19,7 @@ NumToInfo: TypeAlias = List[InfoRec]
 
 # Iterative DFS (defaults to reverse pre-order traversal (right then left))  
 # Requires calling reverse_graph on the output thunk to generate G
-# returns the last dfs number, node info and the reverse index from num to node
+# returns the last dfs number, node info and the reverse index from pre-order number to node
 def run_dfs(G: ThunkGraph, v: Thunk, last_num:int, attach_to_num: int, reverse=True):
   node_info: NodeToInfo = defaultdict(InfoRec)
   num_to_node: NumToNode = []
