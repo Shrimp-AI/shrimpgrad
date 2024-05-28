@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import List, Optional, Tuple, Union
+from collections import defaultdict
+from typing import DefaultDict, Dict, List, Optional, Tuple, TypeAlias, Union
 from shrimpgrad.device import CPU, Device, Buffer
 from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps
@@ -21,7 +22,7 @@ class Thunk:
   syntax tree where root thunks have allocated buffers (inputs usually from tensor factory methods)
   and child thunks are described by operations and their parent operands.
   """
-  def __init__(self, device: Device, dtype: DType, view: View, operands: Tuple[Thunk, ...], op: Optional[Op]=None, data: Union[ConstType, List, bytes, memoryview]=None, base: Optional[Thunk]=None, arg=None):
+  def __init__(self, device: Device, dtype: DType, view: View, operands: Tuple[Thunk, ...]=(), op: Optional[Op]=None, data: Union[ConstType, List, bytes, memoryview]=None, base: Optional[Thunk]=None, arg=None):
     # initial buffer conditions
     self._view, self.device, self.dtype, self.arg = view, device, dtype, arg
     self._op, self._operands = op, operands 
@@ -36,7 +37,20 @@ class Thunk:
     else:
       assert base.base == base, "base must be the base"
       self._base = base
+  
+  # Graph properties
+  @property
+  def parents(self) -> Tuple[Thunk, ...]:
+    if self.isroot: return () 
+    return [parent if not parent.isview else parent.base for parent in self._operands] 
+  @property
+  def isroot(self) -> bool: return not hasattr(self, '_operands')
+  @property
+  def isview(self) -> bool: return self._op is None
+  @property
+  def isload(self) -> bool: return self._op in LoadOps
 
+  # Data properties
   @property
   def shape(self): return self._view.shape
   @property
@@ -49,7 +63,10 @@ class Thunk:
   def base(self): return self._base if self._base is not None else self
   @property
   def realized(self) -> Optional[Buffer]: return self.buff if hasattr(self, 'buff') and self.buff.allocated else None
-  
+  @property
+  def strides(self): return self._view.strides 
+
+  # Builder methods
   @staticmethod
   def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], view: View, device: Device, dtype: DType):
     if op in BinaryOps: assert len(operands) > 1, f'binary ops require two operands, {len(operands)} given' 
@@ -101,6 +118,36 @@ class Thunk:
     shape = self.shape if shape is None else shape
     return Thunk.loadop(LoadOps.CONST, tuple(), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
 
-  def __repr__(self) -> str:
-    return f"<THUNK {self.device} {self.shape} {str(self.dtype)[7:]} {self._op}>"
+  def __str__(self) -> str: return f"<THUNK {self.device} {self.shape} {str(self.dtype)[7:]} {self._op}>"
+  def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}"
   def __hash__(self): return id(self)
+
+ThunkGraph: TypeAlias = DefaultDict[Thunk, List[Thunk]]
+def reverse_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph: 
+  G, visited = defaultdict(list), set()
+  def dfs(thunk: Thunk):
+    if thunk in visited: return G
+    visited.add(thunk)
+    if thunk.isroot: return G
+    if thunk.isload and ignore_loads: return G
+    for parent in thunk.parents:
+      if parent.isload and ignore_loads: continue
+      G[thunk].append(parent)
+      dfs(parent)
+    return G
+  return dfs(thunk) 
+
+def preorder_with_preds(root: Thunk, g: ThunkGraph, preds: ThunkGraph, parent: Dict[Thunk, Thunk], reverse=False) -> List[Thunk]: 
+  visited, preorder = set(), []
+  def dfs(thunk: Thunk) -> None:
+    if thunk in visited: return
+    visited.add(thunk)
+    preorder.append(thunk)
+    for child in g[thunk]:
+      preds[child].append(thunk)
+      if child in visited: continue
+      parent[child] = thunk
+      dfs(child)
+  dfs(root)
+  return preorder if not reverse else list(reversed(preorder))
+

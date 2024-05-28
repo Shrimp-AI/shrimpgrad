@@ -66,6 +66,7 @@ class ThunkKernel:
   inputs: Tuple[Thunk, ...]
   outputs: Tuple[Thunk, ...] 
 
+
 class Scheduler:  
   def __init__(self, outs: List[Thunk]):
     self.outs = outs
@@ -120,7 +121,7 @@ class Scheduler:
     if thunk in self.visited or thunk.base.realized is not None: return
     # view: realize my base
     if thunk != thunk.base: 
-      if prod(thunk.shape) < prod(thunk.base.shape):
+      if prod(thunk.base.shape) < prod(thunk.shape):
         self.targets[thunk.base] = None
       return self._search(thunk.base)
     # base
