@@ -11,3 +11,15 @@ class LoadOps(Enum): EMPTY = auto(); CONST = auto(); COPY = auto(); CONTIGUOUS =
 
 Op = Union[UnaryOps, BinaryOps, ReduceOps, LoadOps, TernaryOps, BufferOps]
 OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], Type[TernaryOps], Type[BufferOps]]
+
+# Fusion for fuse_ops.py requires these types 
+class AlgebraicOp(Enum): INJECTIVE = auto(); REDUCTION = auto(); NOOP = auto()
+
+def injective(op: Op) -> bool: return op in BinaryOps or op in UnaryOps or op in TernaryOps
+def reduction(op: Op) -> bool: return op in ReduceOps
+
+def algebraic_op(op: Union[UnaryOps, TernaryOps, BinaryOps, LoadOps, ReduceOps]) -> AlgebraicOp: 
+  if op is None: return AlgebraicOp.NOOP
+  if injective(op): return AlgebraicOp.INJECTIVE 
+  if reduction(op): return AlgebraicOp.REDUCTION
+  return AlgebraicOp.NOOP

@@ -1,10 +1,11 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import DefaultDict, Dict, List, Optional, Tuple, TypeAlias, Union
+from typing import DefaultDict, List, Optional, Tuple, TypeAlias, Union
 from shrimpgrad.device import CPU, Device, Buffer
 from shrimpgrad.dtype import ConstType, DType 
-from shrimpgrad.runtime.ops import BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps
+from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
 from shrimpgrad.view import View
+
 
 # Thunk
 #   - shapetracker
@@ -49,6 +50,8 @@ class Thunk:
   def isview(self) -> bool: return self._op is None
   @property
   def isload(self) -> bool: return self._op in LoadOps
+  @property
+  def algebraic_op(self) -> AlgebraicOp: return algebraic_op(self._op)
 
   # Data properties
   @property

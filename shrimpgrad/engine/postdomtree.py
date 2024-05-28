@@ -1,7 +1,7 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, TypeAlias
-from shrimpgrad.future import Thunk, ThunkGraph
+from shrimpgrad.future import Thunk, ThunkGraph, reverse_graph
 
 # With help from https://llvm.org/doxygen/GenericDomTreeConstruction_8h_source.html
 @dataclass
@@ -117,3 +117,11 @@ def semi_nca(G: ThunkGraph, root: Thunk, node_info: NodeToInfo, num_to_node: Lis
       if widomcandidateinfo.DFSNum <= sdom_num: break
       widomcandidate = widomcandidateinfo.IDom
     winfo.IDom = widomcandidate
+
+
+IDoms: TypeAlias = Dict[Thunk, Thunk]
+def ipdoms(out: Thunk) -> IDoms: 
+  g = reverse_graph(out.thunk)
+  _, node_info, num_to_node = run_dfs(g, out.thunk, -1, 0)
+  semi_nca(g, out.thunk, node_info, num_to_node)
+  return {thunk:info.IDom for thunk, info in node_info.items()}
