@@ -49,7 +49,7 @@ class Thunk:
   @property
   def isview(self) -> bool: return self._op is None
   @property
-  def isload(self) -> bool: return self._op in LoadOps
+  def isload(self) -> bool: return self._op in LoadOps if not self.isview else False
   @property
   def algebraic_op(self) -> AlgebraicOp: return algebraic_op(self._op)
 
@@ -68,6 +68,12 @@ class Thunk:
   def realized(self) -> Optional[Buffer]: return self.buff if hasattr(self, 'buff') and self.buff.allocated else None
   @property
   def strides(self): return self._view.strides 
+  @property
+  def isreduce(self): return self._op in ReduceOps
+  @property
+  def reduce_input_shape(self): 
+    assert(self.isreduce), f"{self._op} don't have a reduce input shape"
+    return self._operands[0].shape
 
   # Builder methods
   @staticmethod
@@ -130,6 +136,9 @@ def reverse_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph:
   G, visited = defaultdict(list), set()
   def dfs(thunk: Thunk):
     if thunk in visited: return G
+    # A movement op has one operand
+    if thunk.isview:
+      thunk = thunk.base
     visited.add(thunk)
     if thunk.isroot: return G
     if thunk.isload and ignore_loads: return G

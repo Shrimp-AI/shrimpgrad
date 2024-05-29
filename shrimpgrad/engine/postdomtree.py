@@ -1,6 +1,6 @@
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Optional, TypeAlias
+from typing import Dict, List, Optional, Tuple, TypeAlias
 from shrimpgrad.future import Thunk, ThunkGraph, reverse_graph
 
 # With help from https://llvm.org/doxygen/GenericDomTreeConstruction_8h_source.html
@@ -10,6 +10,7 @@ class InfoRec:
   Parent: int = 0
   Semi: int = 0
   Label: int = 0
+  Indegree: int = 0
   ReverseChildren: List[int] =()
   IDom: Optional[Thunk] = None
 
@@ -40,12 +41,16 @@ def run_dfs(G: ThunkGraph, v: Thunk, last_num:int, attach_to_num: int, reverse=T
           childs = list(succ_info.ReverseChildren)
           childs.append(last_num)
           succ_info.ReverseChildren = tuple(childs)
+          BBInfo.Indegree += 1
         continue
       WorkList.append(succ)
       succ_info.Parent = last_num
       childs = list(succ_info.ReverseChildren)
       childs.append(last_num)
       succ_info.ReverseChildren = tuple(childs)
+      # Since we are pointing towards the original graphs root
+      # In actuality the indegree points toward the parent from the child
+      BBInfo.Indegree += 1
   return last_num, node_info, num_to_node  
 
 # Initialize Immediate Dominators to be the parent of each node
@@ -83,7 +88,6 @@ def seval(v: int, last_linked: int, stack: List[InfoRec], num_to_info:NumToInfo)
       break
   return v_info.Label
 
-
 def semidominators(next_dfs_num: int, num_to_info: NumToInfo):
   eval_stack = []
   for i in range(next_dfs_num-2, 1, -1):
@@ -94,7 +98,6 @@ def semidominators(next_dfs_num: int, num_to_info: NumToInfo):
     for n in w_info.ReverseChildren:
       semi_u = num_to_info[seval(n, i + 1, eval_stack, num_to_info)].Semi
       if semi_u < w_info.Semi: w_info.Semi = semi_u
-
 
 def semi_nca(G: ThunkGraph, root: Thunk, node_info: NodeToInfo, num_to_node: List[Thunk]):
   next_dfs_num = len(num_to_node)
@@ -118,10 +121,10 @@ def semi_nca(G: ThunkGraph, root: Thunk, node_info: NodeToInfo, num_to_node: Lis
       widomcandidate = widomcandidateinfo.IDom
     winfo.IDom = widomcandidate
 
-
 IDoms: TypeAlias = Dict[Thunk, Thunk]
-def ipdoms(out: Thunk) -> IDoms: 
-  g = reverse_graph(out.thunk)
-  _, node_info, num_to_node = run_dfs(g, out.thunk, -1, 0)
-  semi_nca(g, out.thunk, node_info, num_to_node)
-  return {thunk:info.IDom for thunk, info in node_info.items()}
+def ipdoms(out: Thunk) -> Tuple[IDoms, NodeToInfo, NumToNode]: 
+  if out.isview: out = out.base
+  g = reverse_graph(out)
+  _, node_info, num_to_node = run_dfs(g, out, -1, 0)
+  semi_nca(g, out, node_info, num_to_node)
+  return {thunk:info.IDom for thunk, info in node_info.items()}, node_info, num_to_node
