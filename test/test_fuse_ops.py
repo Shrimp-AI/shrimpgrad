@@ -50,4 +50,27 @@ class TestFuseOps(unittest.TestCase):
     fusion = FusionEngine(e.thunk)
     fused_ops = fusion.fuse()
     self.assertEqual(2, len(fused_ops))
+   
+  def test_diamond_fuse(self): 
+    
+    x = Tensor.randn(10,10)
+    y = Tensor.randn(10,10)
+    z = Tensor.randn(10,10)
+    w = Tensor.randn(10,10)
+
+    a = x + y
+
+    b = z * a 
+
+    c = w * a 
+
+    d = b / c
+
+    e = d.sum()
+    log_thunk(e.thunk)
+    fusion = FusionEngine(e.thunk)
+    fused_ops = fusion.fuse()
+    print(fused_ops)
+
+
     

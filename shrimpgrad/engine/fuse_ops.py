@@ -44,7 +44,6 @@ class Group:
       
   def __repr__(self):
     return f"<Group root={self.root} parent={self.parent}>"
-    
 
 class FusionEngine:
   def __init__(self, thunk: Thunk): 
