@@ -1,9 +1,11 @@
 from __future__ import annotations
-from collections import defaultdict
-from typing import DefaultDict, Dict, List, Optional, Set, Tuple, TypeAlias, Union
+from collections import defaultdict, deque
+from functools import partial
+from typing import Callable, DefaultDict, Deque, Dict, List, Optional, Set, Tuple, TypeAlias, Union
 from shrimpgrad.device import CPU, Device, Buffer
 from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
+from shrimpgrad.util import prod
 from shrimpgrad.view import View
 
 
@@ -151,13 +153,85 @@ def reverse_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph:
     return G
   return dfs(thunk) 
 
+
+
+###############################################################################
+## Indexed Forward Graphs - Forward CFG of the output Thunk ###################
+###############################################################################
+# In order to minimize graph traversal we want to collect as much as we can
+# in a single pass. Save conditions allow us to extract nodes from a graph into
+# separate storage
+# For example: Save if Load, Save if Expand, etc. will save those nodes even if
+# the graph wont contain them (fusion doesn't require virtual nodes and loads)
+# SearchMode is a dumb dfs or dumb bfs that requires successor function
+# and traversal (manages a visited set and kicks off the recursion)
+# SuccesorFn describes how to get the successor from a thunk
+# Traversal is a way to construct an order of the DAG (uses successor function and dumbdfs)
+SaveCondition:TypeAlias = Callable[[Thunk], bool]
+IgnoreCondition: TypeAlias = Callable[[Thunk], bool]
+SearchStrategy: TypeAlias = Callable[[Thunk], List[Thunk]] 
+SuccessorFn: TypeAlias = Callable[[Thunk], List[Thunk]]
+Traversal: TypeAlias = Callable[[SearchStrategy, Thunk, SuccessorFn], List[Thunk]]
+
+save_loads: SaveCondition = lambda t: t.isload and not t._op == LoadOps.CONST
+save_expands: SaveCondition = lambda t: t.isview and not t.isload and prod(t.base.shape) < prod(t.shape)
+save_roots: SaveCondition = lambda t: t.isroot
+save_const: SaveCondition = lambda t: t._op == LoadOps.CONST
+
+ignore_load: IgnoreCondition = lambda thunk: thunk.isload
+ignore_root: IgnoreCondition = lambda thunk: thunk.isroot
+ignore_view: IgnoreCondition =lambda thunk: thunk.isview
+
+def post_order(search: SearchStrategy,
+               G: ThunkGraph, node: Thunk, successor_fn: SuccessorFn, result: Deque[Thunk]):
+  for succ in successor_fn(node):
+    search(succ)
+    G[succ].append(node)
+  result.appendleft(node)
+
+class IndexedForwardGraph:
+  # Defaults to post order traversal
+  # Defaults to ignore loads, views, and roots
+  # Defaults to save loads, expands, roots, and const loads
+  def __init__(self, out: Thunk,
+               save_conditions: List[SaveCondition]=[],
+               ignore_conditions: List[IgnoreCondition]=[],
+               traversal_fn=post_order):
+    self.out = out
+    self.G: ThunkGraph = defaultdict(list)
+    self.traversal_fn = traversal_fn
+    self.save_conditions = save_conditions if save_conditions else [save_loads, save_expands, save_roots, save_const]
+    self.saved: DefaultDict[int, List[Thunk]]= defaultdict(list)
+    self.ignore_conditions = ignore_conditions if ignore_conditions else [ignore_load, ignore_root, ignore_view] 
+    self.search_fn = lambda self: self._dfs()
+    self.successor_fn = lambda thunk: [p for p in thunk._operands if hasattr(p, '_operands')] 
+    self.ordering = self.search_fn(self) 
+
+  def _dfs(self):
+    result = deque()
+    def dfs(visited: Set[Thunk], thunk: Thunk):
+      if thunk in visited: return
+      for skey, scnd in enumerate(self.save_conditions): self.saved[skey].append(thunk) if scnd(thunk) else None 
+
+      thunk = thunk.base
+      visited.add(thunk)
+        
+      if any([fn(thunk) for fn in self.ignore_conditions]): return
+      
+
+      self.traversal_fn(partial(dfs, visited), self.G, thunk, self.successor_fn, result)
+    dfs(set(), self.out)
+    return result
+
+
+
 # Generates a ThunkGraph via DFS, given an output node, in the forward direction.
 # Forward means G[out.parents[0]] = [out] (if parents is not empty) 
 # This is the standard control flow graph for tensor computations.
 # If ignore_loads=True (default) then no key in G is a load and no value in
 # any G[thunk] is a load. 
 # Returns the roots of the CFG (all nodes with indegree == 0)
-def forward_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph:
+def forward_graph(thunk: Thunk, ignore_loads=True, save_loads=False, saved=[]) -> ThunkGraph:
   G, visited = defaultdict(list), set()
   indegree = {}
   def dfs(thunk: Thunk):
@@ -168,9 +242,13 @@ def forward_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph:
     if thunk not in indegree: indegree[thunk] = 0
     visited.add(thunk)
     if thunk.isroot: return G
-    if thunk.isload and ignore_loads: return G
+    if thunk.isload and ignore_loads: 
+      if save_loads: saved.append(thunk)
+      return G
     for parent in thunk.parents:
-      if parent.isload and ignore_loads: continue
+      if parent.isload and ignore_loads:
+        if save_loads: saved.append(parent) 
+        continue
       G[parent].append(thunk)
       indegree[thunk] +=1
       dfs(parent)
