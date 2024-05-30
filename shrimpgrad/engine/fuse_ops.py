@@ -1,7 +1,7 @@
 from __future__ import annotations
 from collections import defaultdict
 from typing import Callable, DefaultDict, List, TypeAlias 
-from shrimpgrad.engine.postdomtree import ipdoms
+from shrimpgrad.engine.postdomtree import PostDomTree
 from shrimpgrad.future import Thunk, ThunkGraph 
 from shrimpgrad.runtime.ops import AlgebraicOp 
 
@@ -33,35 +33,28 @@ class Group:
     parent = parent.find_root()
     if child == parent: return
     child.parent = parent
-
-  def count(self) -> int: 
-    count = 1 
-    p = self
-    while p.parent is not None:
-      p = p.parent
-      count += 1
-    return count
       
-  def __repr__(self):
-    return f"<Group root={self.root} parent={self.parent}>"
+  def __repr__(self): return f"<Group root={self.root} parent={self.parent}>"
 
 class FusionEngine:
   def __init__(self, thunk: Thunk): 
-    self.root = thunk
-    self.ipdoms, self.node_to_info, self.num_to_node = ipdoms(self.root)
-    print(self.num_to_node)
-    print(self.node_to_info)
+    self.out = thunk
+    self.dom_tree = PostDomTree(self.out)
+    self.num_to_node = self.dom_tree.dfs_post_order
     self.groups: List[Group] = [Group(node.algebraic_op, node) for node in self.num_to_node]
     print(f"group length={len(self.groups)}")
+  
+  def get_node_index(self, node: Thunk) -> int: return self.dom_tree.node_to_num[node]
+  def get_children(self, node: Thunk) -> List[Thunk]: return self.dom_tree.graph[node]
 
   def fuse(self) -> ThunkGraph: 
     for i, group in enumerate(self.groups):
       print(f"Fusing group={group}")
       thunk = self.num_to_node[i]
       print(f"   src={thunk}")
-      ipdom = self.ipdoms[thunk]
+      ipdom = self.dom_tree.ipdom(thunk)
       print(f"   ipdom={ipdom}")
-      ipdom_group = self.groups[self.node_to_info[ipdom].DFSNum]
+      ipdom_group = self.groups[self.get_node_index(ipdom)]
       print(f"   ipdom_group={ipdom_group}")
       if ipdom_group.find_root() == group.find_root(): 
         print("   Group roots are equal, moving to next group.")
@@ -89,32 +82,29 @@ class FusionEngine:
     def _check_path(src: Thunk, sink: Thunk) -> bool:
       if src in visited: return True
       visited.add(src)
-      group = self.groups[self.node_to_info[src].DFSNum]
+      group = self.groups[self.get_node_index(src)]
       if not fcnd(group.aop, src == sink): return False
       if src == sink: return True
-      for childid in self.node_to_info[src].ReverseChildren:
-        child = self.num_to_node[childid]
+      for child in self.get_children(src):
         if not _check_path(child, sink): return False
       return True
-    for childid in self.node_to_info[src].ReverseChildren:
-      child = self.num_to_node[childid]
+    for child in self.get_children(src):
       if not _check_path(child, sink): return False
     return True
 
   def commit_fuse(self, src: Thunk, sink: Thunk):
     assert src != sink, "commit_fuse requires src and sink to be different"
     visited = set()
-    target = self.groups[self.node_to_info[sink].DFSNum]
+    target = self.groups[self.get_node_index(sink)]
     def _commit_fuse(src: Thunk, sink: Thunk, target: Group):
       print(f"Commiting from {src} to {sink}")  
       if src == sink or src in visited: 
         print("End commit...")
         return
       visited.add(src)
-      group = self.groups[self.node_to_info[src].DFSNum]
+      group = self.groups[self.get_node_index(src)]
       print("Combining groups...")
       group.union(target)
-      for childid in self.node_to_info[src].ReverseChildren:
-        child = self.num_to_node[childid]
+      for child in self.get_children(src):
         _commit_fuse(child, sink, target)
     _commit_fuse(src, sink, target)

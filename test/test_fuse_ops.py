@@ -70,7 +70,7 @@ class TestFuseOps(unittest.TestCase):
     log_thunk(e.thunk)
     fusion = FusionEngine(e.thunk)
     fused_ops = fusion.fuse()
-    print(fused_ops)
+    self.assertEqual(1, len(fused_ops))
 
 
     

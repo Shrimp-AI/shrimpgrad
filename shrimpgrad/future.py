@@ -1,6 +1,6 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import DefaultDict, List, Optional, Tuple, TypeAlias, Union
+from typing import DefaultDict, Dict, List, Optional, Set, Tuple, TypeAlias, Union
 from shrimpgrad.device import CPU, Device, Buffer
 from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
@@ -131,6 +131,8 @@ class Thunk:
   def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}"
   def __hash__(self): return id(self)
 
+# Graph Construction and Traversal helpers 
+
 ThunkGraph: TypeAlias = DefaultDict[Thunk, List[Thunk]]
 def reverse_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph: 
   G, visited = defaultdict(list), set()
@@ -148,3 +150,48 @@ def reverse_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph:
       dfs(parent)
     return G
   return dfs(thunk) 
+
+# Generates a ThunkGraph via DFS, given an output node, in the forward direction.
+# Forward means G[out.parents[0]] = [out] (if parents is not empty) 
+# This is the standard control flow graph for tensor computations.
+# If ignore_loads=True (default) then no key in G is a load and no value in
+# any G[thunk] is a load. 
+# Returns the roots of the CFG (all nodes with indegree == 0)
+def forward_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph:
+  G, visited = defaultdict(list), set()
+  indegree = {}
+  def dfs(thunk: Thunk):
+    if thunk in visited: return G
+    # A movement op has one operand
+    if thunk.isview:
+      thunk = thunk.base
+    if thunk not in indegree: indegree[thunk] = 0
+    visited.add(thunk)
+    if thunk.isroot: return G
+    if thunk.isload and ignore_loads: return G
+    for parent in thunk.parents:
+      if parent.isload and ignore_loads: continue
+      G[parent].append(thunk)
+      indegree[thunk] +=1
+      dfs(parent)
+    return G
+  
+  dfs(thunk) 
+  roots = [node for node, indeg in indegree.items() if indeg == 0]
+  return G, roots
+  
+
+def post_dfs(g: ThunkGraph, out: Thunk, reverse=True) -> Tuple[List[Thunk], Dict[Thunk, int]]:
+  result = []
+  node_to_num = {}
+  visited: Set[Thunk] = set()
+  def dfs(node: Thunk):
+    if node in visited: return 
+    visited.add(node)
+    for c in g[node]:
+      dfs(c)
+    result.append(node)
+    node_to_num[node] = len(result) - 1
+  dfs(out)
+  if reverse: node_to_num = {node:len(result)-1-num for node, num in node_to_num.items()}
+  return result if not reverse else result[::-1], node_to_num 
