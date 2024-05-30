@@ -56,7 +56,7 @@ def log_thunk(thunk:'Thunk', scheduled=False):
         G.add_edge(nm(x), nm(thunk), color='#a0a0a0')
     label = '"' + \
       (str(set(x.shape for x in thunk._operands))+"\n"+str(thunk.shape) if thunk._op in ReduceOps else str(thunk.shape)) + \
-      (f"\n{thunk.dtype.name}" if thunk.dtype.name != "float" else "")+f"\n{thunk._op}"+(f"\n{thunk.arg}" if thunk._op in {LoadOps.CONST, UnaryOps.CAST} else "") + \
+      (f"\n{thunk.dtype.name} id={id(thunk)}" if thunk.dtype.name != "float" else "")+f"\n{thunk._op}"+(f"\n{thunk.arg}" if thunk._op in {LoadOps.CONST, UnaryOps.CAST} else "") + \
       (f"\n{thunk.device}") + ''.join(label_append) + '"'
     G.add_node(nm(thunk), style='"filled,dashed"', fillcolor=[v for k,v in top_colors.items() if thunk._op in k][0] + "80", color="black", label=label)
     if scheduled: G.nodes[nm(thunk)]['shape'] = 'box'

@@ -2,29 +2,10 @@ import unittest
 
 from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.tensor import Tensor
-from shrimpgrad.engine.fuse_ops import bfs, FusionEngine
+from shrimpgrad.engine.fuse_ops import FusionEngine
 
 
 class TestFuseOps(unittest.TestCase):
-  def test_basic_elementiwse_fuse(self):
-    _ = Tensor.randn(10,10)
-    # # LoadOps.EMPTY -> LoadOps.COPY
-    # y = Tensor.randn(10,10)
-  
-  def test_bfs_grouping(self):
-    x = Tensor.randn(10,10)
-    y = Tensor.randn(10,10)
-    z = Tensor.randn(10,10)
-    w = Tensor.randn(10,10)
-
-    a = x + y
-    b = a * z
-    c = b / w
-    out = b - c
-
-    fusion = FusionEngine(out.thunk)
-    self.assertEqual(1, len(fusion.real_roots))
-    self.assertEqual(fusion.real_roots[0], a.thunk)
   
   def test_basic_no_fusion(self):
     x = Tensor.randn(10,10)
@@ -32,8 +13,8 @@ class TestFuseOps(unittest.TestCase):
     a = x + y
     log_thunk(a.thunk)
     fusion = FusionEngine(a.thunk)
-    fused_ops = fusion.start()
-    self.assertEqual(0, len(fused_ops))
+    groups = fusion.fuse()
+    self.assertEqual(len(groups), 0)
 
   def test_basic_fuse2(self):
     x = Tensor.randn(10,10)
@@ -42,9 +23,9 @@ class TestFuseOps(unittest.TestCase):
     b = x * a
     log_thunk(b.thunk)
     fusion = FusionEngine(b.thunk)
-    fused_ops = fusion.start()
-    self.assertEqual(1, len(fused_ops))
-    self.assertEqual(2, len(fused_ops.injectives))
+    fused = fusion.fuse()
+    self.assertEqual(len(fused), 1)
+
 
   def test_basic_fuse3(self):
     x = Tensor.randn(10,10)
@@ -54,7 +35,19 @@ class TestFuseOps(unittest.TestCase):
     c = b.sum()
     log_thunk(c.thunk)
     fusion = FusionEngine(c.thunk)
-    fused_ops = fusion.start()
-    self.assertEqual(1, len(fused_ops))
-    self.assertEqual(2, len(fused_ops[0].injectives))
-    self.assertTrue(fused_ops[0].has_reduce)
+    fused_ops = fusion.fuse()  
+    self.assertEqual(len(fused_ops), 1)
+
+  def test_two_fusions(self):
+    x = Tensor.randn(10,10)
+    y = Tensor.randn(10,10)
+    a = x + y
+    b = x * a
+    c = b.sum().expand(10,10)
+    d = c / b
+    e = d.mean()
+    log_thunk(e.thunk)
+    fusion = FusionEngine(e.thunk)
+    fused_ops = fusion.fuse()
+    self.assertEqual(2, len(fused_ops))
+    
