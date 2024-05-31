@@ -1,7 +1,28 @@
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, TypeAlias
-from shrimpgrad.future import Thunk, ThunkGraph, reverse_graph
+from shrimpgrad.future import Thunk, ThunkGraph
+
+# Implementation of Semi-NCA to determine immediate post dominators of nodes in a thunk graph
+# There is a bug in here somewhere (diamond graphs dont compute ipdom correctly)
+# This code is not used right now but may be useful later
+
+def reverse_graph(thunk: Thunk, ignore_loads=True) -> ThunkGraph: 
+  G, visited = defaultdict(list), set()
+  def dfs(thunk: Thunk):
+    if thunk in visited: return G
+    # A movement op has one operand
+    if thunk.isview:
+      thunk = thunk.base
+    visited.add(thunk)
+    if thunk.isroot: return G
+    if thunk.isload and ignore_loads: return G
+    for parent in thunk.parents:
+      if parent.isload and ignore_loads: continue
+      G[thunk].append(parent)
+      dfs(parent)
+    return G
+  return dfs(thunk)
 
 # With help from https://llvm.org/doxygen/GenericDomTreeConstruction_8h_source.html
 @dataclass

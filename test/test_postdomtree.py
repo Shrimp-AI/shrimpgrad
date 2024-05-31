@@ -1,7 +1,7 @@
 import unittest
 
 from shrimpgrad.engine.graph import log_thunk
-from shrimpgrad.future import IndexedForwardGraph, forward_graph, post_dfs
+from shrimpgrad.future import IndexedForwardGraph
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.engine.postdomtree import PostDomTree 
 

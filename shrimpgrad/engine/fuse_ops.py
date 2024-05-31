@@ -1,6 +1,6 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import Callable, DefaultDict, List, TypeAlias 
+from typing import Callable, List, TypeAlias 
 from shrimpgrad.engine.postdomtree import PostDomTree
 from shrimpgrad.future import IndexedForwardGraph, Thunk, ThunkGraph 
 from shrimpgrad.runtime.ops import AlgebraicOp 

@@ -1,8 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import List, Optional, Set
-from shrimpgrad.future import IndexedForwardGraph, Thunk, post_dfs, forward_graph 
-
+from typing import List, Optional
+from shrimpgrad.future import IndexedForwardGraph, Thunk
 
 @dataclass
 class DomTreeNode:
