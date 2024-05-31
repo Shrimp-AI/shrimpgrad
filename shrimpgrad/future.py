@@ -130,7 +130,7 @@ class Thunk:
     return Thunk.loadop(LoadOps.CONST, tuple(), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
 
   def __str__(self) -> str: return f"<THUNK {self.device} {self.shape} {str(self.dtype)[7:]} {self._op}>"
-  def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}"
+  def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}>"
   def __hash__(self): return id(self)
 
 # Graph Construction and Traversal helpers 
@@ -182,47 +182,61 @@ ignore_load: IgnoreCondition = lambda thunk: thunk.isload
 ignore_root: IgnoreCondition = lambda thunk: thunk.isroot
 ignore_view: IgnoreCondition =lambda thunk: thunk.isview
 
-def post_order(search: SearchStrategy,
-               G: ThunkGraph, node: Thunk, successor_fn: SuccessorFn, result: Deque[Thunk]):
-  for succ in successor_fn(node):
-    search(succ)
-    G[succ].append(node)
-  result.appendleft(node)
+# def post_order(search: SearchStrategy,
+#                G: ThunkGraph, node: Thunk, successor_fn: SuccessorFn, result: Deque[Thunk]):
+#   for succ in successor_fn(node):
+#     search(succ)
+#     G[succ].append(node)
+#   result.appendleft(node)
 
 class IndexedForwardGraph:
   # Defaults to post order traversal
-  # Defaults to ignore loads, views, and roots
+  # Defaults to ignore loads and roots
   # Defaults to save loads, expands, roots, and const loads
   def __init__(self, out: Thunk,
                save_conditions: List[SaveCondition]=[],
                ignore_conditions: List[IgnoreCondition]=[],
-               traversal_fn=post_order):
+               traversal_fn='post'):
     self.out = out
     self.G: ThunkGraph = defaultdict(list)
-    self.traversal_fn = traversal_fn
+    self.traversal_fn = self.post_order 
     self.save_conditions = save_conditions if save_conditions else [save_loads, save_expands, save_roots, save_const]
     self.saved: DefaultDict[int, List[Thunk]]= defaultdict(list)
-    self.ignore_conditions = ignore_conditions if ignore_conditions else [ignore_load, ignore_root, ignore_view] 
+    self.ignore_conditions = ignore_conditions if ignore_conditions else [ignore_load, ignore_root] 
     self.search_fn = lambda self: self._dfs()
     self.successor_fn = lambda thunk: [p for p in thunk._operands if hasattr(p, '_operands')] 
-    self.ordering = self.search_fn(self) 
+    self.ordering = deque() 
+    self.node_to_num = {}
+    # Traverse
+    self.search_fn(self)
+  
+  def save(self, thunk: Thunk) -> None:
+    for skey, scnd in enumerate(self.save_conditions): self.saved[skey].append(thunk) if scnd(thunk) else None 
+  
+  def ignore(self, thunk: Thunk) -> bool:
+    return any([fn(thunk) for fn in self.ignore_conditions]) 
 
   def _dfs(self):
-    result = deque()
     def dfs(visited: Set[Thunk], thunk: Thunk):
       if thunk in visited: return
-      for skey, scnd in enumerate(self.save_conditions): self.saved[skey].append(thunk) if scnd(thunk) else None 
-
+      self.save(thunk) 
       thunk = thunk.base
       visited.add(thunk)
-        
-      if any([fn(thunk) for fn in self.ignore_conditions]): return
-      
-
-      self.traversal_fn(partial(dfs, visited), self.G, thunk, self.successor_fn, result)
+      if self.ignore(thunk): return
+      self.traversal_fn(partial(dfs, visited), thunk)
     dfs(set(), self.out)
-    return result
 
+  def post_order(self, search: SearchStrategy, node: Thunk):
+    for succ in self.successor_fn(node):
+      self.save(succ) 
+      if (self.ignore(succ)): continue 
+      search(succ)
+      self.G[succ].append(node)
+    self.ordering.appendleft(node)
+    self.node_to_num[node] = len(self.ordering) - 1
+  
+  def node2num(self, node: Thunk):
+    return len(self.ordering) - 1 - self.node_to_num[node]
 
 
 # Generates a ThunkGraph via DFS, given an output node, in the forward direction.

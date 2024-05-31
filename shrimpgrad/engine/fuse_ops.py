@@ -2,7 +2,7 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Callable, DefaultDict, List, TypeAlias 
 from shrimpgrad.engine.postdomtree import PostDomTree
-from shrimpgrad.future import Thunk, ThunkGraph 
+from shrimpgrad.future import IndexedForwardGraph, Thunk, ThunkGraph 
 from shrimpgrad.runtime.ops import AlgebraicOp 
 
 FuseCondition: TypeAlias = Callable[[AlgebraicOp, bool], bool]
@@ -37,15 +37,14 @@ class Group:
   def __repr__(self): return f"<Group root={self.root} parent={self.parent}>"
 
 class FusionEngine:
-  def __init__(self, thunk: Thunk): 
-    self.out = thunk
-    self.dom_tree = PostDomTree(self.out)
+  def __init__(self, g: IndexedForwardGraph): 
+    self.dom_tree = PostDomTree(g)
+    print(self.dom_tree.graph.G)
     self.num_to_node = self.dom_tree.dfs_post_order
     self.groups: List[Group] = [Group(node.algebraic_op, node) for node in self.num_to_node]
-    print(f"group length={len(self.groups)}")
   
-  def get_node_index(self, node: Thunk) -> int: return self.dom_tree.node_to_num[node]
-  def get_children(self, node: Thunk) -> List[Thunk]: return self.dom_tree.graph[node]
+  def get_node_index(self, node: Thunk) -> int: return self.dom_tree.node2num(node)
+  def get_children(self, node: Thunk) -> List[Thunk]: return self.dom_tree.graph.G[node]
 
   def fuse(self) -> ThunkGraph: 
     for i, group in enumerate(self.groups):
