@@ -16,6 +16,8 @@ class View:
 
   @property
   def contiguous(self) -> bool:
+    if not self.shape: return True
+    if not self._strides: return True
     return all(self._strides[i] == self.shape[i+1]*self._strides[i+1] for i in range(0, self.ndim-1))
 
   @property

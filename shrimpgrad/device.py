@@ -1,10 +1,12 @@
 
 from __future__ import annotations
 import ctypes
+from dataclasses import dataclass
 from typing import Type
-from shrimpgrad.dtype import DType
+from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.meta.singleton import Singleton
 from shrimpgrad.runtime.clang import ClangCompiler, ClangRuntime
+from shrimpgrad.view import View
 
 class Device(metaclass=Singleton):
   def __init__(self, name:str): self.name = name
@@ -87,3 +89,15 @@ class Buffer:
   def __repr__(self):
     return f'<real buffer nbytes={self.nbytes} dtype={self.dtype} allocated={self.allocated}> ref_count={self._ref_count}'
   def __hash__(self): return id(self)
+
+
+@dataclass
+class MemBuffer:
+  buff: Buffer
+  view: View
+
+@dataclass
+class ConstBuffer:
+  value: ConstType
+  device: Device
+  view: View

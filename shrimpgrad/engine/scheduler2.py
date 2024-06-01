@@ -1,48 +1,21 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, Iterable, List, Union
-from shrimpgrad.device import Buffer, Device
+from typing import Any, Iterable, List, Union, Sequence
+from shrimpgrad.device import Buffer, ConstBuffer, Device, MemBuffer
 from shrimpgrad.dtype import ConstType
 from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.future import IndexedForwardGraph, Thunk
 from shrimpgrad.engine.fuse_ops import FusionEngine
-from shrimpgrad.runtime.ops import LoadOps, Op
+from shrimpgrad.runtime.ops import Op
 from shrimpgrad.view import View
-
-
-def const_folding():
-  pass
-
-
-def schedule_loads():
-  pass
-
-
-def gen_fused_kernels():
-  pass
-
-
-def schedule_fused_kernels():
-  pass
-
-@dataclass
-class MemBuffer:
-  buff: Buffer
-  view: View
-
-@dataclass
-class ConstBuffer:
-  value: ConstType
-  device: Device
 
 @dataclass
 class MidIR:
   op: Op
-  ins: List[Union[MemBuffer, ConstBuffer]]
-  outs: List[Union[MemBuffer, ConstBuffer]]
+  ins: Sequence[Union[MemBuffer, ConstBuffer]]
+  outs: Union[MemBuffer, ConstBuffer]
   arg: Any
-  input_for: List[Thunk] 
 
 @dataclass
 class FusedKernel:
@@ -58,34 +31,55 @@ class FusedKernelBuilder:
 
     fusion_engine = FusionEngine(self.g)
     self.fused_ops, self.unfused = fusion_engine.fuse()
+    self.groups = fusion_engine.groups
 
-    self.scheduled_kernels = []
-  
   def schedule_loads(self):
-    for load, outs in self.loads.items():
-      self.scheduled_kernels.append(self._schedule(load, outs))
+    loads = []
+    for load in self.loads:
+      inputs = load.get_input_buffers()
+      output = load.get_output_buffer()
+      ir = MidIR(load._op, inputs, output, arg=load.arg)
+      loads.append(FusedKernel([ir]))
+    return loads
+
   def schedule_consts(self):
-    for const, outs in self.consts.items():
-      self.scheduled_kernels.append(self._schedule(const, outs))
+    loads = []
+    for load in self.consts:
+      inputs = load.get_input_buffers()
+      output = load.get_output_buffer()
+      ir = MidIR(load._op, inputs, output, arg=load.arg)
+      loads.append(FusedKernel([ir]))
+    return loads
   
   def schedule_fused(self): 
-    fused = []
-    for out, chain in self.fused_ops.items():
-      computations: List[Thunk] = chain + out
-      for computation in computations:
-        for operand in computation._operands:
-          fused.append(self._schedule(operand, [computation]))
-    return FusedKernel(fused)
-          
-  def _schedule(self, thunk: Thunk, input_for: Iterable[Thunk]):
-    if thunk._op is LoadOps.COPY:
-      ins = [MemBuffer(thunk._operands[0].buff, thunk._operands[0]._view)]
-      arg = thunk.arg
-      outs = [MemBuffer(thunk.buff, thunk._view)] 
-      return MidIR(LoadOps.COPY, ins, outs, arg, input_for)
-    if thunk._op is LoadOps.CONST:
-      arg = thunk.arg
-      return MidIR(LoadOps.CONST, [], [ConstBuffer(arg, thunk.device)], arg, input_for)
+    kernels = []
+    for group in self.groups[::-1]:
+      print(group)
+      if group.parent is None:
+        if group.root not in self.fused_ops: 
+          thunk = group.root
+          inputs = thunk.get_input_buffers()
+          output = thunk.get_output_buffer()
+          ir = MidIR(thunk._op, inputs, output, arg=thunk.arg)
+          kernels.append(FusedKernel([ir])) 
+        else:
+          fused = self.fused_ops[group.root] + [group.root]
+          fused_kernel = []
+          for thunk in fused:
+            inputs = thunk.get_input_buffers()
+            output = thunk.get_output_buffer()
+            ir = MidIR(thunk._op, inputs, output, arg=thunk.arg)
+            fused_kernel.append(ir)
+          kernels.append(FusedKernel(fused_kernel))
+    return kernels  
+
+           
+  def schedule(self):
+    kernels = []
+    kernels.append(self.schedule_loads())
+    kernels.append(self.schedule_consts())
+    kernels.append(self.schedule_fused())
+    return kernels
 
 
  

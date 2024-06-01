@@ -1,8 +1,8 @@
 from __future__ import annotations
 from collections import defaultdict, deque
 from functools import partial
-from typing import Callable, DefaultDict, List, Optional, Set, Tuple, TypeAlias, Union
-from shrimpgrad.device import CPU, Device, Buffer
+from typing import Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, TypeAlias, Union
+from shrimpgrad.device import CPU, Device, Buffer, ConstBuffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
 from shrimpgrad.util import prod
@@ -43,9 +43,9 @@ class Thunk:
   
   # Graph properties
   @property
-  def parents(self) -> Tuple[Thunk, ...]:
+  def parents(self) -> List[Thunk]:
     if self.isroot: return () 
-    return [parent if not parent.isview else parent.base for parent in self._operands] 
+    return [parent if not parent.isview else parent.base for parent in self._operands]
   @property
   def isroot(self) -> bool: return not hasattr(self, '_operands')
   @property
@@ -76,6 +76,30 @@ class Thunk:
   def reduce_input_shape(self): 
     assert(self.isreduce), f"{self._op} don't have a reduce input shape"
     return self._operands[0].shape
+
+  def get_input_buffers(self) -> Sequence[Union[ConstBuffer, MemBuffer]]:
+    inputs = []
+    if self.isroot: return inputs 
+    for operand in self._operands:
+      base = operand
+      new_view = operand._view
+      if operand.isview: base = operand.base
+
+      if base._op is LoadOps.CONST:
+        inputs.append(ConstBuffer(base.arg, base.device, new_view))
+      elif base._op is LoadOps.COPY:
+        buffer = base._operands[0].buff
+        inputs.append(MemBuffer(buffer, new_view))
+      else:
+        inputs.append(MemBuffer(base.buff, new_view))
+    return inputs    
+  
+  def get_output_buffer(self):
+    if self._op is LoadOps.CONST:
+      return ConstBuffer(self.arg, self.device, self._view)
+    return MemBuffer(self.base.buff, self._view)
+    
+
 
   # Builder methods
   @staticmethod
@@ -161,8 +185,6 @@ save_const: SaveCondition = lambda t: t._op == LoadOps.CONST
 ignore_load: IgnoreCondition = lambda thunk: thunk.isload
 ignore_root: IgnoreCondition = lambda thunk: thunk.isroot
 ignore_view: IgnoreCondition =lambda thunk: thunk.isview
-
-
 
 
 ThunkGraph: TypeAlias = DefaultDict[Thunk, List[Thunk]]
