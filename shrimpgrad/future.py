@@ -6,13 +6,13 @@ from shrimpgrad.device import CPU, Device, Buffer, ConstBuffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
 from shrimpgrad.util import prod
-from shrimpgrad.view import View
+from shrimpgrad.view import View, ViewTracker
 
 
 # Thunk
-#   - shapetracker
+#   - ViewTracker 
 #      - list of views (each view has shape, strides, contiguous(are the strides swapped?), offset?, mask (for padding)?)
-#      - the shapetracker consolidates all the movement ops on a thunk
+#      - the ViewTracker consolidates all the movement ops on a thunk
 #      - some thunks will have an st with multiple views (ex. permute(1,0).reshape((..)) b/c the permute makes the view non-contiguous
 #        just reshaping after will lose the effect the permute had on the tensor
 #   - base_thunk (the thunk that has the real buffer with data)
@@ -25,9 +25,9 @@ class Thunk:
   syntax tree where root thunks have allocated buffers (inputs usually from tensor factory methods)
   and child thunks are described by operations and their parent operands.
   """
-  def __init__(self, device: Device, dtype: DType, view: View, operands: Tuple[Thunk, ...]=(), op: Optional[Op]=None, data: Union[ConstType, List, bytes, memoryview]=None, base: Optional[Thunk]=None, arg=None):
+  def __init__(self, device: Device, dtype: DType, vt: ViewTracker, operands: Tuple[Thunk, ...]=(), op: Optional[Op]=None, data: Union[ConstType, List, bytes, memoryview]=None, base: Optional[Thunk]=None, arg=None):
     # initial buffer conditions
-    self._view, self.device, self.dtype, self.arg = view, device, dtype, arg
+    self.vt , self.device, self.dtype, self.arg = vt, device, dtype, arg
     self._op, self._operands = op, operands 
     
     # Am I the base thunk? Does the buffer reside with me or another thunk? Am I a view of the base thunk after a movement op? (same questions)
@@ -36,7 +36,7 @@ class Thunk:
     if base is None:
       if op != LoadOps.CONST:
         # I'm the base I own the real buffer 
-        self.buff = Buffer(self.device, self._view.numel, self.dtype)
+        self.buff = Buffer(self.device, self.vt.numel, self.dtype)
     else:
       assert base.base == base, "base must be the base"
       self._base = base
@@ -57,19 +57,19 @@ class Thunk:
 
   # Data properties
   @property
-  def shape(self): return self._view.shape
+  def shape(self): return self.vt.shape
   @property
-  def numel(self): return self._view.numel
+  def numel(self): return self.vt.numel
   @property
-  def scalar(self): return self._view.scalar
+  def scalar(self): return self.vt.scalar
   @property
-  def ndim(self): return self._view.ndim
+  def ndim(self): return self.vt.ndim
   @property
   def base(self): return self._base if self._base is not None else self
   @property
   def realized(self) -> Optional[Buffer]: return self.buff if hasattr(self, 'buff') and self.buff.allocated else None
   @property
-  def strides(self): return self._view.strides 
+  def strides(self): return self.vt.strides 
   @property
   def isreduce(self): return self._op in ReduceOps
   @property
@@ -82,7 +82,7 @@ class Thunk:
     if self.isroot: return inputs 
     for operand in self._operands:
       base = operand
-      new_view = operand._view
+      new_view = operand.vt
       if operand.isview: base = operand.base
 
       if base._op is LoadOps.CONST:
@@ -96,35 +96,35 @@ class Thunk:
   
   def get_output_buffer(self):
     if self._op is LoadOps.CONST:
-      return ConstBuffer(self.arg, self.device, self._view)
-    return MemBuffer(self.base.buff, self._view)
+      return ConstBuffer(self.arg, self.device, self.vt)
+    return MemBuffer(self.base.buff, self.vt)
     
   # Builder methods
   @staticmethod
-  def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], view: View, device: Device, dtype: DType):
+  def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], vt: ViewTracker, device: Device, dtype: DType):
     if op in BinaryOps: assert len(operands) > 1, f'binary ops require two operands, {len(operands)} given' 
     if op in UnaryOps: assert len(operands) > 0, f'unary ops require one operands, {len(operands)} given'
     if op in TernaryOps: assert len(operands) > 2, f'ternary ops require three operands, {len(operands)} given' 
-    return Thunk(device, dtype, View.from_view(view), tuple(operands), op)
+    return Thunk(device, dtype, vt, tuple(operands), op)
 
   def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_thunks: Tuple[Thunk,...]) -> Thunk:
-    return Thunk.from_compute(op, (self, *in_thunks), self._view, self.device, self.dtype)
+    return Thunk.from_compute(op, (self, *in_thunks), self.vt, self.device, self.dtype)
 
   def reduce(self, op: ReduceOps, axis: Tuple[int,...]) -> Thunk: 
-    new_shape = tuple([1 if i in axis else s for i,s in enumerate(self._view.shape)])
-    return Thunk(self.device, self.dtype, View(new_shape), (self,), op, arg=axis)
+    new_shape = tuple([1 if i in axis else s for i,s in enumerate(self.shape)])
+    return Thunk(self.device, self.dtype, ViewTracker.from_shape(new_shape), (self,), op, arg=axis)
 
   def reshape(self, shape: Tuple[int,...]):
-    return Thunk(self.device, self.dtype, self._view.reshape(shape), (), base=self.base)
+    return Thunk(self.device, self.dtype, self.vt.reshape(shape), (), base=self.base)
 
   def permute(self, order:Tuple[int,...]) -> Thunk:
-    return Thunk(self.device, self.dtype, self._view.permute(order), (), base=self.base)
+    return Thunk(self.device, self.dtype, self.vt.permute(order), (), base=self.base)
 
   def expand(self, shape: Tuple[int,...]) -> Thunk:
-    return Thunk(self.device, self.dtype, self._view.expand(shape), (), base=self.base)
+    return Thunk(self.device, self.dtype, self.vt.expand(shape), (), base=self.base)
 
   def cast(self, dtype: DType) -> Thunk:
-    return Thunk(self.device, dtype, self._view, (self,))
+    return Thunk(self.device, dtype, self.vt, (self,))
 
   @staticmethod 
   def load_from_cpu(data, dtype, shape):
@@ -139,19 +139,19 @@ class Thunk:
   
   @staticmethod
   def loadop(op: LoadOps, shape, dtype, device, arg=None, srcs=()):
-    return Thunk(device, dtype, View(shape), srcs, op=op, arg=arg)
+    return Thunk(device, dtype, ViewTracker.from_shape(shape), srcs, op=op, arg=arg)
   
   def copy_to_device(self, device: Device) -> Thunk:
     if self._op == LoadOps.CONST: return self
     # Generaly self is a LoadOps.EMPTY with device as CPU
     # It may have been reshaped etc so ensure we copy from the base
-    return Thunk(device, self.dtype, self._view, (self.base, ), LoadOps.COPY, arg=self.base.buff.nbytes)
+    return Thunk(device, self.dtype, self.vt, (self.base, ), LoadOps.COPY, arg=self.base.buff.nbytes)
 
   def const(self, val: ConstType, shape: Tuple[int,...]=None):
     shape = self.shape if shape is None else shape
-    return Thunk.loadop(LoadOps.CONST, tuple(), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
+    return Thunk.loadop(LoadOps.CONST, ViewTracker.from_shape(()), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
 
-  def __str__(self) -> str: return f"<THUNK {self.device} {self.shape} {str(self.dtype)[7:]} {self._op}>"
+  def __str__(self) -> str: return f"<THUNK {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"
   def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}>"
   def __hash__(self): return id(self)
 

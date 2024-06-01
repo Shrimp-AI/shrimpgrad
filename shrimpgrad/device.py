@@ -6,7 +6,7 @@ from typing import Type
 from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.meta.singleton import Singleton
 from shrimpgrad.runtime.clang import ClangCompiler, ClangRuntime
-from shrimpgrad.view import View
+from shrimpgrad.view import ViewTracker
 
 class Device(metaclass=Singleton):
   def __init__(self, name:str): self.name = name
@@ -94,10 +94,10 @@ class Buffer:
 @dataclass
 class MemBuffer:
   buff: Buffer
-  view: View
+  vt: ViewTracker 
 
 @dataclass
 class ConstBuffer:
   value: ConstType
   device: Device
-  view: View
+  vt: ViewTracker

@@ -10,6 +10,18 @@ class ViewTracker:
   
   @property
   def view(self): return self.views[-1]
+  @property
+  def shape(self): return self.view.shape
+  @property
+  def scalar(self): return self.view.scalar
+  @property
+  def ndim(self): return self.view.ndim
+  @property
+  def numel(self): return self.view.numel
+  @property
+  def contiguous(self): return self.view.contiguous
+  @property
+  def strides(self): return self.view.strides
 
   def reshape(self, new_shape: Tuple[int,...]) -> ViewTracker:
     new_view = self.view.reshape(new_shape)
@@ -33,6 +45,9 @@ class ViewTracker:
   @staticmethod
   def from_shape(shape: Tuple[int,...]) -> ViewTracker:
     return ViewTracker([View(shape)])
+
+  def __repr__(self) -> str:
+    return f"<VT views={self.views}>"
     
 
 class View:
