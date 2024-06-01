@@ -1,8 +1,39 @@
 from __future__ import annotations
 from itertools import accumulate
 import operator
-from typing import Tuple
+from typing import List, Tuple
 from shrimpgrad.util import prod
+
+class ViewTracker:
+  def __init__(self, views: List[View]):
+    self.views: List[View] = views 
+  
+  @property
+  def view(self): return self.views[-1]
+
+  def reshape(self, new_shape: Tuple[int,...]) -> ViewTracker:
+    new_view = self.view.reshape(new_shape)
+    if self.view.contiguous:
+      # if the most recent view is not permuted
+      # we can just merge the views
+      return ViewTracker.from_views(self.views[0:-1] + [new_view])
+    # Must respect the permute
+    return ViewTracker.from_views(self.views + [new_view]) 
+
+  def expand(self, new_shape: Tuple[int,...]) -> ViewTracker:
+    return ViewTracker.from_views(self.views[0:-1] + [self.view.expand(new_shape)])
+  
+  def permute(self, order: Tuple[int,...]) -> ViewTracker:
+    return ViewTracker.from_views(self.views[0:-1] + [self.view.permute(order)] )
+  
+  @staticmethod
+  def from_views(views: List[View]) -> ViewTracker:
+    return ViewTracker(views)
+
+  @staticmethod
+  def from_shape(shape: Tuple[int,...]) -> ViewTracker:
+    return ViewTracker([View(shape)])
+    
 
 class View:
   """A description of how a thunk's data is interpreted
@@ -46,7 +77,7 @@ class View:
     for i, (si, so) in enumerate(zip(self.shape, shape)):
       if si != so: strd[i] = 0
     out.shape = shape
-    out._strides = strd
+    out._strides = tuple(strd)
     return out
   
   @staticmethod

@@ -99,8 +99,6 @@ class Thunk:
       return ConstBuffer(self.arg, self.device, self._view)
     return MemBuffer(self.base.buff, self._view)
     
-
-
   # Builder methods
   @staticmethod
   def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], view: View, device: Device, dtype: DType):
