@@ -6,4 +6,3 @@ from shrimpgrad.runtime import python, clang, ops
 from shrimpgrad.dtype import *
 from shrimpgrad.device import *
 from shrimpgrad.engine.graph import *
-from shrimpgrad.engine.scheduler2 import *

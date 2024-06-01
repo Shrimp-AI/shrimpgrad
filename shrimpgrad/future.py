@@ -5,8 +5,7 @@ from typing import Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, 
 from shrimpgrad.device import CPU, Device, Buffer, ConstBuffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
-from shrimpgrad.util import prod
-from shrimpgrad.view import View, ViewTracker
+from shrimpgrad.view import ViewTracker
 
 
 # Thunk
@@ -84,21 +83,16 @@ class Thunk:
       base = operand
       new_view = operand.vt
       if operand.isview: base = operand.base
-
       if base._op is LoadOps.CONST:
         inputs.append(ConstBuffer(base.arg, base.device, new_view))
-      elif base._op is LoadOps.COPY:
-        buffer = base._operands[0].buff
-        inputs.append(MemBuffer(buffer, new_view))
-      else:
-        inputs.append(MemBuffer(base.buff, new_view))
+      else: inputs.append(MemBuffer(base.buff, new_view))
     return inputs    
   
   def get_output_buffer(self):
     if self._op is LoadOps.CONST:
       return ConstBuffer(self.arg, self.device, self.vt)
     return MemBuffer(self.base.buff, self.vt)
-    
+
   # Builder methods
   @staticmethod
   def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], vt: ViewTracker, device: Device, dtype: DType):
@@ -149,7 +143,7 @@ class Thunk:
 
   def const(self, val: ConstType, shape: Tuple[int,...]=None):
     shape = self.shape if shape is None else shape
-    return Thunk.loadop(LoadOps.CONST, ViewTracker.from_shape(()), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
+    return Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
 
   def __str__(self) -> str: return f"<THUNK {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"
   def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}>"
@@ -160,58 +154,23 @@ class Thunk:
 ###############################################################################
 ## Indexed Forward Graphs - Forward CFG of the output Thunk ###################
 ###############################################################################
-# In order to minimize graph traversal we want to collect as much as we can
-# in a single pass. Save conditions allow us to extract nodes from a graph into
-# separate storage
-# For example: Save if Load, Save if Expand, etc. will save those nodes even if
-# the graph wont contain them (fusion doesn't require virtual nodes and loads)
-# SearchMode is a dumb dfs or dumb bfs that requires successor function
-# and traversal (manages a visited set and kicks off the recursion)
-# SuccesorFn describes how to get the successor from a thunk
-# Traversal is a way to construct an order of the DAG (uses successor function and dumbdfs)
-SaveCondition:TypeAlias = Callable[[Thunk], bool]
-IgnoreCondition: TypeAlias = Callable[[Thunk], bool]
 SearchStrategy: TypeAlias = Callable[[Thunk], List[Thunk]] 
 SuccessorFn: TypeAlias = Callable[[Thunk], List[Thunk]]
 Traversal: TypeAlias = Callable[[SearchStrategy, Thunk, SuccessorFn], List[Thunk]]
 
-save_loads: SaveCondition = lambda t: t.isload and not t._op == LoadOps.CONST
-save_expands: SaveCondition = lambda t: t.isview and not t.isload and prod(t.base.shape) < prod(t.shape)
-save_roots: SaveCondition = lambda t: t.isroot
-save_const: SaveCondition = lambda t: t._op == LoadOps.CONST
-
-ignore_load: IgnoreCondition = lambda thunk: thunk.isload
-ignore_root: IgnoreCondition = lambda thunk: thunk.isroot
-ignore_view: IgnoreCondition =lambda thunk: thunk.isview
-
-
 ThunkGraph: TypeAlias = DefaultDict[Thunk, List[Thunk]]
 class IndexedForwardGraph:
   # Defaults to post order traversal
-  # Defaults to ignore loads and roots
-  # Defaults to save loads, expands, roots, and const loads
-  def __init__(self, out: Thunk,
-               save_conditions: Optional[List[SaveCondition]]=None,
-               ignore_conditions: Optional[List[IgnoreCondition]]=None,
-               traversal_fn='post'):
+  def __init__(self, out: Thunk, traversal_fn='post'):
     self.out = out
     self.G: ThunkGraph = defaultdict(list)
     self.traversal_fn = self.post_order 
-    self.save_conditions = save_conditions if save_conditions is not None else [save_loads, save_expands, save_roots, save_const]
-    self.saved: DefaultDict[int, DefaultDict[Thunk, Set[Thunk]]]= defaultdict(lambda: defaultdict(set))
-    self.ignore_conditions = ignore_conditions if ignore_conditions is not None else [ignore_load, ignore_root] 
     self.search_fn = lambda self: self._dfs()
     self.successor_fn = lambda thunk: [p for p in thunk._operands if hasattr(p, '_operands')] 
     self.ordering = deque() 
     self.node_to_num = {}
     # Traverse
     self.search_fn(self)
-  
-  def save(self, thunk: Thunk, output: Thunk) -> None:
-    for skey, scnd in enumerate(self.save_conditions): self.saved[skey][thunk].add(output) if scnd(thunk) else None 
-  
-  def ignore(self, thunk: Thunk) -> bool:
-    return any([fn(thunk) for fn in self.ignore_conditions]) 
 
   def _dfs(self):
     def dfs(visited: Set[Thunk], thunk: Thunk):
@@ -224,8 +183,6 @@ class IndexedForwardGraph:
     if node.isview:
       node = node.base
     for succ in self.successor_fn(node):
-      self.save(succ, node) 
-      if (self.ignore(succ)): continue
       search(succ)
       self.G[succ].append(node)
     self.ordering.appendleft(node)

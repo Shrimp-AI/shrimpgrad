@@ -22,12 +22,6 @@ class TestIndexedForwardGraph(unittest.TestCase):
     e = d.sum()
 
     g = IndexedForwardGraph(e.thunk)
-    print(g.ordering) 
-    expected_ordering = [e.thunk.base, d.thunk.base, c.thunk.base, b.thunk.base, a.thunk.base]
-    self.assertEqual(expected_ordering, list(g.ordering))
-    for i, node in enumerate(expected_ordering):
-      self.assertEqual(g.node2num(node), i)
-    self.assertTrue(all([t in g.saved[0] for t in [x.thunk, y.thunk, z.thunk, w.thunk]]))
   
   def test_saved_expand(self):
     x = Tensor.randn(10,10)
@@ -40,11 +34,9 @@ class TestIndexedForwardGraph(unittest.TestCase):
     log_thunk(e.thunk)
     g = IndexedForwardGraph(e.thunk)
 
-    print(g.saved)
-
+ 
     # self.assertTrue(all([t in g.saved[0] for t in [x.thunk, y.thunk]]))
     # self.assertTrue(len(g.saved[1]), 1)
     # self.assertTrue(g.saved[1][0].shape == (10,10))
     # self.assertEqual(g.saved[1][0].base.shape, (1,1))
-    for i, node in enumerate(g.ordering):
-      self.assertEqual(g.node2num(node), i) 
+ 

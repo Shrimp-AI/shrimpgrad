@@ -13,7 +13,7 @@ class TestFuseOps(unittest.TestCase):
     a = x + y
     g = IndexedForwardGraph(a.thunk)
     fusion = FusionEngine(g)
-    groups, _ = fusion.fuse()
+    groups = fusion.fuse()
     self.assertEqual(len(groups), 0)
 
   def test_basic_fuse2(self):
@@ -23,7 +23,7 @@ class TestFuseOps(unittest.TestCase):
     b = x * a
     g = IndexedForwardGraph(b.thunk)
     fusion = FusionEngine(g)
-    fused, _ = fusion.fuse()
+    fused = fusion.fuse()
     self.assertEqual(len(fused), 1)
 
 
@@ -35,7 +35,7 @@ class TestFuseOps(unittest.TestCase):
     c = b.sum()
     g = IndexedForwardGraph(c.thunk)
     fusion = FusionEngine(g)
-    fused_ops, _ = fusion.fuse()  
+    fused_ops = fusion.fuse()  
     self.assertEqual(len(fused_ops), 1)
 
   def test_two_fusions(self):
@@ -48,7 +48,7 @@ class TestFuseOps(unittest.TestCase):
     e = d.mean()
     g = IndexedForwardGraph(e.thunk)
     fusion = FusionEngine(g)
-    fused_ops, _ = fusion.fuse()
+    fused_ops = fusion.fuse()
     self.assertEqual(2, len(fused_ops))
    
   def test_diamond_fuse(self): 
@@ -69,7 +69,7 @@ class TestFuseOps(unittest.TestCase):
     e = d.sum()
     g = IndexedForwardGraph(e.thunk)
     fusion = FusionEngine(g)
-    fused_ops, _ = fusion.fuse()
+    fused_ops = fusion.fuse()
     self.assertEqual(1, len(fused_ops))
 
 
