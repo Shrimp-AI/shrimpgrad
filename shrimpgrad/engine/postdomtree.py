@@ -28,11 +28,10 @@ class PostDomTree:
 
   def get_node(self, node: Thunk) -> DomTreeNode:
     # output node
-    print(f"  tree={self.tree}")
-    print(f"  node={node} ")
     if self.tree[0] is None:
       tnode = DomTreeNode(None, 1, node)
     else:
+      # Children will already have been through get_node since we are post order
       children = self.graph.G[node]
       parent = self.lca(children)
       tnode = DomTreeNode(parent, parent.depth + 1 if parent else 1, node)

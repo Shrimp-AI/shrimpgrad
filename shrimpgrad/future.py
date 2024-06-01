@@ -162,6 +162,9 @@ ignore_load: IgnoreCondition = lambda thunk: thunk.isload
 ignore_root: IgnoreCondition = lambda thunk: thunk.isroot
 ignore_view: IgnoreCondition =lambda thunk: thunk.isview
 
+
+
+
 ThunkGraph: TypeAlias = DefaultDict[Thunk, List[Thunk]]
 class IndexedForwardGraph:
   # Defaults to post order traversal
@@ -175,7 +178,7 @@ class IndexedForwardGraph:
     self.G: ThunkGraph = defaultdict(list)
     self.traversal_fn = self.post_order 
     self.save_conditions = save_conditions if save_conditions is not None else [save_loads, save_expands, save_roots, save_const]
-    self.saved: DefaultDict[int, List[Thunk]]= defaultdict(list)
+    self.saved: DefaultDict[int, DefaultDict[Thunk, Set[Thunk]]]= defaultdict(lambda: defaultdict(set))
     self.ignore_conditions = ignore_conditions if ignore_conditions is not None else [ignore_load, ignore_root] 
     self.search_fn = lambda self: self._dfs()
     self.successor_fn = lambda thunk: [p for p in thunk._operands if hasattr(p, '_operands')] 
@@ -184,8 +187,8 @@ class IndexedForwardGraph:
     # Traverse
     self.search_fn(self)
   
-  def save(self, thunk: Thunk) -> None:
-    for skey, scnd in enumerate(self.save_conditions): self.saved[skey].append(thunk) if scnd(thunk) else None 
+  def save(self, thunk: Thunk, output: Thunk) -> None:
+    for skey, scnd in enumerate(self.save_conditions): self.saved[skey][thunk].add(output) if scnd(thunk) else None 
   
   def ignore(self, thunk: Thunk) -> bool:
     return any([fn(thunk) for fn in self.ignore_conditions]) 
@@ -193,17 +196,16 @@ class IndexedForwardGraph:
   def _dfs(self):
     def dfs(visited: Set[Thunk], thunk: Thunk):
       if thunk in visited: return
-      self.save(thunk) 
-      thunk = thunk.base
-      visited.add(thunk)
-      if self.ignore(thunk): return
+      visited.add(thunk.base) if thunk.isview else visited.add(thunk)
       self.traversal_fn(partial(dfs, visited), thunk)
     dfs(set(), self.out)
 
   def post_order(self, search: SearchStrategy, node: Thunk):
+    if node.isview:
+      node = node.base
     for succ in self.successor_fn(node):
-      self.save(succ) 
-      if (self.ignore(succ)): continue 
+      self.save(succ, node) 
+      if (self.ignore(succ)): continue
       search(succ)
       self.G[succ].append(node)
     self.ordering.appendleft(node)

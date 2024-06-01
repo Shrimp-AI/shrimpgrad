@@ -1,6 +1,6 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import Callable, List, TypeAlias 
+from typing import Callable, List, Tuple, TypeAlias 
 from shrimpgrad.engine.postdomtree import PostDomTree
 from shrimpgrad.future import IndexedForwardGraph, Thunk, ThunkGraph 
 from shrimpgrad.runtime.ops import AlgebraicOp 
@@ -46,7 +46,8 @@ class FusionEngine:
   def get_node_index(self, node: Thunk) -> int: return self.dom_tree.node2num(node)
   def get_children(self, node: Thunk) -> List[Thunk]: return self.dom_tree.graph.G[node]
 
-  def fuse(self) -> ThunkGraph: 
+  # Return a map of fused thunks and a list of unfused thunks
+  def fuse(self) -> Tuple[ThunkGraph, List[Thunk]]: 
     for i, group in enumerate(self.groups):
       print(f"Fusing group={group}")
       thunk = self.num_to_node[i]
@@ -68,12 +69,20 @@ class FusionEngine:
           self.commit_fuse(thunk, ipdom)
     return self.aggregate_groups()
   
-  def aggregate_groups(self) -> ThunkGraph:
+  def aggregate_groups(self) -> Tuple[ThunkGraph, List[Thunk]]:
     gmap: ThunkGraph = defaultdict(list)
+    maybe_unfused = []
     for group in self.groups:
-      if group.parent is None: continue
+      if group.parent is None: 
+        maybe_unfused.append(group)
+        continue
       gmap[group.parent.root].append(group.root)
-    return gmap
+    unfused = []
+    for node in maybe_unfused: 
+      if node.root in gmap:
+        continue
+      unfused.append(node.root)
+    return gmap, unfused
 
   def check_path(self, src: Thunk, sink: Thunk, fcnd: FuseCondition):
     assert src != sink, "check path requires src and sink to be different"

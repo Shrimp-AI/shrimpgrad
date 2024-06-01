@@ -1,6 +1,5 @@
 import unittest
 
-from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.future import IndexedForwardGraph
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.engine.fuse_ops import FusionEngine
@@ -14,7 +13,7 @@ class TestFuseOps(unittest.TestCase):
     a = x + y
     g = IndexedForwardGraph(a.thunk)
     fusion = FusionEngine(g)
-    groups = fusion.fuse()
+    groups, _ = fusion.fuse()
     self.assertEqual(len(groups), 0)
 
   def test_basic_fuse2(self):
@@ -24,7 +23,7 @@ class TestFuseOps(unittest.TestCase):
     b = x * a
     g = IndexedForwardGraph(b.thunk)
     fusion = FusionEngine(g)
-    fused = fusion.fuse()
+    fused, _ = fusion.fuse()
     self.assertEqual(len(fused), 1)
 
 
@@ -36,7 +35,7 @@ class TestFuseOps(unittest.TestCase):
     c = b.sum()
     g = IndexedForwardGraph(c.thunk)
     fusion = FusionEngine(g)
-    fused_ops = fusion.fuse()  
+    fused_ops, _ = fusion.fuse()  
     self.assertEqual(len(fused_ops), 1)
 
   def test_two_fusions(self):
@@ -49,7 +48,7 @@ class TestFuseOps(unittest.TestCase):
     e = d.mean()
     g = IndexedForwardGraph(e.thunk)
     fusion = FusionEngine(g)
-    fused_ops = fusion.fuse()
+    fused_ops, _ = fusion.fuse()
     self.assertEqual(2, len(fused_ops))
    
   def test_diamond_fuse(self): 
@@ -70,7 +69,7 @@ class TestFuseOps(unittest.TestCase):
     e = d.sum()
     g = IndexedForwardGraph(e.thunk)
     fusion = FusionEngine(g)
-    fused_ops = fusion.fuse()
+    fused_ops, _ = fusion.fuse()
     self.assertEqual(1, len(fused_ops))
 
 
