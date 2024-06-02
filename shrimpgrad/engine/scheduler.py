@@ -10,14 +10,14 @@ from shrimpgrad.runtime.ops import Op
 
 @dataclass
 class MidIR:
-  op: Op
-  ins: Sequence[Union[MemBuffer, ConstBuffer]]
-  out: Union[MemBuffer, ConstBuffer]
-  arg: Any
+  ops: Sequence[Op]
+  ins: Sequence[Sequence[Union[MemBuffer, ConstBuffer]]]
+  out: Sequence[Union[MemBuffer, ConstBuffer]]
+  args: List[Any] 
 
 @dataclass
 class FusedKernel:
-  computation: List[MidIR]
+  computation: MidIR 
 
 class FusedKernelBuilder:
   def __init__(self, out: Thunk):
@@ -36,19 +36,17 @@ class FusedKernelBuilder:
           thunk = group.root
           inputs = thunk.get_input_buffers()
           output = thunk.get_output_buffer()
-          ir = MidIR(thunk._op, inputs, output, arg=thunk.arg)
-          kernels.append(FusedKernel([ir])) 
+          ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
+          kernels.append(FusedKernel(ir)) 
         else:
           fused = list(reversed(self.fused_ops[group.root])) + [group.root]
-          fused_kernel = []
-          for thunk in fused:
-            inputs = thunk.get_input_buffers()
-            output = thunk.get_output_buffer()
-            ir = MidIR(thunk._op, inputs, output, arg=thunk.arg)
-            fused_kernel.append(ir)
-          kernels.append(FusedKernel(fused_kernel))
+          inputs = [t.get_input_buffers() for t in fused]
+          # Get the output for the last thunk
+          output = [t.get_output_buffer() for t in fused]
+          ops = [t._op for t in fused]
+          args = [t.arg for t in fused]
+          kernels.append(FusedKernel(MidIR(ops, inputs, output, args)))
     return kernels  
-
            
   def schedule(self):
     return self.schedule_fused()
@@ -57,22 +55,22 @@ def print_schedule(schedule: List[FusedKernel]) -> None:
   print(f"SCHEDULE length={len(schedule)}")
   print("---------------------------------------------")
   for i, k in enumerate(schedule):
-    print(f"kernel {i+1} with {len(k.computation)} steps:")
+    ir = k.computation 
+    print(f"kernel {i+1} with {len(ir.ops)} steps:")
     print("-------------------------------------------")
-    for i, comp in enumerate(k.computation): 
-      print(f"step {i}:")
-      print(f" operation={comp.op}")
-      print("   inputs:")
-      print_inputs(comp.ins)
-      print("   outputs:")
-      print_inputs([comp.out])
-      print(f"   arg={comp.arg}")
+    print(f" operation={ir.ops}")
+    print("   inputs:")
+    print_inputs(ir.ins)
+    print("   outputs:")
+    print_inputs([ir.out])
+    print(f"   args={ir.args}")
     print("------------------------------------------")
     
 def print_inputs(ins):
   for i in ins:
-    if isinstance(i, MemBuffer):
-      print(f"    buffer {id(i.buff)} with size {i.buff.nbytes} bytes")
-    if isinstance(i, ConstBuffer):
-      print(f"    constant {i.value}")
+    for ii in i:
+      if isinstance(ii, MemBuffer):
+        print(f"    buffer {id(ii.buff)} with size {ii.buff.nbytes} bytes")
+      if isinstance(ii, ConstBuffer):
+        print(f"    constant {ii.value}")
 

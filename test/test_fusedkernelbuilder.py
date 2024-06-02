@@ -12,8 +12,6 @@ class TestFusedKernelBuilder(unittest.TestCase):
     x = Tensor.randn(10,10)
     y = Tensor.randn(10,10)
     a = x + y
-    print(a.thunk._operands)
-    print(id(a.thunk._operands[0].base.buff))
     b = x * a
     c = b.sum().expand(10,10)
     d = c / b

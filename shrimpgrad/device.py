@@ -91,12 +91,12 @@ class Buffer:
   def __hash__(self): return id(self)
 
 
-@dataclass
+@dataclass(frozen=True, eq=True)
 class MemBuffer:
   buff: Buffer
   vt: ViewTracker 
 
-@dataclass
+@dataclass(frozen=True, eq=True)
 class ConstBuffer:
   value: ConstType
   device: Device

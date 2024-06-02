@@ -1,6 +1,6 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import Callable, List, Tuple, TypeAlias 
+from typing import Callable, List, TypeAlias 
 from shrimpgrad.engine.postdomtree import PostDomTree
 from shrimpgrad.future import IndexedForwardGraph, Thunk, ThunkGraph 
 from shrimpgrad.runtime.ops import AlgebraicOp 
@@ -71,7 +71,6 @@ class FusionEngine:
   def aggregate_groups(self) -> ThunkGraph:
     gmap: ThunkGraph = defaultdict(list)
     for group in self.groups:
-      print(group)
       if group.parent is None: 
         continue
       gmap[group.parent.root].append(group.root)
