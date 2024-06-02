@@ -1,7 +1,9 @@
 import unittest
 from shrimpgrad.dtype import dtypes
-from shrimpgrad.engine.lower import LowIR, LowIRGraph
-from shrimpgrad.runtime.ops import BinaryOps 
+from shrimpgrad.engine.lower import LowIR, LowIRGraph, LowerFusedKernel
+from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
+from shrimpgrad.runtime.ops import BinaryOps
+from shrimpgrad.tensor import Tensor 
 
 class TestLower(unittest.TestCase):
   def ae(self, a, b): self.assertEqual(a,b)
@@ -85,3 +87,16 @@ class TestLower(unittest.TestCase):
     self.ae(loop.ancestors, (c0, c1))
     self.ae(end_loop.ancestors, (loop, ))
 
+  def test_lower_simple_add(self):
+    x = Tensor.rand(2,2)
+    y = Tensor.rand(2,2)
+    out = x + y
+    fkb = FusedKernelBuilder(out.thunk)
+    schedule = fkb.schedule()
+    # 2 copies and 1 add kernel
+    self.assertEqual(3, len(schedule))
+    print_schedule(schedule)
+    from pprint import pprint
+    lfk = LowerFusedKernel(schedule)
+    lfk.lower()
+    pprint(lfk.g.G)
