@@ -100,3 +100,17 @@ class TestLower(unittest.TestCase):
     lfk = LowerFusedKernel(schedule)
     lfk.lower()
     pprint(lfk.g.G)
+  
+  def test_lower_unary(self):
+    x = Tensor.rand(2,2)
+    out = x.log() 
+    fkb = FusedKernelBuilder(out.thunk)
+    schedule = fkb.schedule()
+    # 1 copy, 1 const, 1 log  
+    self.assertEqual(3, len(schedule))
+    print_schedule(schedule)
+    from pprint import pprint
+    lfk = LowerFusedKernel(schedule)
+    stores = lfk.lower()
+    pprint(stores)
+ 

@@ -11,6 +11,7 @@ from shrimpgrad.view import ViewTracker
 class Device(metaclass=Singleton):
   def __init__(self, name:str): self.name = name
   def __eq__(self, other: Device): return self.name == other.name
+  def __hash__(self): return id(self)
 
 class Compiler:
   def compile(self): raise NotImplementedError('implement compile') 

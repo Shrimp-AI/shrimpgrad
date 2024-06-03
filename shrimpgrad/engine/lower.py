@@ -77,7 +77,6 @@ class BeginLoopNode(Node):
 class EndLoopNode(Node):
   pass
 
-
 # A graph where each node occupies an index (based on the order of addition)
 # and has 0-to-Many back pointers to dependecies via node.ancestors
 class LowIRGraph:
@@ -140,6 +139,7 @@ class LowerFusedKernel:
     # TODO: Get dtype from inputs or outputs
     self.dtype = dtypes.float32
     self.consts = []
+    self.stores = []
    
   def global_name(self):
     name = f"glob{self.global_counter}"
@@ -169,9 +169,10 @@ class LowerFusedKernel:
     return lowered
 
   def lower_const(self, cbuff: ConstBuffer) -> ConstNode:
-    c0 = self.g.const(self.dtype, cbuff.val)
+    c0 = self.g.const(self.dtype, cbuff.value)
     self.consts.append(c0)
     self.node_to_symbol[cbuff] = len(self.consts) - 1 
+    print(f"stored cbuff at idx {self.node_to_symbol[cbuff]}")
     return c0 
 
   def lower_copy(self, mbuff: MemBuffer) -> GlobalNode:
@@ -191,9 +192,12 @@ class LowerFusedKernel:
                 step: int,
                 alu: BinaryOps):
     # Define a global for the output
-    out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
-    self.symbol_table[name] = out1
-    self.node_to_symbol[out0] = name
+    if isinstance(out0, MemBuffer):
+      out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+      self.symbol_table[name] = out1
+      self.node_to_symbol[out0] = name
+    else:
+      out1 = self.g.const(dtypes.float32, 0)
 
     # Generate indexes for the two inputs
     addr0 = self.g.address(idxs, strides0, step)
@@ -202,22 +206,61 @@ class LowerFusedKernel:
     # Generate two loads from the inputs with the indexes
     # Inputs have previously been defined by copy/const/ or outs of other
     # ops
-    g0 = self.symbol_table[self.node_to_symbol[in0]]
-    g1 = self.symbol_table[self.node_to_symbol[in1]]
-    l0 = self.g.load(g0, addr0)
-    l1 = self.g.load(g1, addr1)
-
-    # Generate the alu operation on the two loads
+    if isinstance(in0, MemBuffer):
+      g0 = self.symbol_table[self.node_to_symbol[in0]]
+      l0 = self.g.load(g0, addr0)
+    else:
+      g0 = self.consts[self.node_to_symbol[in0]]
+      l0 = g0
+    if isinstance(in1, MemBuffer):
+      g1 = self.symbol_table[self.node_to_symbol[in1]]
+      l1 = self.g.load(g1, addr1)
+    else:
+      if in1 not in self.node_to_symbol:
+        # Movement op after load
+        c1 = self.lower_const(in1)
+        l1 = c1 
+      else:
+        c1 = self.consts[self.node_to_symbol[in1]]
+        l1 = c1
+    # Generate the alu operation on the two loads (or consts or either or)
     alu0 = self.g.alu(alu, dtypes.float32, l0, l1)
 
-    # Generate the index for the output
-    addr2 = self.g.address(idxs, strides2, step)
+    if isinstance(out1, GlobalNode):
+      # Generate the index for the output
+      addr2 = self.g.address(idxs, strides2, step)
+
+      # Store the alu output into the global at addr2 
+      self.stores.append(self.g.store(out1, addr2, alu0))
+    else:
+      # TODO: Store Const needed (alu0 could be const and needs to be stored in a const)
+      self.stores.append(self.g.store(out1, None, alu0))
+
+  def lower_uop(self,
+                in0: Union[ConstBuffer, MemBuffer],
+                out0: Union[ConstBuffer, MemBuffer],
+                idxs: List[LocalNode],
+                strd0: Tuple[int,...],
+                strd1: Tuple[int,...],
+                step: int,
+                alu: UnaryOps):
+    # Define a global for the output
+    out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+    self.symbol_table[name] = out1
+    self.node_to_symbol[out0] = name
+
+    # Generate load index
+    addr0 = self.g.address(idxs, strd0, step)
+    g0 = self.symbol_table[self.node_to_symbol[in0]]
+    l0 = self.g.load(g0, addr0)
+    alu0 = self.g.alu(alu, dtypes.float32, l0)
+ 
+     # Generate the index for the output
+    addr2 = self.g.address(idxs, strd1, step)
 
     # Store the alu output into the global at addr2 
-    self.g.store(out1, addr2, alu0)
+    self.stores.append(self.g.store(out1, addr2, alu0))
 
-  def lower_uop(self, uop):
-    pass
   def lower_top(self, top):
     pass
   def lower_rop(self, rop): 
@@ -225,6 +268,7 @@ class LowerFusedKernel:
   def lower_store(self, store):
     pass
 
+  # TODO: Loop unrolling (but not ncessary once we gen for GPU)
   def lower_start_loops(self, ndim:int, shape: Tuple[int,...]):
     loops, idxs = [], []
     for dim in range(ndim):
@@ -237,11 +281,13 @@ class LowerFusedKernel:
       # Begin a loop from var = 0 to c1
       loop = self.g.begin_loop(l0, c1)
       loops.append(loop)
+      self.stores.append(loop)
     return loops, idxs
 
   def lower_end_loops(self, loops: List[BeginLoopNode]):
-    for loop in loops: self.g.end_loop(loop)
-
+    for loop in loops: 
+      endl = self.g.end_loop(loop)
+      self.stores.append(endl)
   
   def lower_single_op_kernel(self, fused_kernel: FusedKernel):
     assert len(fused_kernel.computation.ins) == 1
@@ -251,7 +297,8 @@ class LowerFusedKernel:
     op = fused_kernel.computation.ops[0]
     arg = fused_kernel.computation.args[0]
     if op is LoadOps.CONST:
-      self.lower_inputs(inputs)
+      print(f"Lowering CONST {output}")
+      self.lower_const(output)
       return
     if op is LoadOps.COPY:
       lowered_ins = self.lower_inputs(inputs)
@@ -260,7 +307,7 @@ class LowerFusedKernel:
       in_buff = lowered_ins[0]
       # just an assign so no real addr needed
       addr = self.g.address(0,0,0)
-      self.g.store(out_buff, addr, in_buff)
+      self.stores.append(self.g.store(out_buff, addr, in_buff))
       return
     if op in BinaryOps:
       # Marshall the buffer views
@@ -274,20 +321,62 @@ class LowerFusedKernel:
       self.lower_bop(inputs[0], inputs[1], output, idxs, strd0, strd1, strd2, 1, op)
       self.lower_end_loops(loops)
       return
+    if op in UnaryOps:
+      vt0 = inputs[0].vt
+      vt1 = output.vt
+      strd0 = vt0.strides
+      strd1 = vt1.strides
+      loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
+      self.lower_uop(inputs[0], output, idxs, strd0, strd1, 1, op)
+      self.lower_end_loops(loops)
+      return
+
     if op in TernaryOps:
       return 
     if op in ReduceOps:
       return
     raise NotImplementedError(f"lowering {op} is not supported")
   
+  def lower_multi_op_kernel(self, fk: FusedKernel):
+    ins, outs, ops, args = fk.computation.ins, fk.computation.out, fk.computation.ops, fk.computation.args 
+    assert len(ins) > 1, 'multi op lowering requires multi input'
+    assert len(outs) > 1, 'multi op lowering requires multi output'
+    assert len(ops) > 1, 'multi op lowering requires multi ops' 
+    assert len(args) > 1, ' multi op lowering requires multi args'
+    assert len(ins) == len(outs) == len(ops) == len(args), 'multi op lowering requires inputs, outputs, ops, and args match in length'
+    loops,idxs = None, None 
+    for i, o, op, arg in zip(ins, outs, ops, args):
+      if not loops:
+        vt0 = o.vt
+        loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
+      if op in BinaryOps:
+        # Marshall the buffer views
+        vt0, vt1, vt2 = i[0].vt, i[1].vt, o.vt
+        # Strides may be different due to broadcasting
+        strd0, strd1, strd2 = vt0.strides, vt1.strides, vt2.strides
+
+        # Dimension and shapes should be the same
+        # so use vt0
+        self.lower_bop(i[0], i[1], o, idxs, strd0, strd1, strd2, 1, op)
+        continue 
+      if op in UnaryOps:
+        vt0 = i[0].vt
+        vt1 = o.vt
+        strd0 = vt0.strides
+        strd1 = vt1.strides
+        self.lower_uop(i[0], o, idxs, strd0, strd1, 1, op)
+        continue 
+    self.lower_end_loops(loops)
+ 
   def lower(self):
     for fused_kernel in self.fused_kernels:
       if len(fused_kernel.computation.ops) == 1: 
         print("Single Op Lowering")
         self.lower_single_op_kernel(fused_kernel)
-      else:
-        raise NotImplementedError("Can't lower fused kernels yet")
+      else: 
+        print("Multi Op Lowering")
+        self.lower_multi_op_kernel(fused_kernel)
+    return self.stores
 
 
-        
 
