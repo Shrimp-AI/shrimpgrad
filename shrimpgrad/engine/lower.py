@@ -96,8 +96,8 @@ class LowIRGraph:
     self.G.append(node:=LocalNode(LowIR.LOCAL, (val, ), name, dtype))
     return node
 
-  def address(self, idx: int, stride: int, step: int):
-    self.G.append(node:=AddressNode(LowIR.ADDRESS, (), idx, stride, step))
+  def address(self, idxs: List[LocalNode], strides: Tuple[int,...], step: int):
+    self.G.append(node:=AddressNode(LowIR.ADDRESS, (), idxs, strides, step))
     return node
 
   def load(self, node: Union[GlobalNode, LocalNode], address: AddressNode) -> Node:
@@ -120,7 +120,7 @@ class LowIRGraph:
     self.G.append(node:=ALUNode(LowIR.ALU, tuple(operands), alu, type))
     return node
 
-  def begin_loop(self, start: ConstNode, end: ConstNode):
+  def begin_loop(self, start: LocalNode, end: ConstNode):
     self.G.append(node:=BeginLoopNode(LowIR.BEGIN_LOOP, (start, end)))
     return node
 
@@ -184,15 +184,37 @@ class LowerFusedKernel:
                 in0: Union[ConstBuffer, MemBuffer],
                 in1: Union[ConstBuffer, MemBuffer],
                 out0: Union[ConstBuffer, MemBuffer],
+                idxs: List[LocalNode], 
+                strides0: Tuple[int,...],
+                strides1: Tuple[int,...],
+                strides2: Tuple[int,...],
+                step: int,
                 alu: BinaryOps):
-    g0 = self.symbol_table[self.node_to_symbol[in0]]
-    g1 = self.symbol_table[self.node_to_symbol[in1]]
-    alu0 = self.g.alu(alu, dtypes.float32, g0, g1)
+    # Define a global for the output
     out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
     self.symbol_table[name] = out1
     self.node_to_symbol[out0] = name
-    addr = self.g.address(0, 0, 0)
-    self.g.store(out1, addr, alu0)
+
+    # Generate indexes for the two inputs
+    addr0 = self.g.address(idxs, strides0, step)
+    addr1 = self.g.address(idxs, strides1, step) 
+
+    # Generate two loads from the inputs with the indexes
+    # Inputs have previously been defined by copy/const/ or outs of other
+    # ops
+    g0 = self.symbol_table[self.node_to_symbol[in0]]
+    g1 = self.symbol_table[self.node_to_symbol[in1]]
+    l0 = self.g.load(g0, addr0)
+    l1 = self.g.load(g1, addr1)
+
+    # Generate the alu operation on the two loads
+    alu0 = self.g.alu(alu, dtypes.float32, l0, l1)
+
+    # Generate the index for the output
+    addr2 = self.g.address(idxs, strides2, step)
+
+    # Store the alu output into the global at addr2 
+    self.g.store(out1, addr2, alu0)
 
   def lower_uop(self, uop):
     pass
@@ -202,6 +224,24 @@ class LowerFusedKernel:
     pass
   def lower_store(self, store):
     pass
+
+  def lower_start_loops(self, ndim:int, shape: Tuple[int,...]):
+    loops, idxs = [], []
+    for dim in range(ndim):
+      # Create two constant values for the loop index
+      c0 = self.g.const(dtypes.int32, 0) # start
+      c1 = self.g.const(dtypes.int32, shape[dim]) # end
+      # Create a loop var init with 0
+      l0 = self.g.local_var(self.local_name(), dtypes.int32, c0)
+      idxs.append(l0)
+      # Begin a loop from var = 0 to c1
+      loop = self.g.begin_loop(l0, c1)
+      loops.append(loop)
+    return loops, idxs
+
+  def lower_end_loops(self, loops: List[BeginLoopNode]):
+    for loop in loops: self.g.end_loop(loop)
+
   
   def lower_single_op_kernel(self, fused_kernel: FusedKernel):
     assert len(fused_kernel.computation.ins) == 1
@@ -218,11 +258,21 @@ class LowerFusedKernel:
       assert len(lowered_ins) == 1, f"only one input to copy allowed, given {len(lowered_ins)}"
       out_buff = self.lower_copy(output)
       in_buff = lowered_ins[0]
+      # just an assign so no real addr needed
       addr = self.g.address(0,0,0)
       self.g.store(out_buff, addr, in_buff)
       return
     if op in BinaryOps:
-      self.lower_bop(inputs[0], inputs[1], output, op)
+      # Marshall the buffer views
+      vt0, vt1, vt2 = inputs[0].vt, inputs[1].vt, output.vt
+      # Strides may be different due to broadcasting
+      strd0, strd1, strd2 = vt0.strides, vt1.strides, vt2.strides
+
+      # Dimension and shapes should be the same
+      # so use vt0
+      loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
+      self.lower_bop(inputs[0], inputs[1], output, idxs, strd0, strd1, strd2, 1, op)
+      self.lower_end_loops(loops)
       return
     if op in TernaryOps:
       return 
