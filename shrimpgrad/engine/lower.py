@@ -172,7 +172,6 @@ class LowerFusedKernel:
     c0 = self.g.const(self.dtype, cbuff.value)
     self.consts.append(c0)
     self.node_to_symbol[cbuff] = len(self.consts) - 1 
-    print(f"stored cbuff at idx {self.node_to_symbol[cbuff]}")
     return c0 
 
   def lower_copy(self, mbuff: MemBuffer) -> GlobalNode:
@@ -207,14 +206,28 @@ class LowerFusedKernel:
     # Inputs have previously been defined by copy/const/ or outs of other
     # ops
     if isinstance(in0, MemBuffer):
-      g0 = self.symbol_table[self.node_to_symbol[in0]]
-      l0 = self.g.load(g0, addr0)
+      if in0 not in self.node_to_symbol:
+        # Movement op on the input changed the view tracker
+        g0 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+        self.symbol_table[name] = in0 
+        self.node_to_symbol[g0] = name
+        l0 = self.g.load(g0, addr0)
+      else:
+        g0 = self.symbol_table[self.node_to_symbol[in0]]
+        l0 = self.g.load(g0, addr0)
     else:
       g0 = self.consts[self.node_to_symbol[in0]]
       l0 = g0
     if isinstance(in1, MemBuffer):
-      g1 = self.symbol_table[self.node_to_symbol[in1]]
-      l1 = self.g.load(g1, addr1)
+      if in1 not in self.node_to_symbol:
+        # Movement op on the input changed the view tracker
+        g1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+        self.symbol_table[name] = in1
+        self.node_to_symbol[g1] = name
+        l1 = self.g.load(g1, addr1)
+      else:
+        g1 = self.symbol_table[self.node_to_symbol[in1]]
+        l1 = self.g.load(g1, addr1)
     else:
       if in1 not in self.node_to_symbol:
         # Movement op after load
@@ -244,26 +257,59 @@ class LowerFusedKernel:
                 strd1: Tuple[int,...],
                 step: int,
                 alu: UnaryOps):
-    # Define a global for the output
-    out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
-    self.symbol_table[name] = out1
-    self.node_to_symbol[out0] = name
+    if isinstance(out0, MemBuffer):
+      # Define a global for the output
+      out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+      self.symbol_table[name] = out1
+      self.node_to_symbol[out0] = name
+    else:
+      # Define a const for the output
+      out1 = self.g.const(dtypes.float32, 0)      
 
-    # Generate load index
-    addr0 = self.g.address(idxs, strd0, step)
-    g0 = self.symbol_table[self.node_to_symbol[in0]]
-    l0 = self.g.load(g0, addr0)
+    if isinstance(in0, MemBuffer):
+      addr0 = self.g.address(idxs, strd0, step)
+      g0 = self.symbol_table[self.node_to_symbol[in0]]
+      l0 = self.g.load(g0, addr0)
+    else:
+      g0 = self.consts[self.node_to_symbol[in0]]
+      l0 = g0
+
     alu0 = self.g.alu(alu, dtypes.float32, l0)
- 
-     # Generate the index for the output
-    addr2 = self.g.address(idxs, strd1, step)
 
     # Store the alu output into the global at addr2 
-    self.stores.append(self.g.store(out1, addr2, alu0))
+    if isinstance(out1, GlobalNode):
+      # Generate the index for the output
+      addr2 = self.g.address(idxs, strd1, step)
+      # Store the alu output into the global at addr2 
+      self.stores.append(self.g.store(out1, addr2, alu0))
+    else:
+      # TODO: Store Const needed (alu0 could be const and needs to be stored in a const)
+      self.stores.append(self.g.store(out1, None, alu0))
+
 
   def lower_top(self, top):
     pass
-  def lower_rop(self, rop): 
+  def lower_rop(self,
+                in0: MemBuffer,
+                out0: Union[MemBuffer, ConstBuffer],
+                axis: Tuple[int, ...],
+                rop: ReduceOps): 
+    shape = in0.vt.shape
+    strides = in0.vt.strides
+
+    acc = self.g.accumulator(BinaryOps.ADD, self.accum_name(), self.dtype, [])
+    if isinstance(out0, MemBuffer):
+      # Define a global for the output
+      out1 = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
+      self.symbol_table[name] = out1
+      self.node_to_symbol[out0] = name
+    else:
+      # Define a const for the output
+      out1 = self.g.const(dtypes.float32, 0)      
+      
+    # loop for each axis
+    # loop for each element in the axis 
+
     pass
   def lower_store(self, store):
     pass
@@ -297,7 +343,6 @@ class LowerFusedKernel:
     op = fused_kernel.computation.ops[0]
     arg = fused_kernel.computation.args[0]
     if op is LoadOps.CONST:
-      print(f"Lowering CONST {output}")
       self.lower_const(output)
       return
     if op is LoadOps.COPY:

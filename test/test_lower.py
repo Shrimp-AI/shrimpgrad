@@ -87,7 +87,7 @@ class TestLower(unittest.TestCase):
     self.ae(loop.ancestors, (c0, c1))
     self.ae(end_loop.ancestors, (loop, ))
 
-  def test_lower_simple_add(self):
+  def test_lower_binary(self):
     x = Tensor.rand(2,2)
     y = Tensor.rand(2,2)
     out = x + y
@@ -113,4 +113,32 @@ class TestLower(unittest.TestCase):
     lfk = LowerFusedKernel(schedule)
     stores = lfk.lower()
     pprint(stores)
- 
+    # 1 store for the copy of x
+    # 2 begin_loops for the shape
+    # 2 end loops 
+    # 1 log  1 mul store 
+    self.ae(7, len(stores))
+  
+  def test_lower_diamond_reduce(self):
+    x = Tensor.randn(10,10)
+    y = Tensor.randn(10,10)
+    z = Tensor.randn(10,10)
+    w = Tensor.randn(10,10)
+
+    a = x + y
+
+    b = z * a 
+
+    c = w * a 
+
+    d = b / c
+
+    out = d.sum()
+    
+    fkb = FusedKernelBuilder(out.thunk)
+    schedule = fkb.schedule()
+    print_schedule(schedule)
+    from pprint import pprint
+    lfk = LowerFusedKernel(schedule)
+    stores = lfk.lower()
+    pprint(stores)
