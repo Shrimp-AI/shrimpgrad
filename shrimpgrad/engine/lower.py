@@ -286,9 +286,9 @@ class LowerFusedKernel:
       # TODO: Store Const needed (alu0 could be const and needs to be stored in a const)
       self.stores.append(self.g.store(out1, None, alu0))
 
-
   def lower_top(self, top):
     pass
+
   def lower_rop(self,
                 in0: MemBuffer,
                 out0: Union[MemBuffer, ConstBuffer],
