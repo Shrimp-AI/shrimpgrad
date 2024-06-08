@@ -133,7 +133,7 @@ class TestLower(unittest.TestCase):
 
     d = b / c
 
-    out = d.sum()
+    out = d.sum(axis=0)
     
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()

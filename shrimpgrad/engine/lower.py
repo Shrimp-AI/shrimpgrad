@@ -338,7 +338,7 @@ class LowerFusedKernel:
     order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
     in0_vt = in0.vt.permute(order)
     # out_vt = out0.vt.permute(order) if isinstance(out0, MemBuffer) else ViewTracker.from_shape(out_shape)
-    if len(axis) == 0:
+    if len(axis) == len(in_shape):
       print("FULL AXIS REDUCE")
     elif len(axis) > 1:
       print("MULTI AXIS REDUCE")
@@ -500,8 +500,12 @@ class LowerFusedKernel:
         self.lower_uop(i[0], o, idxs, strd0, strd1, 1, op)
         continue 
       if op in ReduceOps:
-        self.lower_rop(i, o, arg, op)
-        continue
+        assert len(i) == 1, "reduce only has 1 input"
+        # Terminate the loops since reduce occurs after them
+        self.lower_end_loops(loops)
+        self.lower_rop(i[0], o, arg, op)
+        # Return because reduce is always the last fused operation
+        return
     self.lower_end_loops(loops)
  
   def lower(self):
