@@ -12,6 +12,8 @@ class LowIR(Enum):
   GLOBAL = auto()
   ACC = auto()
   ADDRESS = auto()
+  INC = auto()
+  OFFSET = auto()
   LOCAL = auto()
   LOAD = auto()
   CONST = auto() 
@@ -77,6 +79,15 @@ class BeginLoopNode(Node):
 class EndLoopNode(Node):
   pass
 
+@dataclass(frozen=True, eq=True)
+class OffsetNode(Node):
+  pass
+
+@dataclass(frozen=True, eq=True)
+class IncNode(Node):
+  pass
+  
+
 # A graph where each node occupies an index (based on the order of addition)
 # and has 0-to-Many back pointers to dependecies via node.ancestors
 class LowIRGraph:
@@ -91,7 +102,7 @@ class LowIRGraph:
     self.G.append(node:=GlobalNode(LowIR.GLOBAL, (), name, dtype, pos, mutable))
     return node
 
-  def local_var(self, name: str, dtype: DType, val: ConstNode) -> Node:
+  def local_var(self, name: str, dtype: DType, val: ConstNode|ALUNode) -> Node:
     self.G.append(node:=LocalNode(LowIR.LOCAL, (val, ), name, dtype))
     return node
 
@@ -99,8 +110,8 @@ class LowIRGraph:
     self.G.append(node:=AddressNode(LowIR.ADDRESS, (), idxs, strides, step))
     return node
 
-  def load(self, node: Union[GlobalNode, LocalNode], address: AddressNode) -> Node:
-    self.G.append(node:=LoadNode(LowIR.LOAD, (node, address))) 
+  def load(self, node: Union[GlobalNode, LocalNode], location: AddressNode|OffsetNode) -> Node:
+    self.G.append(node:=LoadNode(LowIR.LOAD, (node, location))) 
     return node
 
   def accumulator(self, alu: BinaryOps, 
@@ -125,6 +136,14 @@ class LowIRGraph:
 
   def end_loop(self, loop: BeginLoopNode):
     self.G.append(node:=EndLoopNode(LowIR.END_LOOP, (loop, )))
+    return node
+  
+  def offset(self, val: Union[ConstNode, ALUNode]) -> Node:
+    self.G.append(node:=OffsetNode(LowIR.OFFSET, (val,)))
+    return node
+  
+  def inc(self, var: LocalNode) -> Node:
+    self.G.append(node:=IncNode(LowIR.INC, (var,)))
     return node
 
 class LowerFusedKernel:
@@ -259,7 +278,7 @@ class LowerFusedKernel:
                 alu: UnaryOps):
     if isinstance(out0, MemBuffer):
       # Define a global for the output
-      out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+      out1 = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
       self.symbol_table[name] = out1
       self.node_to_symbol[out0] = name
     else:
@@ -294,23 +313,91 @@ class LowerFusedKernel:
                 out0: Union[MemBuffer, ConstBuffer],
                 axis: Tuple[int, ...],
                 rop: ReduceOps): 
-    shape = in0.vt.shape
-    strides = in0.vt.strides
-
-    acc = self.g.accumulator(BinaryOps.ADD, self.accum_name(), self.dtype, [])
+    in_shape = in0.vt.shape
     if isinstance(out0, MemBuffer):
-      # Define a global for the output
-      out1 = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
-      self.symbol_table[name] = out1
+      out_shape = out0.vt.shape
+      out = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
+      self.symbol_table[name] = out
       self.node_to_symbol[out0] = name
-    else:
-      # Define a const for the output
-      out1 = self.g.const(dtypes.float32, 0)      
-      
-    # loop for each axis
-    # loop for each element in the axis 
+    else:   
+      # ConstBuffer out
+      out_shape = ()
+      out = self.g.const(self.dtype, 0) 
+      self.stores.append(out)
 
-    pass
+    assert isinstance(in0, MemBuffer), "Reducing a constant is just the constant"
+
+    # Define a global for the input
+    g_in = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
+    self.symbol_table[name] = out
+    self.node_to_symbol[out0] = name
+    self.stores.append(g_in)
+    self.stores.append(out)
+
+    # Move reduce axes to the end via creating a permutation order
+    order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
+    in0_vt = in0.vt.permute(order)
+    # out_vt = out0.vt.permute(order) if isinstance(out0, MemBuffer) else ViewTracker.from_shape(out_shape)
+    if len(axis) == 0:
+      print("FULL AXIS REDUCE")
+    elif len(axis) > 1:
+      print("MULTI AXIS REDUCE")
+    else:
+      print("SINGLE AXIS REDUCE")
+      # add an output offset
+      c0 = self.g.const(dtypes.int32, 0) 
+      off = self.g.local_var(self.local_name(), dtypes.int32, c0)
+      self.stores.append(off)
+      # Create a loop for each dimension that's not the last dimension
+      loops, idxs, dim_offs = [], [], []
+      for i in range(len(in_shape) - 1):
+        # Create two constant values for the loop index
+        c0 = self.g.const(dtypes.int32, 0) # start
+        c1 = self.g.const(dtypes.int32, in_shape[i]) # end
+        # Create a loop var init with 0
+        l0 = self.g.local_var(self.local_name(), dtypes.int32, c0)
+        idxs.append(l0)
+        # Begin a loop from var = 0 to c1
+        loop = self.g.begin_loop(l0, c1)
+        loops.append(loop)
+        # Compute the dimension offset l0*strides[i] 
+        alu = self.g.alu(BinaryOps.MUL, dtypes.int32, l0, in0_vt.strides[i])
+        # Set the dim off set to the alu value
+        dim_off = self.g.local_var(self.local_name(), dtypes.int32, alu)
+        dim_offs.append(dim_off)
+        self.stores.append(loop)
+        # Store this computation after loop is stored
+        self.stores.append(dim_off)
+      # Create the inner loop
+      # Create two constant values for the loop index
+      c0 = self.g.const(dtypes.int32, 0) # start
+      c1 = self.g.const(dtypes.int32, in_shape[-1]) # end (the last dim)
+      # Create a loop var init with 0
+      l0 = self.g.local_var(self.local_name(), dtypes.int32, c0)
+      idxs.append(l0)
+      # Begin a loop from var = 0 to c1
+      loop = self.g.begin_loop(l0, c1)
+      loops.append(loop)
+      self.stores.append(loop)
+      # Multiply the inner loop idx with the final stride
+      alu1 = self.g.alu(BinaryOps.MUL, dtypes.int32, l0, in0_vt.strides[-1])
+      # Sum all the offsets to get the true input offset
+      alu2 = self.g.alu(BinaryOps.ADD, dtypes.int32, dim_offs+[alu1]) 
+      in_off = self.g.local_var(self.local_name(), dtypes.int32, alu2)
+      self.stores.append(in_off)
+      # Accumlate in out
+      out_off = self.g.offset(off)
+      in_off = self.g.offset(in_off)
+      rhs = self.g.load(g_in, in_off)
+      lhs = self.g.load(out, out_off)
+      alu = self.g.alu(BinaryOps.ADD, dtypes.float32, lhs, rhs)
+      store = self.g.store(out, out_off, alu)
+      self.stores.append(store)
+      self.lower_end_loops([loops[-1]])
+      self.stores.append(self.g.inc(off))
+      self.lower_end_loops(loops[:-1])
+
+
   def lower_store(self, store):
     pass
 
@@ -379,6 +466,7 @@ class LowerFusedKernel:
     if op in TernaryOps:
       return 
     if op in ReduceOps:
+      self.lower_rop(inputs[0], output, arg, op)
       return
     raise NotImplementedError(f"lowering {op} is not supported")
   
@@ -411,6 +499,9 @@ class LowerFusedKernel:
         strd1 = vt1.strides
         self.lower_uop(i[0], o, idxs, strd0, strd1, 1, op)
         continue 
+      if op in ReduceOps:
+        self.lower_rop(i, o, arg, op)
+        continue
     self.lower_end_loops(loops)
  
   def lower(self):

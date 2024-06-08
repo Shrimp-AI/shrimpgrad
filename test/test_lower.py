@@ -149,4 +149,7 @@ class TestLower(unittest.TestCase):
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
     print_schedule(schedule)
- 
+    from pprint import pprint
+    lfk = LowerFusedKernel(schedule)
+    stores = lfk.lower()
+    pprint(stores)
