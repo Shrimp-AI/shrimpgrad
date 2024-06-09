@@ -96,10 +96,9 @@ class TestLower(unittest.TestCase):
     # 2 copies and 1 add kernel
     self.assertEqual(3, len(schedule))
     print_schedule(schedule)
-    from pprint import pprint
     lfk = LowerFusedKernel(schedule)
-    lfk.lower()
-    pprint(lfk.g.G)
+    ir_graph = lfk.lower()
+    ir_graph.print()
   
   def test_lower_unary(self):
     x = Tensor.rand(2,2)
@@ -109,15 +108,11 @@ class TestLower(unittest.TestCase):
     # 1 copy, 1 const, 1 log  
     self.assertEqual(3, len(schedule))
     print_schedule(schedule)
-    from pprint import pprint
     lfk = LowerFusedKernel(schedule)
-    stores = lfk.lower()
-    pprint(stores)
-    # 1 store for the copy of x
-    # 2 begin_loops for the shape
-    # 2 end loops 
-    # 1 log  1 mul store 
-    self.ae(7, len(stores))
+    ir_graph = lfk.lower()
+    # 2 globals: x, out 
+    ir_graph.print()
+    self.ae(27, len(ir_graph.G))
   
   def test_lower_diamond_reduce(self):
     x = Tensor.randn(10,10)
@@ -138,10 +133,9 @@ class TestLower(unittest.TestCase):
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
     print_schedule(schedule)
-    from pprint import pprint
     lfk = LowerFusedKernel(schedule)
-    stores = lfk.lower()
-    pprint(stores)
+    ir_graph = lfk.lower()
+    ir_graph.print()
 
   def test_reduce(self):
     x = Tensor.randn(10,10,10)
@@ -149,7 +143,6 @@ class TestLower(unittest.TestCase):
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
     print_schedule(schedule)
-    from pprint import pprint
     lfk = LowerFusedKernel(schedule)
-    lfk.lower()
-    pprint(str(lfk.g))
+    ir_graph = lfk.lower()
+    ir_graph.print()

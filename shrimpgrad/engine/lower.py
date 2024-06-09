@@ -51,7 +51,7 @@ class Node:
 class ConstNode(Node):
   dtype: DType
   val: ConstType
-  def __repr__(self) -> str: return f"{self.op} {self.val} {self.dtype}" 
+  def __repr__(self) -> str: return f"{'CONST':<15}{self.val}" 
 
 @dataclass(frozen=True, eq=True)
 class GlobalNode(Node):
@@ -61,14 +61,14 @@ class GlobalNode(Node):
   pos: int
   mutable: bool
   def __repr__(self) -> str:
-    return f"{self.name}"
+    return f"{'DEFINE_GLOBAL':<15}{self.name:<10}{('ptr.'+str(self.dtype) if self.ptr else str(self.dtype)):<10}"
 
 @dataclass(frozen=True, eq=True)
 class LocalNode(Node):
   name: str
   dtype: DType
   def __repr__(self) -> str:
-    return f"{self.name}({self.ancestors[0]})"
+    return f"{'DEFINE_LOCAL':<15}{self.name:<10}{self.ancestors[0].op:<10}"
 
 @dataclass(frozen=True, eq=True)
 class AddressNode(Node):
@@ -76,16 +76,17 @@ class AddressNode(Node):
   stride: Tuple[int,...]
   step: int
   def __repr__(self) -> str:
-    addr = 0 
+    addr = '' 
     for idx, stride in zip(self.idx, self.stride):
-      val = idx.ancestors[0].val if isinstance(idx, LocalNode) else idx
-      addr += val*stride*self.step
-    return f"{addr}"
+      val = idx.name if isinstance(idx, LocalNode) else idx
+      addr += f"{val}*{stride}*{self.step}+" 
+    return f"{'ADDRESS':<15}{addr[:-1]:<10}"
 
 @dataclass(frozen=True, eq=True)
 class LoadNode(Node):
   def __repr__(self) -> str:
-    return f"{self.ancestors[0]}[{self.ancestors[1]}]" 
+    op = '' if not self.ancestors[0].ptr else str(self.ancestors[1].op)
+    return f"{'LOAD':<15}{self.ancestors[0].name:<10}{str(self.ancestors[0].dtype):<20}{op:<10}"
 
 @dataclass(frozen=True, eq=True)
 class AccumulatorNode(Node):
@@ -93,42 +94,41 @@ class AccumulatorNode(Node):
   dtype: DType
   alu: BinaryOps
   def __repr__(self) -> str:
-    return f"ACC {self.alu} {self.ancestors}"
+    return f"{'ACC':<15}{self.alu}{self.ancestors}"
 
 @dataclass(frozen=True, eq=True)
 class StoreNode(Node):
   def __repr__(self) -> str:
-    return f"{self.ancestors[0]}[{self.ancestors[1]}] = {self.ancestors[2]}"
+    addr = str(self.ancestors[1].op)
+    return f"{'STORE':<15}{self.ancestors[0].name:<10}{addr:<20}{str(self.ancestors[2].op):<10}"
 
 @dataclass(frozen=True, eq=True)
 class ALUNode(Node):
   alu: Union[BinaryOps, UnaryOps]
   dtype: DType
   def __repr__(self) -> str:
-    if self.alu in BinaryOps:
-      return f"{self.ancestors[0]} {alu2str(self.alu)} {self.ancestors[1]}"
-    else:
-      return f"{alu2str(self.alu)} {self.ancestors[0]}"
+    operands = f"{' ':<10}".join([f"{str(operand.op)}" for operand in self.ancestors])
+    return f"{'ALU':<15}{alu2str(self.alu):<9} {operands}"
 
 @dataclass(frozen=True, eq=True)
 class BeginLoopNode(Node):
   def __repr__(self) -> str:
-    return f"FOR {self.ancestors[0]} -> {self.ancestors[1]}"
+    return f"{'BEGIN_LOOP':<15}{self.ancestors[0].name:<10}{str(self.ancestors[1].val):<10}"
 
 @dataclass(frozen=True, eq=True)
 class EndLoopNode(Node):
   def __repr__(self) -> str:
-    return "END_FOR"
+    return "END_LOOP"
 
 @dataclass(frozen=True, eq=True)
 class OffsetNode(Node):
   def __repr__(self) -> str:
-    return  f"{self.ancestors[0]}"
+    return  f"{'OFFSET':<15}{str(self.ancestors[0])[15:]:<10}"
 
 @dataclass(frozen=True, eq=True)
 class IncNode(Node):
   def __repr__(self) -> str:
-    return f"{self.ancestors[0]}++"
+    return f"{'INC':<15}{self.ancestors[0].name:<10}"
   
 # A graph where each node occupies an index (based on the order of addition)
 # and has 0-to-Many back pointers to dependecies via node.ancestors
@@ -190,6 +190,10 @@ class LowIRGraph:
   
   def __str__(self) -> str:
     return "\n".join([str(node) for node in self.G])
+  
+  def print(self):
+    for node in self.G:
+      print(node)
       
 class LowerFusedKernel:
   def __init__(self, fused_kernels: List[FusedKernel]):
@@ -355,7 +359,7 @@ class LowerFusedKernel:
       # Multiply the inner loop idx with the final stride
       alu1 = self.lower_alu(BinaryOps.MUL, idx, self.g.const(dtypes.int32, in0_vt.strides[-1]))
       # Sum all the offsets to get the true input offset
-      alu2 = self.lower_alu(BinaryOps.ADD, *dim_offs, alu1) 
+      alu2 = self.lower_alu(BinaryOps.ADD, *dim_offs, alu1)
       in_off = self.lower_local(dtypes.int32, alu2)
       # Accumlate in out
       out_off = self.g.offset(off)
@@ -365,6 +369,7 @@ class LowerFusedKernel:
       alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
       self.lower_store(out, out_off, alu)
       self.lower_end_loops([loops[-1]])
+      self.g.inc(off)
       self.lower_end_loops(loops[:-1])
 
   def lower_begin_for(self, s: int, e: int) -> Tuple[BeginLoopNode, LocalNode]:

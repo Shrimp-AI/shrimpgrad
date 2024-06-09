@@ -39,7 +39,7 @@ class Group:
 class FusionEngine:
   def __init__(self, g: IndexedForwardGraph): 
     self.dom_tree = PostDomTree(g)
-    print(self.dom_tree.graph.G)
+    
     self.num_to_node = self.dom_tree.dfs_post_order
     self.groups: List[Group] = [Group(node.algebraic_op, node) for node in self.num_to_node]
   
@@ -48,23 +48,15 @@ class FusionEngine:
 
   def fuse(self) -> ThunkGraph:
     for i, group in enumerate(self.groups):
-      print(f"Fusing group={group}")
       thunk = self.num_to_node[i]
-      print(f"   src={thunk}")
       ipdom = self.dom_tree.ipdom(thunk)
-      print(f"   ipdom={ipdom}")
       ipdom_group = self.groups[self.get_node_index(ipdom)]
-      print(f"   ipdom_group={ipdom_group}")
       if ipdom_group.find_root() == group.find_root(): 
-        print("   Group roots are equal, moving to next group.")
         continue     
-      print("Groups are fusable")
       if thunk.algebraic_op == AlgebraicOp.INJECTIVE:
         # check that all intermediate thunks are injective or if it's the sink, a reduction or injective 
-        print("Checking fuse condition...")
         fcnd: FuseCondition = lambda kind, is_sink: kind == AlgebraicOp.INJECTIVE or (is_sink and kind == AlgebraicOp.REDUCTION) 
         if(self.check_path(thunk, ipdom, fcnd)):
-          print("Path is fuse valid...")
           self.commit_fuse(thunk, ipdom)
     return self.aggregate_groups()
   
@@ -97,13 +89,10 @@ class FusionEngine:
     visited = set()
     target = self.groups[self.get_node_index(sink)]
     def _commit_fuse(src: Thunk, sink: Thunk, target: Group):
-      print(f"Commiting from {src} to {sink}")  
       if src == sink or src in visited: 
-        print("End commit...")
         return
       visited.add(src)
       group = self.groups[self.get_node_index(src)]
-      print("Combining groups...")
       group.union(target)
       for child in self.get_children(src):
         _commit_fuse(child, sink, target)
