@@ -33,6 +33,7 @@ class Node:
 class ConstNode(Node):
   dtype: DType
   val: ConstType
+  def __repr__(self) -> str: return f"{self.val}" 
 
 @dataclass(frozen=True, eq=True)
 class GlobalNode(Node):
@@ -40,54 +41,73 @@ class GlobalNode(Node):
   dtype: DType
   pos: int
   mutable: bool
+  def __repr__(self) -> str:
+    return f"{self.name}"
 
 @dataclass(frozen=True, eq=True)
 class LocalNode(Node):
   name: str
   dtype: DType
+  def __repr__(self) -> str:
+    return f"{self.name}={self.ancestors[0]}"
 
 @dataclass(frozen=True, eq=True)
 class AddressNode(Node):
-  idx: int
-  stride: int
+  idx: List[LocalNode|int] 
+  stride: Tuple[int,...]
   step: int
+  def __repr__(self) -> str:
+    addr = 0 
+    for idx, stride in zip(self.idx, self.stride):
+      val = idx.ancestors[0].val if isinstance(idx, LocalNode) else idx
+      addr += val*stride*self.step
+    return f"{addr}"
 
 @dataclass(frozen=True, eq=True)
 class LoadNode(Node):
-  pass
+  def __repr__(self) -> str:
+    return f"{self.ancestors[0]}[{self.ancestors[1]}]" 
 
 @dataclass(frozen=True, eq=True)
 class AccumulatorNode(Node):
   name: str
   dtype: DType
   alu: BinaryOps
+  def __repr__(self) -> str:
+    return f"ACC {self.alu} {self.ancestors}"
 
 @dataclass(frozen=True, eq=True)
 class StoreNode(Node):
-  pass
+  def __repr__(self) -> str:
+    return f"{self.ancestors[2]}={self.ancestors[0]}[{self.ancestors[1]}]"
 
 @dataclass(frozen=True, eq=True)
 class ALUNode(Node):
   alu: Union[BinaryOps, UnaryOps, TernaryOps]
   dtype: DType
+  def __repr__(self) -> str:
+    return f"{self.alu} {self.ancestors}"
 
 @dataclass(frozen=True, eq=True)
 class BeginLoopNode(Node):
-  pass
+  def __repr__(self) -> str:
+    return f"FOR {self.ancestors[0]} -> {self.ancestors[1]}"
 
 @dataclass(frozen=True, eq=True)
 class EndLoopNode(Node):
-  pass
+  def __repr__(self) -> str:
+    return "END_FOR"
 
 @dataclass(frozen=True, eq=True)
 class OffsetNode(Node):
-  pass
+  def __repr__(self) -> str:
+    return  f"{self.ancestors[0]}"
 
 @dataclass(frozen=True, eq=True)
 class IncNode(Node):
-  pass
+  def __repr__(self) -> str:
+    return f"{self.ancestors[0]}++"
   
-
 # A graph where each node occupies an index (based on the order of addition)
 # and has 0-to-Many back pointers to dependecies via node.ancestors
 class LowIRGraph:
@@ -106,7 +126,7 @@ class LowIRGraph:
     self.G.append(node:=LocalNode(LowIR.LOCAL, (val, ), name, dtype))
     return node
 
-  def address(self, idxs: List[LocalNode], strides: Tuple[int,...], step: int):
+  def address(self, idxs: List[LocalNode|int], strides: Tuple[int,...], step: int):
     self.G.append(node:=AddressNode(LowIR.ADDRESS, (), idxs, strides, step))
     return node
 
@@ -121,7 +141,7 @@ class LowIRGraph:
     return node
 
   def store(self, lhs: Union[GlobalNode, LocalNode],
-            address: AddressNode, 
+            address: AddressNode|OffsetNode, 
             rhs: Union[LoadNode, ConstNode, LocalNode]) -> Node:
     self.G.append(node:=StoreNode(LowIR.STORE, (lhs, address, rhs)))
     return node
@@ -160,13 +180,13 @@ class LowerFusedKernel:
     self.consts = []
     self.stores = []
    
-  def global_name(self):
-    name = f"glob{self.global_counter}"
+  def global_name(self, prefix="data"):
+    name = f"{prefix}{self.global_counter}"
     self.global_counter += 1
     return name
   
-  def local_name(self):
-    name = f"loc{self.local_counter}"
+  def local_name(self, prefix="idx"):
+    name = f"{prefix}{self.local_counter}"
     self.local_counter += 1
     return name
  
@@ -193,8 +213,8 @@ class LowerFusedKernel:
     self.node_to_symbol[cbuff] = len(self.consts) - 1 
     return c0 
 
-  def lower_copy(self, mbuff: MemBuffer) -> GlobalNode:
-    g0 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+  def lower_copy(self, mbuff: MemBuffer, prefix="out") -> GlobalNode:
+    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, False, self.global_counter-1)
     self.symbol_table[name] = g0
     self.node_to_symbol[mbuff] = name
     return g0
@@ -211,7 +231,7 @@ class LowerFusedKernel:
                 alu: BinaryOps):
     # Define a global for the output
     if isinstance(out0, MemBuffer):
-      out1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
+      out1 = self.g.define_global(name:=self.global_name(prefix="out"), self.dtype, False, self.global_counter-1)
       self.symbol_table[name] = out1
       self.node_to_symbol[out0] = name
     else:
@@ -278,7 +298,7 @@ class LowerFusedKernel:
                 alu: UnaryOps):
     if isinstance(out0, MemBuffer):
       # Define a global for the output
-      out1 = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
+      out1 = self.g.define_global(name:=self.global_name(prefix="out"), self.dtype, True, self.global_counter-1)
       self.symbol_table[name] = out1
       self.node_to_symbol[out0] = name
     else:
@@ -316,7 +336,7 @@ class LowerFusedKernel:
     in_shape = in0.vt.shape
     if isinstance(out0, MemBuffer):
       out_shape = out0.vt.shape
-      out = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
+      out = self.g.define_global(name:=self.global_name(prefix="out"), self.dtype, True, self.global_counter-1)
       self.symbol_table[name] = out
       self.node_to_symbol[out0] = name
     else:   
@@ -438,7 +458,7 @@ class LowerFusedKernel:
       out_buff = self.lower_copy(output)
       in_buff = lowered_ins[0]
       # just an assign so no real addr needed
-      addr = self.g.address(0,0,0)
+      addr = self.g.address([0],[0],1)
       self.stores.append(self.g.store(out_buff, addr, in_buff))
       return
     if op in BinaryOps:
