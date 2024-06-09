@@ -8,6 +8,24 @@ from shrimpgrad.dtype import ConstType, DType, dtypes
 from shrimpgrad.engine.scheduler import FusedKernel
 from shrimpgrad.runtime.ops import BinaryOps, LoadOps, ReduceOps, TernaryOps, UnaryOps
 
+def alu2str(op: Union[BinaryOps, UnaryOps]) -> str:
+  assert op in BinaryOps or op in UnaryOps, f"{op} is not a binary/unary alu op"
+  if op is BinaryOps.ADD: return '+'
+  if op is BinaryOps.CMPEQ: return '=='
+  if op is BinaryOps.CMPLT: return '<'
+  if op is BinaryOps.DIV: return '/'
+  if op is BinaryOps.MAX: return 'max'
+  if op is BinaryOps.MOD: return '%'
+  if op is BinaryOps.MUL: return '*'
+  if op is BinaryOps.SUB: return '-'
+  if op is BinaryOps.XOR: return 'xor'
+  if op is UnaryOps.CAST: return 'cast'
+  if op is UnaryOps.EXP2: return 'exp2'
+  if op is UnaryOps.LOG2: return 'log2'
+  if op is UnaryOps.NEG: return '-'
+  if op is UnaryOps.SIN: return 'sin'
+  if op is UnaryOps.SQRT: return 'sqrt'
+
 class LowIR(Enum):
   GLOBAL = auto()
   ACC = auto()
@@ -49,7 +67,7 @@ class LocalNode(Node):
   name: str
   dtype: DType
   def __repr__(self) -> str:
-    return f"{self.name}={self.ancestors[0]}"
+    return f"{self.name}({self.ancestors[0]})"
 
 @dataclass(frozen=True, eq=True)
 class AddressNode(Node):
@@ -79,14 +97,17 @@ class AccumulatorNode(Node):
 @dataclass(frozen=True, eq=True)
 class StoreNode(Node):
   def __repr__(self) -> str:
-    return f"{self.ancestors[2]}={self.ancestors[0]}[{self.ancestors[1]}]"
+    return f"{self.ancestors[0]}[{self.ancestors[1]}] = {self.ancestors[2]}"
 
 @dataclass(frozen=True, eq=True)
 class ALUNode(Node):
-  alu: Union[BinaryOps, UnaryOps, TernaryOps]
+  alu: Union[BinaryOps, UnaryOps]
   dtype: DType
   def __repr__(self) -> str:
-    return f"{self.alu} {self.ancestors}"
+    if self.alu in BinaryOps:
+      return f"{self.ancestors[0]} {alu2str(self.alu)} {self.ancestors[1]}"
+    else:
+      return f"{alu2str(self.alu)} {self.ancestors[0]}"
 
 @dataclass(frozen=True, eq=True)
 class BeginLoopNode(Node):
@@ -363,7 +384,6 @@ class LowerFusedKernel:
     elif len(axis) > 1:
       print("MULTI AXIS REDUCE")
     else:
-      print("SINGLE AXIS REDUCE")
       # add an output offset
       c0 = self.g.const(dtypes.int32, 0) 
       off = self.g.local_var(self.local_name(), dtypes.int32, c0)
@@ -402,7 +422,7 @@ class LowerFusedKernel:
       # Multiply the inner loop idx with the final stride
       alu1 = self.g.alu(BinaryOps.MUL, dtypes.int32, l0, in0_vt.strides[-1])
       # Sum all the offsets to get the true input offset
-      alu2 = self.g.alu(BinaryOps.ADD, dtypes.int32, dim_offs+[alu1]) 
+      alu2 = self.g.alu(BinaryOps.ADD, dtypes.int32, *dim_offs, alu1) 
       in_off = self.g.local_var(self.local_name(), dtypes.int32, alu2)
       self.stores.append(in_off)
       # Accumlate in out
@@ -416,10 +436,6 @@ class LowerFusedKernel:
       self.lower_end_loops([loops[-1]])
       self.stores.append(self.g.inc(off))
       self.lower_end_loops(loops[:-1])
-
-
-  def lower_store(self, store):
-    pass
 
   # TODO: Loop unrolling (but not ncessary once we gen for GPU)
   def lower_start_loops(self, ndim:int, shape: Tuple[int,...]):
@@ -531,10 +547,8 @@ class LowerFusedKernel:
   def lower(self):
     for fused_kernel in self.fused_kernels:
       if len(fused_kernel.computation.ops) == 1: 
-        print("Single Op Lowering")
         self.lower_single_op_kernel(fused_kernel)
       else: 
-        print("Multi Op Lowering")
         self.lower_multi_op_kernel(fused_kernel)
     return self.stores
 
