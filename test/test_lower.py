@@ -144,12 +144,12 @@ class TestLower(unittest.TestCase):
     pprint(stores)
 
   def test_reduce(self):
-    x = Tensor.randn(10,10)
+    x = Tensor.randn(10,10,10)
     out = x.sum(axis=0)
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
     print_schedule(schedule)
     from pprint import pprint
     lfk = LowerFusedKernel(schedule)
-    stores = lfk.lower()
-    pprint(stores)
+    lfk.lower()
+    pprint(str(lfk.g))

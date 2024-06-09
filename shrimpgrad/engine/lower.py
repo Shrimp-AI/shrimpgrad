@@ -2,7 +2,7 @@ from __future__ import annotations
 from ctypes import Union
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 from shrimpgrad.device import ConstBuffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType, dtypes
 from shrimpgrad.engine.scheduler import FusedKernel
@@ -51,12 +51,13 @@ class Node:
 class ConstNode(Node):
   dtype: DType
   val: ConstType
-  def __repr__(self) -> str: return f"{self.val}" 
+  def __repr__(self) -> str: return f"{self.op} {self.val} {self.dtype}" 
 
 @dataclass(frozen=True, eq=True)
 class GlobalNode(Node):
   name: str
   dtype: DType
+  ptr: bool
   pos: int
   mutable: bool
   def __repr__(self) -> str:
@@ -139,8 +140,8 @@ class LowIRGraph:
     self.G.append(node:=ConstNode(LowIR.CONST, (), dtype, val))
     return node
 
-  def define_global(self, name:str, dtype: DType, mutable: bool, pos: int) -> Node:
-    self.G.append(node:=GlobalNode(LowIR.GLOBAL, (), name, dtype, pos, mutable))
+  def define_global(self, name:str, dtype: DType, mutable: bool, pos: int, ptr: bool=True) -> Node:
+    self.G.append(node:=GlobalNode(LowIR.GLOBAL, (), name, dtype, ptr, pos, mutable))
     return node
 
   def local_var(self, name: str, dtype: DType, val: ConstNode|ALUNode) -> Node:
@@ -151,7 +152,7 @@ class LowIRGraph:
     self.G.append(node:=AddressNode(LowIR.ADDRESS, (), idxs, strides, step))
     return node
 
-  def load(self, node: Union[GlobalNode, LocalNode], location: AddressNode|OffsetNode) -> Node:
+  def load(self, node: Union[GlobalNode, LocalNode], location: Optional[AddressNode|OffsetNode]) -> Node:
     self.G.append(node:=LoadNode(LowIR.LOAD, (node, location))) 
     return node
 
@@ -162,7 +163,7 @@ class LowIRGraph:
     return node
 
   def store(self, lhs: Union[GlobalNode, LocalNode],
-            address: AddressNode|OffsetNode, 
+            address: AddressNode|OffsetNode|None, 
             rhs: Union[LoadNode, ConstNode, LocalNode]) -> Node:
     self.G.append(node:=StoreNode(LowIR.STORE, (lhs, address, rhs)))
     return node
@@ -186,24 +187,34 @@ class LowIRGraph:
   def inc(self, var: LocalNode) -> Node:
     self.G.append(node:=IncNode(LowIR.INC, (var,)))
     return node
-
+  
+  def __str__(self) -> str:
+    return "\n".join([str(node) for node in self.G])
+      
 class LowerFusedKernel:
   def __init__(self, fused_kernels: List[FusedKernel]):
     self.fused_kernels = fused_kernels
     self.symbol_table: Dict[str, Node] = {}
     self.node_to_symbol: Dict[Any, str] = {}
-    self.global_counter = 0
+    self.arg_count = 0
+    self.global_input_counter = 0
+    self.global_output_counter = 0
     self.local_counter = 0
     self.accum_counter = 0
     self.g = LowIRGraph()
     # TODO: Get dtype from inputs or outputs
     self.dtype = dtypes.float32
     self.consts = []
-    self.stores = []
    
   def global_name(self, prefix="data"):
-    name = f"{prefix}{self.global_counter}"
-    self.global_counter += 1
+    if prefix == "data":
+      val = self.global_input_counter
+      self.global_input_counter += 1
+    else:
+      val = self.global_output_counter
+      self.global_output_counter += 1
+    name = f"{prefix}{val}"
+    self.arg_count += 1
     return name
   
   def local_name(self, prefix="idx"):
@@ -216,29 +227,41 @@ class LowerFusedKernel:
     self.accum_counter += 1
     return name
   
-  def lower_inputs(self, inputs: Sequence[MemBuffer, ConstBuffer]):  
-    lowered = []
-    for inp in inputs:
-      if isinstance(inp, MemBuffer):
-        g0 = self.lower_copy(inp) 
-        lowered.append(g0)
-      else:
-        c0 = self.lower_const(inp)
-        self.consts.append(c0)
-        lowered.append(c0)
-    return lowered
+  # Lower a constant input or output into a global non-pointer
+  def lower_const(self, cbuff: ConstBuffer, is_input: bool) -> LocalNode:
+    if cbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[cbuff]]
+    prefix, mutable = ("out", True) if not is_input else ("data", False)
+    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, mutable, self.arg_count - 1, False)
+    self.symbol_table[name] = g0
+    self.node_to_symbol[cbuff] = name
+    return g0 
 
-  def lower_const(self, cbuff: ConstBuffer) -> ConstNode:
-    c0 = self.g.const(self.dtype, cbuff.value)
-    self.consts.append(c0)
-    self.node_to_symbol[cbuff] = len(self.consts) - 1 
-    return c0 
-
-  def lower_copy(self, mbuff: MemBuffer, prefix="out") -> GlobalNode:
-    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, False, self.global_counter-1)
+  # Lower a buffer input or output into a global pointer
+  def lower_buffer(self, mbuff: MemBuffer, is_input: bool) -> GlobalNode:
+    if mbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[mbuff]] 
+    prefix, mutable = ("out", True) if not is_input else ("data", False)
+    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, mutable, self.arg_count - 1, True)
     self.symbol_table[name] = g0
     self.node_to_symbol[mbuff] = name
     return g0
+  
+  def lower_io(self, io: MemBuffer|ConstBuffer, is_input:bool) -> GlobalNode|ConstNode:
+    if isinstance(io, MemBuffer): return self.lower_buffer(io, is_input)
+    return self.lower_const(io, is_input)
+  
+  def lower_load(self, g: GlobalNode, addr: Optional[AddressNode|OffsetNode]=None) -> LoadNode:
+    # If g is a pointer, load with an address, otw. just load the value
+    return self.g.load(g, addr) if g.ptr else self.g.load(g, None)
+  
+  def lower_alu(self, alu: BinaryOps|TernaryOps|UnaryOps, *loads):
+    # TODO: Deal with dtype
+    return self.g.alu(alu, self.dtype, *loads)
+  
+  def lower_store(self, g: GlobalNode, addr: AddressNode|OffsetNode|None, value: Node) -> StoreNode:
+    return self.g.store(g, addr, value) if g.ptr else self.g.store(g, None, value)
+  
+  def lower_local(self, dtype: DType, val: ConstType|Node) -> LocalNode:
+    return self.g.local_var(self.local_name(), dtype, self.g.const(dtype, val) if not isinstance(val, Node) else val)
 
   def lower_bop(self,
                 in0: Union[ConstBuffer, MemBuffer],
@@ -251,63 +274,22 @@ class LowerFusedKernel:
                 step: int,
                 alu: BinaryOps):
     # Define a global for the output
-    if isinstance(out0, MemBuffer):
-      out1 = self.g.define_global(name:=self.global_name(prefix="out"), self.dtype, False, self.global_counter-1)
-      self.symbol_table[name] = out1
-      self.node_to_symbol[out0] = name
-    else:
-      out1 = self.g.const(dtypes.float32, 0)
+    out = self.lower_io(out0, is_input=False)
 
-    # Generate indexes for the two inputs
+    # Load the two inputs 
+    g0 = self.lower_io(in0, is_input=True)
     addr0 = self.g.address(idxs, strides0, step)
+    l0 = self.lower_load(g0, addr0)
+
+    g1 = self.lower_io(in1, is_input=True)
     addr1 = self.g.address(idxs, strides1, step) 
+    l1 = self.lower_load(g1, addr1)
 
-    # Generate two loads from the inputs with the indexes
-    # Inputs have previously been defined by copy/const/ or outs of other
-    # ops
-    if isinstance(in0, MemBuffer):
-      if in0 not in self.node_to_symbol:
-        # Movement op on the input changed the view tracker
-        g0 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
-        self.symbol_table[name] = in0 
-        self.node_to_symbol[g0] = name
-        l0 = self.g.load(g0, addr0)
-      else:
-        g0 = self.symbol_table[self.node_to_symbol[in0]]
-        l0 = self.g.load(g0, addr0)
-    else:
-      g0 = self.consts[self.node_to_symbol[in0]]
-      l0 = g0
-    if isinstance(in1, MemBuffer):
-      if in1 not in self.node_to_symbol:
-        # Movement op on the input changed the view tracker
-        g1 = self.g.define_global(name:=self.global_name(), self.dtype, False, self.global_counter-1)
-        self.symbol_table[name] = in1
-        self.node_to_symbol[g1] = name
-        l1 = self.g.load(g1, addr1)
-      else:
-        g1 = self.symbol_table[self.node_to_symbol[in1]]
-        l1 = self.g.load(g1, addr1)
-    else:
-      if in1 not in self.node_to_symbol:
-        # Movement op after load
-        c1 = self.lower_const(in1)
-        l1 = c1 
-      else:
-        c1 = self.consts[self.node_to_symbol[in1]]
-        l1 = c1
-    # Generate the alu operation on the two loads (or consts or either or)
-    alu0 = self.g.alu(alu, dtypes.float32, l0, l1)
+    #  Lower the binary ALU operation
+    alu0 = self.lower_alu(alu, l0, l1)
 
-    if isinstance(out1, GlobalNode):
-      # Generate the index for the output
-      addr2 = self.g.address(idxs, strides2, step)
-
-      # Store the alu output into the global at addr2 
-      self.stores.append(self.g.store(out1, addr2, alu0))
-    else:
-      # TODO: Store Const needed (alu0 could be const and needs to be stored in a const)
-      self.stores.append(self.g.store(out1, None, alu0))
+    addr2 = self.g.address(idxs, strides2, step)
+    self.lower_store(out, addr2, alu0)
 
   def lower_uop(self,
                 in0: Union[ConstBuffer, MemBuffer],
@@ -317,34 +299,17 @@ class LowerFusedKernel:
                 strd1: Tuple[int,...],
                 step: int,
                 alu: UnaryOps):
-    if isinstance(out0, MemBuffer):
-      # Define a global for the output
-      out1 = self.g.define_global(name:=self.global_name(prefix="out"), self.dtype, True, self.global_counter-1)
-      self.symbol_table[name] = out1
-      self.node_to_symbol[out0] = name
-    else:
-      # Define a const for the output
-      out1 = self.g.const(dtypes.float32, 0)      
+    # Define a global for the output
+    out = self.lower_io(out0, is_input=False)
 
-    if isinstance(in0, MemBuffer):
-      addr0 = self.g.address(idxs, strd0, step)
-      g0 = self.symbol_table[self.node_to_symbol[in0]]
-      l0 = self.g.load(g0, addr0)
-    else:
-      g0 = self.consts[self.node_to_symbol[in0]]
-      l0 = g0
+    g0 = self.lower_io(in0, is_input=True)
+    addr0 = self.g.address(idxs, strd0, step)
+    l0 = self.lower_load(g0, addr0)
 
-    alu0 = self.g.alu(alu, dtypes.float32, l0)
 
-    # Store the alu output into the global at addr2 
-    if isinstance(out1, GlobalNode):
-      # Generate the index for the output
-      addr2 = self.g.address(idxs, strd1, step)
-      # Store the alu output into the global at addr2 
-      self.stores.append(self.g.store(out1, addr2, alu0))
-    else:
-      # TODO: Store Const needed (alu0 could be const and needs to be stored in a const)
-      self.stores.append(self.g.store(out1, None, alu0))
+    alu0 = self.lower_alu(alu, l0)
+    addr2 = self.g.address(idxs, strd1, step)
+    self.lower_store(out, addr2, alu0)
 
   def lower_top(self, top):
     pass
@@ -355,26 +320,11 @@ class LowerFusedKernel:
                 axis: Tuple[int, ...],
                 rop: ReduceOps): 
     in_shape = in0.vt.shape
-    if isinstance(out0, MemBuffer):
-      out_shape = out0.vt.shape
-      out = self.g.define_global(name:=self.global_name(prefix="out"), self.dtype, True, self.global_counter-1)
-      self.symbol_table[name] = out
-      self.node_to_symbol[out0] = name
-    else:   
-      # ConstBuffer out
-      out_shape = ()
-      out = self.g.const(self.dtype, 0) 
-      self.stores.append(out)
-
+    out_shape = out0.vt.shape if isinstance(out0, MemBuffer) else ()
+    out = self.lower_io(out0, False)
     assert isinstance(in0, MemBuffer), "Reducing a constant is just the constant"
-
     # Define a global for the input
-    g_in = self.g.define_global(name:=self.global_name(), self.dtype, True, self.global_counter-1)
-    self.symbol_table[name] = out
-    self.node_to_symbol[out0] = name
-    self.stores.append(g_in)
-    self.stores.append(out)
-
+    g_in = self.lower_io(in0, True)
     # Move reduce axes to the end via creating a permutation order
     order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
     in0_vt = in0.vt.permute(order)
@@ -385,57 +335,46 @@ class LowerFusedKernel:
       print("MULTI AXIS REDUCE")
     else:
       # add an output offset
-      c0 = self.g.const(dtypes.int32, 0) 
-      off = self.g.local_var(self.local_name(), dtypes.int32, c0)
-      self.stores.append(off)
+      off = self.lower_local(dtypes.int32, 0)
       # Create a loop for each dimension that's not the last dimension
       loops, idxs, dim_offs = [], [], []
       for i in range(len(in_shape) - 1):
-        # Create two constant values for the loop index
-        c0 = self.g.const(dtypes.int32, 0) # start
-        c1 = self.g.const(dtypes.int32, in_shape[i]) # end
-        # Create a loop var init with 0
-        l0 = self.g.local_var(self.local_name(), dtypes.int32, c0)
-        idxs.append(l0)
-        # Begin a loop from var = 0 to c1
-        loop = self.g.begin_loop(l0, c1)
+        loop, idx = self.lower_begin_for(0, in_shape[i])
+        idxs.append(idx)
         loops.append(loop)
         # Compute the dimension offset l0*strides[i] 
-        alu = self.g.alu(BinaryOps.MUL, dtypes.int32, l0, in0_vt.strides[i])
+        alu = self.lower_alu(BinaryOps.MUL, idx, self.g.const(dtypes.int32, in0_vt.strides[i]))
         # Set the dim off set to the alu value
-        dim_off = self.g.local_var(self.local_name(), dtypes.int32, alu)
+        dim_off = self.lower_local(dtypes.int32, alu) 
         dim_offs.append(dim_off)
-        self.stores.append(loop)
-        # Store this computation after loop is stored
-        self.stores.append(dim_off)
       # Create the inner loop
-      # Create two constant values for the loop index
-      c0 = self.g.const(dtypes.int32, 0) # start
-      c1 = self.g.const(dtypes.int32, in_shape[-1]) # end (the last dim)
-      # Create a loop var init with 0
-      l0 = self.g.local_var(self.local_name(), dtypes.int32, c0)
-      idxs.append(l0)
-      # Begin a loop from var = 0 to c1
-      loop = self.g.begin_loop(l0, c1)
+      loop, idx = self.lower_begin_for(0, in_shape[-1])
+      idxs.append(idx)
       loops.append(loop)
-      self.stores.append(loop)
+
       # Multiply the inner loop idx with the final stride
-      alu1 = self.g.alu(BinaryOps.MUL, dtypes.int32, l0, in0_vt.strides[-1])
+      alu1 = self.lower_alu(BinaryOps.MUL, idx, self.g.const(dtypes.int32, in0_vt.strides[-1]))
       # Sum all the offsets to get the true input offset
-      alu2 = self.g.alu(BinaryOps.ADD, dtypes.int32, *dim_offs, alu1) 
-      in_off = self.g.local_var(self.local_name(), dtypes.int32, alu2)
-      self.stores.append(in_off)
+      alu2 = self.lower_alu(BinaryOps.ADD, *dim_offs, alu1) 
+      in_off = self.lower_local(dtypes.int32, alu2)
       # Accumlate in out
       out_off = self.g.offset(off)
       in_off = self.g.offset(in_off)
-      rhs = self.g.load(g_in, in_off)
-      lhs = self.g.load(out, out_off)
-      alu = self.g.alu(BinaryOps.ADD, dtypes.float32, lhs, rhs)
-      store = self.g.store(out, out_off, alu)
-      self.stores.append(store)
+      rhs = self.lower_load(g_in, in_off)
+      lhs = self.lower_load(out, out_off)
+      alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
+      self.lower_store(out, out_off, alu)
       self.lower_end_loops([loops[-1]])
-      self.stores.append(self.g.inc(off))
       self.lower_end_loops(loops[:-1])
+
+  def lower_begin_for(self, s: int, e: int) -> Tuple[BeginLoopNode, LocalNode]:
+    c0 = self.g.const(dtypes.int32, s) # start
+    c1 = self.g.const(dtypes.int32, e) # end
+    # Loop index
+    idx = self.g.local_var(self.local_name(), dtypes.int32, c0)
+    # Begin a loop from var = 0 to c1
+    loop = self.g.begin_loop(idx, c1)
+    return loop, idx 
 
   # TODO: Loop unrolling (but not ncessary once we gen for GPU)
   def lower_start_loops(self, ndim:int, shape: Tuple[int,...]):
@@ -450,13 +389,11 @@ class LowerFusedKernel:
       # Begin a loop from var = 0 to c1
       loop = self.g.begin_loop(l0, c1)
       loops.append(loop)
-      self.stores.append(loop)
     return loops, idxs
 
   def lower_end_loops(self, loops: List[BeginLoopNode]):
     for loop in loops: 
-      endl = self.g.end_loop(loop)
-      self.stores.append(endl)
+      self.g.end_loop(loop)
   
   def lower_single_op_kernel(self, fused_kernel: FusedKernel):
     assert len(fused_kernel.computation.ins) == 1
@@ -465,17 +402,8 @@ class LowerFusedKernel:
     output = fused_kernel.computation.out[0]
     op = fused_kernel.computation.ops[0]
     arg = fused_kernel.computation.args[0]
-    if op is LoadOps.CONST:
-      self.lower_const(output)
-      return
-    if op is LoadOps.COPY:
-      lowered_ins = self.lower_inputs(inputs)
-      assert len(lowered_ins) == 1, f"only one input to copy allowed, given {len(lowered_ins)}"
-      out_buff = self.lower_copy(output)
-      in_buff = lowered_ins[0]
-      # just an assign so no real addr needed
-      addr = self.g.address([0],[0],1)
-      self.stores.append(self.g.store(out_buff, addr, in_buff))
+    if op in LoadOps:
+      self.lower_io(output, is_input=True)
       return
     if op in BinaryOps:
       # Marshall the buffer views
@@ -550,7 +478,4 @@ class LowerFusedKernel:
         self.lower_single_op_kernel(fused_kernel)
       else: 
         self.lower_multi_op_kernel(fused_kernel)
-    return self.stores
-
-
-
+    return self.g
