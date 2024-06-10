@@ -49,6 +49,7 @@ class ClangCodeGenerator:
   def _loop_vars(self, num_loops): return [f'i{num}' for num in range(num_loops)]
   def _op(self, op: Op, args, shape, strides):
     offset = '+'.join([self._offset(i, strd, 1) for i, strd in zip(self._loop_vars(len(shape)), strides)])
+    c_code = '' 
     if op in BinaryOps: c_code = c_alu[op](*self._many_ptrinc(list(args)[0:2], offset))
     if op in UnaryOps: c_code = c_alu[op](self._ptrinc(list(args)[0], offset))
     if op in TernaryOps: c_code = c_alu[op](*self._many_ptrinc(list(args)[0:3], offset))

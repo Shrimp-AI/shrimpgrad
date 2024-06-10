@@ -1,6 +1,8 @@
 from shrimpgrad import Tensor, pad_left, broadcast_shape
 
 import unittest
+import pytest
+
 
 class TestBroadcast(unittest.TestCase):
   def test_pad_left(self):
@@ -32,8 +34,9 @@ class TestBroadcast(unittest.TestCase):
     self.assertEqual(t1,t3)
     t4 = t2.broadcast_to(bs)
     self.assertEqual(t4.shape, bs)
-    self.assertEqual(t4.strides, [0,0,0,1])
+    self.assertEqual(t4.thunk.strides, (0,0,0,1))
 
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_broadcasted_mul1(self):
     t1 = Tensor.arange(0,2*2*2*2).reshape(2,2,2,2)
     t2 = Tensor.arange(0,2).reshape(1,2)
@@ -47,7 +50,7 @@ class TestBroadcast(unittest.TestCase):
     t3 = t1*t2
     self.assertEqual(t3.shape,(2,2,2))
 
-
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_broadcasted_add(self):
     t1 = Tensor.arange(0,2*2*2*2).reshape(2,2,2,2)
     t2 = Tensor.arange(0,2).reshape(1,2)

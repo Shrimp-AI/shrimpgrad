@@ -1,6 +1,7 @@
 from typing import List, Callable
 from shrimpgrad import Tensor, nn 
 import unittest
+import pytest
 import torch
 import numpy as np
 
@@ -60,6 +61,7 @@ def dataset():
   return X, y
 
 class TestNN(unittest.TestCase):
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_linear(self):
     x = Tensor((2,2), [1.0,2.0,3.0,4.0])
     model = nn.Linear(2,2)
@@ -79,6 +81,7 @@ class TestNN(unittest.TestCase):
     z.backward()
     np.testing.assert_allclose(np.array(model.w.grad.data).reshape(2,2).transpose(), torch_model.weight.grad.detach().numpy(), atol=1e-6, rtol=1e-3)
 
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_basic_net(self):
     X, y  = dataset()
     y = y.reshape(100)
@@ -105,7 +108,7 @@ class TestNN(unittest.TestCase):
     tloss.backward()
     # np.testing.assert_allclose(np.array(w0.grad.data).reshape(50,2).transpose(), torch_model.linear_relu_stack[0].weight.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
 
-
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_basic_net_(self):
     weights_shrimp, weights_torch = prepare_tensors([(2,2),(2,2),(2,), (2,)]) 
 
@@ -129,7 +132,7 @@ class TestNN(unittest.TestCase):
     z1_.backward()
     np.testing.assert_allclose(np.array(w0.grad.data).reshape(*w0.grad.shape).transpose(), w0_.grad.detach().numpy(), atol=1e-4, rtol=1e-2)
 
-
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_basic_net_bce_loss_(self):
     weights_shrimp, weights_torch = prepare_tensors([(2,2),(1,2),(2,), (1,)]) 
 

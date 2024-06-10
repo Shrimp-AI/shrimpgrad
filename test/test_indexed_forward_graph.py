@@ -21,7 +21,7 @@ class TestIndexedForwardGraph(unittest.TestCase):
 
     e = d.sum()
 
-    g = IndexedForwardGraph(e.thunk)
+    IndexedForwardGraph(e.thunk)
   
   def test_saved_expand(self):
     x = Tensor.randn(10,10)
@@ -32,7 +32,7 @@ class TestIndexedForwardGraph(unittest.TestCase):
     d = c / b
     e = d.mean()
     log_thunk(e.thunk)
-    g = IndexedForwardGraph(e.thunk)
+    IndexedForwardGraph(e.thunk)
 
  
     # self.assertTrue(all([t in g.saved[0] for t in [x.thunk, y.thunk]]))

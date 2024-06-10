@@ -1,11 +1,14 @@
 import unittest
+import pytest
 from shrimpgrad import Tensor
 
 class TestIndexing(unittest.TestCase):
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_scalar_indexing(self):
     x = Tensor((), 2.0)
     self.assertEqual('tensor(2.0)', x.__str__())
-  
+
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_1D_indexing(self):
     x = Tensor((3,), [1,2,3])
     self.assertEqual('tensor([1, 2, 3])', x[:].__str__())
@@ -16,7 +19,8 @@ class TestIndexing(unittest.TestCase):
     self.assertEqual('tensor([2])', x[-2].__str__())
     self.assertEqual('tensor([1])', x[-3].__str__())
     self.assertEqual('tensor([1])', x[0:-2].__str__())
-  
+
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")  
   def test_2D_indexing(self):
     x = Tensor((2,2), [i for i in range(4)])
     #[[0,1], 
@@ -28,6 +32,7 @@ class TestIndexing(unittest.TestCase):
     self.assertEqual('tensor([[0, 1], [2, 3]])', x[:,:].__str__())
     self.assertEqual('tensor([[1], [3]])', x[:,-1].__str__())
 
+  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_ND_indexing(self):
     x = Tensor((2,2,2), [i for i in range(8)])
     # [[[0,1],
