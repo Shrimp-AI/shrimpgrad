@@ -42,12 +42,12 @@ postdomtree.py
 
 
 ## Goals
-1. Generate Fused Kernels using LCA and IndexedForwardGraphs to compute immediate post dominators
-2. Lower the scheduled kernels to the linearized IR
-3. Generate C code from the linearized IR
-4. Execute this code
-5. Add other accelerators
-6. Optimization 
+- [x] Generate Fused Kernels using LCA and IndexedForwardGraphs to compute immediate post dominators
+- [x] Lower the scheduled kernels to the linearized IR
+- [ ] Generate C code from the linearized IR
+- [ ] Execute this code
+- [ ] Add other accelerators
+- [ ] Optimization 
 
 ## What?
 
@@ -67,9 +67,14 @@ z.backward()
 With so many tensor libraries already in mainstream use, what is the point of yet another tensor library? Build something better than what exists. Make custom accelerator chips.
 
 ## Install
-
+The easiest way to get going is to install [nix](https://nixos.org/download/).
 ```
 git clone https://github.com/Shrimp-AI/shrimpgrad.git
 cd shrimpgrad
-python3 -m pip install .
+nix-shell
+```
+Otherwise
+
+```
+python3 -m pip install -e '.[testing]'
 ```
