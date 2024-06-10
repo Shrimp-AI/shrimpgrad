@@ -1,5 +1,8 @@
-from shrimpgrad.device import ClangDevice, CPU, MallocAllocator
+from shrimpgrad.device import CPU, MallocAllocator
+from shrimpgrad.runtime.clang import ClangDevice
 import unittest
+
+from shrimpgrad.runtime.python import PythonAllocator, PythonCompiler, PythonDevice, PythonRenderer, PythonRuntime
 
 
 class TestDevice(unittest.TestCase):
@@ -14,3 +17,10 @@ class TestDevice(unittest.TestCase):
     dev = CPU()
     self.assertEqual("CPU", dev.name)
 
+  def test_python_device(self):
+    dev = PythonDevice()
+    assert "PYTHON" == dev.name
+    assert isinstance(dev.allocator(), PythonAllocator)
+    assert isinstance(dev.compiler(), PythonCompiler)
+    assert isinstance(dev.runtime(), PythonRuntime)
+    assert isinstance(dev.renderer(), PythonRenderer)

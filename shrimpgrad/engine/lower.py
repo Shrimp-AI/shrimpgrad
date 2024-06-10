@@ -478,9 +478,12 @@ class LowerFusedKernel:
     self.lower_end_loops(loops)
  
   def lower(self):
+    graphs = []
     for fused_kernel in self.fused_kernels:
       if len(fused_kernel.computation.ops) == 1: 
         self.lower_single_op_kernel(fused_kernel)
       else: 
         self.lower_multi_op_kernel(fused_kernel)
-    return self.g
+      graphs.append(self.g)
+      self.g = LowIRGraph()
+    return graphs 

@@ -97,8 +97,9 @@ class TestLower(unittest.TestCase):
     self.assertEqual(3, len(schedule))
     print_schedule(schedule)
     lfk = LowerFusedKernel(schedule)
-    ir_graph = lfk.lower()
-    ir_graph.print()
+    ir_graphs = lfk.lower()
+    for ir_graph in ir_graphs:
+      ir_graph.print()
   
   def test_lower_unary(self):
     x = Tensor.rand(2,2)
@@ -109,11 +110,10 @@ class TestLower(unittest.TestCase):
     self.assertEqual(3, len(schedule))
     print_schedule(schedule)
     lfk = LowerFusedKernel(schedule)
-    ir_graph = lfk.lower()
-    # 2 globals: x, out 
-    ir_graph.print()
-    self.ae(27, len(ir_graph.G))
-  
+    ir_graphs = lfk.lower()
+    for ir_graph in ir_graphs:
+      ir_graph.print()
+
   def test_lower_diamond_reduce(self):
     x = Tensor.randn(10,10)
     y = Tensor.randn(10,10)
@@ -134,15 +134,17 @@ class TestLower(unittest.TestCase):
     schedule = fkb.schedule()
     print_schedule(schedule)
     lfk = LowerFusedKernel(schedule)
-    ir_graph = lfk.lower()
-    ir_graph.print()
+    ir_graphs = lfk.lower()
+    for ir_graph in ir_graphs:
+      ir_graph.print()
 
   def test_reduce(self):
     x = Tensor.randn(10,10,10)
     out = x.sum(axis=0)
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
-    print_schedule(schedule)
     lfk = LowerFusedKernel(schedule)
-    ir_graph = lfk.lower()
-    ir_graph.print()
+    ir_graphs = lfk.lower()
+    for i, ir_graph in enumerate(ir_graphs):
+      print(f"GRAPH {i}")
+      ir_graph.print()

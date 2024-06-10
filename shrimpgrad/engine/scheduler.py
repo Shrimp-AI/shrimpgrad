@@ -13,11 +13,11 @@ class MidIR:
   ops: Sequence[Op]
   ins: Sequence[Sequence[Union[MemBuffer, ConstBuffer]]]
   out: Sequence[Union[MemBuffer, ConstBuffer]]
-  args: List[Any] 
+  args: List[Any]
 
 @dataclass
 class FusedKernel:
-  computation: MidIR 
+  computation: MidIR
 
 class FusedKernelBuilder:
   def __init__(self, out: Thunk):
@@ -28,16 +28,16 @@ class FusedKernelBuilder:
     self.fused_ops = fusion_engine.fuse()
     self.groups = fusion_engine.groups
 
-  def schedule_fused(self): 
+  def schedule_fused(self) -> List[FusedKernel]:
     kernels = []
     for group in self.groups[::-1]:
       if group.parent is None:
-        if group.root not in self.fused_ops: 
+        if group.root not in self.fused_ops:
           thunk = group.root
           inputs = thunk.get_input_buffers()
           output = thunk.get_output_buffer()
           ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
-          kernels.append(FusedKernel(ir)) 
+          kernels.append(FusedKernel(ir))
         else:
           fused = list(reversed(self.fused_ops[group.root])) + [group.root]
           inputs = [t.get_input_buffers() for t in fused]
@@ -46,16 +46,16 @@ class FusedKernelBuilder:
           ops = [t._op for t in fused]
           args = [t.arg for t in fused]
           kernels.append(FusedKernel(MidIR(ops, inputs, output, args)))
-    return kernels  
-           
-  def schedule(self):
+    return kernels
+
+  def schedule(self) -> List[FusedKernel]:
     return self.schedule_fused()
 
 def print_schedule(schedule: List[FusedKernel]) -> None:
   print(f"SCHEDULE length={len(schedule)}")
   print("---------------------------------------------")
   for i, k in enumerate(schedule):
-    ir = k.computation 
+    ir = k.computation
     print(f"kernel {i+1} with {len(ir.ops)} steps:")
     print("-------------------------------------------")
     print(f" operation={ir.ops}")
@@ -65,7 +65,7 @@ def print_schedule(schedule: List[FusedKernel]) -> None:
     print_inputs([ir.out])
     print(f"   args={ir.args}")
     print("------------------------------------------")
-    
+
 def print_inputs(ins):
   for i in ins:
     for ii in i:

@@ -5,9 +5,8 @@ from typing import Callable, List, Optional, TypeAlias, Union, Tuple
 from shrimpgrad.dtype import DType, dtypes, ConstType
 from random import uniform, gauss
 from shrimpgrad.future import Thunk
-from shrimpgrad.device import ClangDevice
+from shrimpgrad.runtime.python import PythonDevice
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list
-import numpy as np
 
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
@@ -16,7 +15,7 @@ def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tupl
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[List, bytes, np.array, ConstType, Thunk], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
+  def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device=PythonDevice(), requires_grad:Optional[bool]=None) -> Tensor:
     self.requires_grad, self.index_view = requires_grad, None 
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function

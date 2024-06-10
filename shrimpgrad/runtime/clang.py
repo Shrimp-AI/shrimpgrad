@@ -2,6 +2,7 @@ from __future__ import annotations
 import ctypes
 import subprocess
 from typing import List, Tuple
+from shrimpgrad.device import Accelerator, MallocAllocator, Renderer
 from shrimpgrad.dtype import DType, dtypes
 import tempfile
 from shrimpgrad.runtime.ops import Op, UnaryOps, BinaryOps, TernaryOps 
@@ -19,7 +20,7 @@ c_alu = {
   BinaryOps.DIV: lambda x,y: f'{x}/{y}',
   TernaryOps.WHERE: lambda x,y,z: f'{x} ? {y} : {z}'}
 
-class ClangProgram:
+class ClangRenderer(Renderer):
   def __init__(self):  self.func = {}
   def _dtype_to_c(self, dtype: DType, ptr=True) -> str:
     if dtype == dtypes.float32: return 'float'+ ('*' if ptr else '')
@@ -32,9 +33,10 @@ class ClangProgram:
   def autogen(self, shape: Tuple[int,...], strides:List[int], dtype: DType):
     for op in c_alu.keys():
       self.create_op(op, shape, strides, dtype)
+  def render(self): return
 
 class ClangCodeGenerator:
-  def __init__(self, prg: ClangProgram): self.prg, self._preamble, self._src = prg, '#include<stdio.h>\n#include<math.h>\n', ''
+  def __init__(self, prg: ClangRenderer): self.prg, self._preamble, self._src = prg, '#include<stdio.h>\n#include<math.h>\n', ''
   def render(self):
     for op, opts in self.prg.func.items():
       self._src += self._function(opts['name'], opts['args'], self._loops(opts['shape'], self._op(op, opts['args'].keys(), opts['shape'], opts['strides']))) + '\n'
@@ -61,11 +63,11 @@ class ClangCodeGenerator:
   def _unpack_args(self, args: dict):  return ','.join([f'{typ} {name} ' for name, typ in args.items()])
 
 class ClangCompiler:
-  def compile(self, prg: ClangProgram):
+  def compile(self, prg: ClangRenderer):
     try:
       with tempfile.TemporaryFile() as outfile:
         subprocess.run(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
-                        '-o', str(outfile.name)], check=True, input=ClangCodeGenerator(prg).render().encode('utf-8'))
+                        '-o', str(outfile.name)], check=True, input=prg.render().encode('utf-8'))
         return ctypes.CDLL('./'+str(outfile.name))
     except subprocess.CalledProcessError as e:
       print(f"clang failure: {e}") 
@@ -74,3 +76,10 @@ class ClangRuntime(metaclass=Profile):
   def __init__(self, lib): self.lib = lib
   def exec(self, op: Op, *args): return getattr(self.lib, op.name.lower() + 'shrimp')(*args)
 
+class ClangDevice(Accelerator):
+  def __init__(self) -> None:
+    super().__init__("CLANG", MallocAllocator, ClangRenderer, ClangCompiler, ClangRuntime)
+  def allocator(self): return self._allocator()
+  def compiler(self): return self._compiler()
+  def runtime(self): return self._runtime()
+  def renderer(self): return self._renderer
