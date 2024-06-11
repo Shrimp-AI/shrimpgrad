@@ -89,14 +89,14 @@ class Thunk:
       else: inputs.append(MemBuffer(base.buff, new_view))
     return inputs    
   
-  def get_output_buffer(self):
+  def get_output_buffer(self) -> Union[MemBuffer, ConstBuffer]:
     if self._op is LoadOps.CONST:
       return ConstBuffer(self.arg, self.device, self.vt)
     return MemBuffer(self.base.buff, self.vt)
 
   # Builder methods
   @staticmethod
-  def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], vt: ViewTracker, device: Device, dtype: DType):
+  def from_compute(op: Union[BinaryOps, UnaryOps, TernaryOps, ReduceOps], operands: Tuple[Thunk,...], vt: ViewTracker, device: Device, dtype: DType) -> Thunk:
     if op in BinaryOps: assert len(operands) > 1, f'binary ops require two operands, {len(operands)} given' 
     if op in UnaryOps: assert len(operands) > 0, f'unary ops require one operands, {len(operands)} given'
     if op in TernaryOps: assert len(operands) > 2, f'ternary ops require three operands, {len(operands)} given' 
@@ -109,7 +109,7 @@ class Thunk:
     new_shape = tuple([1 if i in axis else s for i,s in enumerate(self.shape)])
     return Thunk(self.device, self.dtype, ViewTracker.from_shape(new_shape), (self,), op, arg=axis)
 
-  def reshape(self, shape: Tuple[int,...]):
+  def reshape(self, shape: Tuple[int,...]) -> Thunk:
     return Thunk(self.device, self.dtype, self.vt.reshape(shape), (), base=self.base)
 
   def permute(self, order:Tuple[int,...]) -> Thunk:
