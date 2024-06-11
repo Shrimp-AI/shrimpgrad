@@ -5,7 +5,7 @@ import operator
 import pickle
 from shrimpgrad.device import Accelerator, Allocator, Compiler, Runtime
 from shrimpgrad.engine.lower import LowIRGraph
-from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps, Op
+from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 
 python_alu = {
   UnaryOps.LOG2: lambda x: math.log2(x) if x > 0 else -math.inf if x == 0 else math.nan,
@@ -34,7 +34,7 @@ class PythonCompiler(Compiler):
 
 class PythonRuntime(Runtime):
   def exec(self, lib: bytes):
-    ir_graph = pickle.loads(lib)
+    _ = pickle.loads(lib)
     return
 
 

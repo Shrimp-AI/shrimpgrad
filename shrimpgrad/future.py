@@ -5,6 +5,7 @@ from typing import Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, 
 from shrimpgrad.device import CPU, Device, Buffer, ConstBuffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType 
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
+from shrimpgrad.util import prod
 from shrimpgrad.view import ViewTracker
 
 
@@ -125,9 +126,9 @@ class Thunk:
     if not len(shape):
       assert isinstance(data, ConstType), 'scalar thunk requires a const argument'
       return Thunk.loadop(LoadOps.CONST, shape, dtype, CPU(), arg=data) 
+    assert len(data) == prod(shape), f'data and size mismatch {len(data)} != {prod(shape)}'
     thunk = Thunk.loadop(LoadOps.EMPTY, shape, dtype, CPU())
     thunk.buff.allocate(with_data=data)
-    # This ensures we schedule it early for realize
     del thunk._operands
     return thunk
   
