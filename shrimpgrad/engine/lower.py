@@ -34,13 +34,13 @@ class LowIR(Enum):
   OFFSET = auto()
   LOCAL = auto()
   LOAD = auto()
-  CONST = auto() 
+  CONST = auto()
   STORE = auto()
   ALU = auto()
-  BEGIN_LOOP = auto() 
-  END_LOOP = auto() 
-  IF = auto() 
-  ENDIF = auto() 
+  BEGIN_LOOP = auto()
+  END_LOOP = auto()
+  IF = auto()
+  ENDIF = auto()
 
 @dataclass(frozen=True, eq=True)
 class Node:
@@ -51,7 +51,7 @@ class Node:
 class ConstNode(Node):
   dtype: DType
   val: ConstType
-  def __repr__(self) -> str: return f"{'CONST':<15}{self.val}" 
+  def __repr__(self) -> str: return f"{'CONST':<15}{self.val}"
 
 @dataclass(frozen=True, eq=True)
 class GlobalNode(Node):
@@ -72,14 +72,14 @@ class LocalNode(Node):
 
 @dataclass(frozen=True, eq=True)
 class AddressNode(Node):
-  idx: List[LocalNode|int] 
+  idx: List[LocalNode|int]
   stride: Tuple[int,...]
   step: int
   def __repr__(self) -> str:
-    addr = '' 
+    addr = ''
     for idx, stride in zip(self.idx, self.stride):
       val = idx.name if isinstance(idx, LocalNode) else idx
-      addr += f"{val}*{stride}*{self.step}+" 
+      addr += f"{val}*{stride}*{self.step}+"
     return f"{'ADDRESS':<15}{addr[:-1]:<10}"
 
 @dataclass(frozen=True, eq=True)
@@ -129,14 +129,14 @@ class OffsetNode(Node):
 class IncNode(Node):
   def __repr__(self) -> str:
     return f"{'INC':<15}{self.ancestors[0].name:<10}"
-  
+
 # A graph where each node occupies an index (based on the order of addition)
 # and has 0-to-Many back pointers to dependecies via node.ancestors
 class LowIRGraph:
   def __init__(self):
-    self.G: List[Node] = [] 
-  
-  def const(self, dtype: DType, val: ConstType) -> Node:  
+    self.G: List[Node] = []
+
+  def const(self, dtype: DType, val: ConstType) -> Node:
     self.G.append(node:=ConstNode(LowIR.CONST, (), dtype, val))
     return node
 
@@ -153,17 +153,17 @@ class LowIRGraph:
     return node
 
   def load(self, node: Union[GlobalNode, LocalNode], location: Optional[AddressNode|OffsetNode]) -> Node:
-    self.G.append(node:=LoadNode(LowIR.LOAD, (node, location))) 
+    self.G.append(node:=LoadNode(LowIR.LOAD, (node, location)))
     return node
 
-  def accumulator(self, alu: BinaryOps, 
-                  name: str, dtype: DType, 
-                  operands: Sequence[Union[ConstNode, LoadNode]]) -> Node: 
+  def accumulator(self, alu: BinaryOps,
+                  name: str, dtype: DType,
+                  operands: Sequence[Union[ConstNode, LoadNode]]) -> Node:
     self.G.append(node:=AccumulatorNode(LowIR.ACC, tuple(operands), name, dtype, alu))
     return node
 
   def store(self, lhs: Union[GlobalNode, LocalNode],
-            address: AddressNode|OffsetNode|None, 
+            address: AddressNode|OffsetNode|None,
             rhs: Union[LoadNode, ConstNode, LocalNode]) -> Node:
     self.G.append(node:=StoreNode(LowIR.STORE, (lhs, address, rhs)))
     return node
@@ -179,22 +179,22 @@ class LowIRGraph:
   def end_loop(self, loop: BeginLoopNode):
     self.G.append(node:=EndLoopNode(LowIR.END_LOOP, (loop, )))
     return node
-  
+
   def offset(self, val: Union[ConstNode, ALUNode]) -> Node:
     self.G.append(node:=OffsetNode(LowIR.OFFSET, (val,)))
     return node
-  
+
   def inc(self, var: LocalNode) -> Node:
     self.G.append(node:=IncNode(LowIR.INC, (var,)))
     return node
-  
+
   def __str__(self) -> str:
     return "\n".join([str(node) for node in self.G])
-  
+
   def print(self):
     for node in self.G:
       print(node)
-      
+
 class LowerFusedKernel:
   def __init__(self, fused_kernels: List[FusedKernel]):
     self.fused_kernels = fused_kernels
@@ -209,7 +209,7 @@ class LowerFusedKernel:
     # TODO: Get dtype from inputs or outputs
     self.dtype = dtypes.float32
     self.consts = []
-   
+
   def global_name(self, prefix="data"):
     if prefix == "data":
       val = self.global_input_counter
@@ -220,17 +220,17 @@ class LowerFusedKernel:
     name = f"{prefix}{val}"
     self.arg_count += 1
     return name
-  
+
   def local_name(self, prefix="idx"):
     name = f"{prefix}{self.local_counter}"
     self.local_counter += 1
     return name
- 
+
   def accum_name(self):
     name = f"acc{self.accum_counter}"
     self.accum_counter += 1
     return name
-  
+
   # Lower a constant input or output into a global non-pointer
   def lower_const(self, cbuff: ConstBuffer, is_input: bool) -> LocalNode:
     if cbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[cbuff]]
@@ -238,32 +238,32 @@ class LowerFusedKernel:
     g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, mutable, self.arg_count - 1, False)
     self.symbol_table[name] = g0
     self.node_to_symbol[cbuff] = name
-    return g0 
+    return g0
 
   # Lower a buffer input or output into a global pointer
   def lower_buffer(self, mbuff: MemBuffer, is_input: bool) -> GlobalNode:
-    if mbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[mbuff]] 
+    if mbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[mbuff]]
     prefix, mutable = ("out", True) if not is_input else ("data", False)
     g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, mutable, self.arg_count - 1, True)
     self.symbol_table[name] = g0
     self.node_to_symbol[mbuff] = name
     return g0
-  
+
   def lower_io(self, io: MemBuffer|ConstBuffer, is_input:bool) -> GlobalNode|ConstNode:
     if isinstance(io, MemBuffer): return self.lower_buffer(io, is_input)
     return self.lower_const(io, is_input)
-  
+
   def lower_load(self, g: GlobalNode, addr: Optional[AddressNode|OffsetNode]=None) -> LoadNode:
     # If g is a pointer, load with an address, otw. just load the value
     return self.g.load(g, addr) if g.ptr else self.g.load(g, None)
-  
+
   def lower_alu(self, alu: BinaryOps|TernaryOps|UnaryOps, *loads):
     # TODO: Deal with dtype
     return self.g.alu(alu, self.dtype, *loads)
-  
+
   def lower_store(self, g: GlobalNode, addr: AddressNode|OffsetNode|None, value: Node) -> StoreNode:
     return self.g.store(g, addr, value) if g.ptr else self.g.store(g, None, value)
-  
+
   def lower_local(self, dtype: DType, val: ConstType|Node) -> LocalNode:
     return self.g.local_var(self.local_name(), dtype, self.g.const(dtype, val) if not isinstance(val, Node) else val)
 
@@ -271,7 +271,7 @@ class LowerFusedKernel:
                 in0: Union[ConstBuffer, MemBuffer],
                 in1: Union[ConstBuffer, MemBuffer],
                 out0: Union[ConstBuffer, MemBuffer],
-                idxs: List[LocalNode], 
+                idxs: List[LocalNode],
                 strides0: Tuple[int,...],
                 strides1: Tuple[int,...],
                 strides2: Tuple[int,...],
@@ -280,13 +280,13 @@ class LowerFusedKernel:
     # Define a global for the output
     out = self.lower_io(out0, is_input=False)
 
-    # Load the two inputs 
+    # Load the two inputs
     g0 = self.lower_io(in0, is_input=True)
     addr0 = self.g.address(idxs, strides0, step)
     l0 = self.lower_load(g0, addr0)
 
     g1 = self.lower_io(in1, is_input=True)
-    addr1 = self.g.address(idxs, strides1, step) 
+    addr1 = self.g.address(idxs, strides1, step)
     l1 = self.lower_load(g1, addr1)
 
     #  Lower the binary ALU operation
@@ -322,7 +322,7 @@ class LowerFusedKernel:
                 in0: MemBuffer,
                 out0: Union[MemBuffer, ConstBuffer],
                 axis: Tuple[int, ...],
-                rop: ReduceOps): 
+                rop: ReduceOps):
     in_shape = in0.vt.shape
     out_shape = out0.vt.shape if isinstance(out0, MemBuffer) else ()
     out = self.lower_io(out0, False)
@@ -346,10 +346,10 @@ class LowerFusedKernel:
         loop, idx = self.lower_begin_for(0, in_shape[i])
         idxs.append(idx)
         loops.append(loop)
-        # Compute the dimension offset l0*strides[i] 
+        # Compute the dimension offset l0*strides[i]
         alu = self.lower_alu(BinaryOps.MUL, idx, self.g.const(dtypes.int32, in0_vt.strides[i]))
         # Set the dim off set to the alu value
-        dim_off = self.lower_local(dtypes.int32, alu) 
+        dim_off = self.lower_local(dtypes.int32, alu)
         dim_offs.append(dim_off)
       # Create the inner loop
       loop, idx = self.lower_begin_for(0, in_shape[-1])
@@ -379,7 +379,7 @@ class LowerFusedKernel:
     idx = self.g.local_var(self.local_name(), dtypes.int32, c0)
     # Begin a loop from var = 0 to c1
     loop = self.g.begin_loop(idx, c1)
-    return loop, idx 
+    return loop, idx
 
   # TODO: Loop unrolling (but not ncessary once we gen for GPU)
   def lower_start_loops(self, ndim:int, shape: Tuple[int,...]):
@@ -397,9 +397,9 @@ class LowerFusedKernel:
     return loops, idxs
 
   def lower_end_loops(self, loops: List[BeginLoopNode]):
-    for loop in loops: 
+    for loop in loops:
       self.g.end_loop(loop)
-  
+
   def lower_single_op_kernel(self, fused_kernel: FusedKernel):
     assert len(fused_kernel.computation.ins) == 1
     assert len(fused_kernel.computation.out) == 1
@@ -433,20 +433,20 @@ class LowerFusedKernel:
       return
 
     if op in TernaryOps:
-      return 
+      return
     if op in ReduceOps:
       self.lower_rop(inputs[0], output, arg, op)
       return
     raise NotImplementedError(f"lowering {op} is not supported")
-  
+
   def lower_multi_op_kernel(self, fk: FusedKernel):
-    ins, outs, ops, args = fk.computation.ins, fk.computation.out, fk.computation.ops, fk.computation.args 
+    ins, outs, ops, args = fk.computation.ins, fk.computation.out, fk.computation.ops, fk.computation.args
     assert len(ins) > 1, 'multi op lowering requires multi input'
     assert len(outs) > 1, 'multi op lowering requires multi output'
-    assert len(ops) > 1, 'multi op lowering requires multi ops' 
+    assert len(ops) > 1, 'multi op lowering requires multi ops'
     assert len(args) > 1, ' multi op lowering requires multi args'
     assert len(ins) == len(outs) == len(ops) == len(args), 'multi op lowering requires inputs, outputs, ops, and args match in length'
-    loops,idxs = None, None 
+    loops,idxs = None, None
     for i, o, op, arg in zip(ins, outs, ops, args):
       if not loops:
         vt0 = o.vt
@@ -460,14 +460,14 @@ class LowerFusedKernel:
         # Dimension and shapes should be the same
         # so use vt0
         self.lower_bop(i[0], i[1], o, idxs, strd0, strd1, strd2, 1, op)
-        continue 
+        continue
       if op in UnaryOps:
         vt0 = i[0].vt
         vt1 = o.vt
         strd0 = vt0.strides
         strd1 = vt1.strides
         self.lower_uop(i[0], o, idxs, strd0, strd1, 1, op)
-        continue 
+        continue
       if op in ReduceOps:
         assert len(i) == 1, "reduce only has 1 input"
         # Terminate the loops since reduce occurs after them
@@ -476,14 +476,16 @@ class LowerFusedKernel:
         # Return because reduce is always the last fused operation
         return
     self.lower_end_loops(loops)
- 
-  def lower(self):
-    graphs = []
+
+  def lower(self) -> List[LowIRGraph]:
+    graphs: List[LowIRGraph] = []
     for fused_kernel in self.fused_kernels:
-      if len(fused_kernel.computation.ops) == 1: 
+      if len(fused_kernel.computation.ops) == 1:
         self.lower_single_op_kernel(fused_kernel)
-      else: 
+      else:
         self.lower_multi_op_kernel(fused_kernel)
       graphs.append(self.g)
+      self.local_counter = 0
+      self.arg_count = 0
       self.g = LowIRGraph()
-    return graphs 
+    return graphs

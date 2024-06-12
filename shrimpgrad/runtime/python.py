@@ -25,6 +25,8 @@ class PythonDevice(Accelerator):
   def allocator(self) -> PythonAllocator: return self._allocator()
   def runtime(self) -> PythonRuntime: return self._runtime()
   def renderer(self) -> PythonRenderer: return self._renderer()
+  def __repr__(self) -> str:
+    return f"<PythonDevice>"
 
 class PythonRenderer:
   def render(self, ir_graph: LowIRGraph) -> str: return base64.b64encode(pickle.dumps(ir_graph)).decode()
@@ -34,7 +36,9 @@ class PythonCompiler(Compiler):
 
 class PythonRuntime(Runtime):
   def exec(self, lib: bytes):
-    _ = pickle.loads(lib)
+    ir_graph = pickle.loads(lib)
+    for pc, ir in enumerate(ir_graph):
+      print(f"{pc = } {ir = }")
     return
 
 
