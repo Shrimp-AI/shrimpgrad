@@ -4,7 +4,7 @@ import math
 from typing import Callable, List, Optional, TypeAlias, Union, Tuple
 from shrimpgrad.dtype import DType, dtypes, ConstType
 from random import uniform, gauss
-from shrimpgrad.engine.runner import eval
+from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.python import PythonDevice
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list
@@ -313,7 +313,7 @@ class Tensor:
   def is_scalar(self): return not self.ndim
 
   # Trigger evaluation
-  def eval(self): eval(self.thunk)
+  def realize(self): realize(self.thunk)
 
   # Object Representation
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"

@@ -3,7 +3,7 @@ from typing import Callable, List
 import unittest
 
 from shrimpgrad.device import MemBuffer
-from shrimpgrad.engine.runner import BufferCopy, eval
+from shrimpgrad.engine.runner import BufferCopy
 from shrimpgrad import Tensor, nn
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
 from shrimpgrad.runtime.ops import LoadOps
@@ -67,4 +67,10 @@ class TestRunner(unittest.TestCase):
     x = Tensor.randn(100,2)
     model = Model()
     out = model(x)
-    out.eval()
+    out.realize()
+
+  def test_simple(self):
+    x = Tensor.ones((2,2))
+    y = Tensor.ones((2,2))
+    z = x+y
+    z.realize()

@@ -1,6 +1,6 @@
 from collections import defaultdict
 from typing import DefaultDict, List
-from shrimpgrad.device import Accelerator, Buffer, ConstBuffer, MemBuffer
+from shrimpgrad.device import Accelerator, ConstBuffer, MemBuffer
 from shrimpgrad.engine.lower import LowIRGraph, LowerFusedKernel
 from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder, print_schedule
 from shrimpgrad.future import Thunk
@@ -22,12 +22,13 @@ def _lower(schedule: List[FusedKernel]) -> List[LowIRGraph]:
   buff_to_name = lkb.node_to_symbol
   return irgs
 
-def eval(out: Thunk):
-  kernels = []
+def realize(out: Thunk):
+  kernels: List[CompiledKernel|BufferCopy] = []
   sched = _schedule(out)
   print_schedule(sched)
   load_kerns, unkerned = _gen_load_kernels(sched)
-  kernels.extend(load_kerns)
+  for load_kern in load_kerns:
+    load_kern()
   buffers: List[DefaultDict[str, List[MemBuffer|ConstBuffer]]] = []
   for s in unkerned:
     buffs = defaultdict(list)
@@ -39,8 +40,10 @@ def eval(out: Thunk):
     buffers.append(buffs)
   ir_graphs = _lower(unkerned)
   for irg, buffs in zip(ir_graphs, buffers):
-    kernels.append(CompiledKernel(irg, out.device, buffs))
-  list(map(lambda x: print(x), [str(k) for k in kernels]))
+    kernels.append(CompiledKernel(irg, out.device, buff_to_name, buffs))
+  # list(map(print, [str(k) for k in kernels]))
+  for kernel in kernels:
+    kernel()
 
 def _gen_load_kernels(schedule: List[FusedKernel]) -> None:
   load_kernels = []
@@ -56,13 +59,18 @@ def _gen_load_kernels(schedule: List[FusedKernel]) -> None:
       assert isinstance(dst, MemBuffer)
       load_kernels.append(BufferCopy(dst, src, size))
     else: un_kerneled.append(fk)
+    # Allocate output buffers
+    for buff in fk.computation.out:
+      buff.buff.allocate()
   return load_kernels, un_kerneled
 
 class CompiledKernel:
-  def __init__(self, ir: LowIRGraph, dev: Accelerator, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]]
+  def __init__(self, ir: LowIRGraph, dev: Accelerator, buff_to_name, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]]
 ) -> None:
     self.ir, self.dev, self.buffs = ir, dev, buffs
     self.src = self.dev.renderer().render(self.ir)
+    self.lib = self.dev.compiler().compile(self.src)
+    self.buff2name = buff_to_name
   def __repr__(self) -> str: return f"<CompiledKernel id={id(self)}>"
   def __str__(self) -> str:
     global buff_to_name
@@ -77,6 +85,8 @@ class CompiledKernel:
     ir   =  f"{self.ir}\n"
     footer = f"{'':<^20}{'':>^20}\n"
     return hdr_hdr + header + dev + ins_hdr + ins + outs_hdr + outs + ir_hdr + ir + footer
+  def __call__(self):
+    self.rt = self.dev.runtime().exec(self.lib, self.buffs, self.buff2name)
 
 class BufferCopy:
   def __init__(self, dst: MemBuffer, src: MemBuffer, size: int):

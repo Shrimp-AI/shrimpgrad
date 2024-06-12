@@ -1,11 +1,14 @@
 from __future__ import annotations
 import base64
+import ctypes
 import math
 import operator
 import pickle
-from shrimpgrad.device import Accelerator, Allocator, Compiler, Runtime
-from shrimpgrad.engine.lower import LowIRGraph
+from typing import DefaultDict, List
+from shrimpgrad.device import Accelerator, Allocator, Compiler, ConstBuffer, MemBuffer, Runtime
+from shrimpgrad.engine.lower import ALUNode, AddressNode, BeginLoopNode, ConstNode, EndLoopNode, GlobalNode, LoadNode, LocalNode, LowIRGraph, Node, StoreNode
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
+from collections import deque
 
 python_alu = {
   UnaryOps.LOG2: lambda x: math.log2(x) if x > 0 else -math.inf if x == 0 else math.nan,
@@ -35,12 +38,95 @@ class PythonCompiler(Compiler):
   def compile(self, src:str) -> bytes: return base64.b64decode(src)
 
 class PythonRuntime(Runtime):
-  def exec(self, lib: bytes):
-    ir_graph = pickle.loads(lib)
-    for pc, ir in enumerate(ir_graph):
-      print(f"{pc = } {ir = }")
-    return
+  def __init__(self):
+    self.pc = 0
+    self.global_scope = {}
+    self.address = None
+    self.load_stack = deque()
 
+  def _loop(self, s,e,instrs):
+    start_loop_pc = self.pc
+    for i in range(s,e):
+      # Go to instruction after the for stmt
+      self.pc = start_loop_pc + 1
+      print(f"Loop iter= {i} pc={self.pc}")
+      end_loop_pc = self._exec(instrs)
+    return end_loop_pc
+
+  def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name):
+    ir_graph: LowIRGraph = pickle.loads(lib)
+    self.buffs = buffs
+    self.buff2name = buff2name
+    self._exec(ir_graph.G)
+
+  def _exec(self, instrs: List[Node]):
+    while self.pc < len(instrs):
+      instr = instrs[self.pc]
+      print(f"PC={self.pc} instr={instr}")
+      if isinstance(instr, EndLoopNode):
+        print("END LOOP jump")
+        return self.pc
+      if isinstance(instr, ConstNode):
+        self.pc += 1
+        continue
+      if isinstance(instr, LocalNode):
+        if isinstance(instr.ancestors[0], ALUNode):
+          alu_node = instr.ancestors[0]
+          operands = alu_node.ancestors
+          self.gobal_scope[instr] = python_alu[alu_node.alu](*[self.global_scope[o] for o in operands])
+        else:
+          # const
+          self.global_scope[instr] = instr.ancestors[0].val
+      if isinstance(instr, GlobalNode):
+        self.global_scope[instr] = self.find_buff(instr.name).buff
+      if isinstance(instr, BeginLoopNode):
+        s, e = instr.ancestors[0].ancestors[0].val, instr.ancestors[1].val
+        print(f"loop start={s} end={e}")
+        end_loop_pc = self._loop(s, e, instrs)
+        self.pc = end_loop_pc
+      if isinstance(instr, AddressNode):
+        idxs = instr.idx
+        strides = instr.stride
+        addr = 0
+        for idx, stride in zip(idxs, strides):
+          i = idx
+          if isinstance(idx, LocalNode):
+            i = self.global_scope[idx]
+          addr += i * stride
+        self.address = addr
+      if isinstance(instr, LoadNode):
+        node = instr.ancestors[0]
+        if isinstance(node, GlobalNode):
+          buff = self.find_buff(node.name)
+          if node.ptr:
+            loaded = buff.buff.pointer(ctypes.c_float)[self.address]
+          else:
+            loaded = buff.value
+          self.load_stack.append(loaded)
+      if isinstance(instr, ALUNode):
+        vals = []
+        for operand in instr.ancestors:
+          if isinstance(operand, LoadNode):
+            vals.append(self.load_stack.popleft())
+          elif isinstance(operand, LocalNode):
+            vals.append(self.global_scope[operand])
+          elif isinstance(operand, ConstNode):
+            vals.append(operand.val)
+          else:
+            raise ValueError(f"operand {operand} is not a valid value")
+        res = python_alu[instr.alu](*vals)
+        self.global_scope[instr] = res
+      if isinstance(instr, StoreNode):
+        pass
+
+
+      self.pc+=1
+
+  def find_buff(self, name):
+    for buff in self.buffs['input'] + self.buffs['output']:
+      if self.buff2name[buff] == name:
+        return buff
+    raise KeyError(f"buff with name {name} not found")
 
 class PythonAllocator(Allocator):
   def alloc(self, size:int): return memoryview(bytearray(size))
