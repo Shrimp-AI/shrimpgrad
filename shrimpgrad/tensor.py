@@ -1,4 +1,5 @@
 from __future__ import annotations
+import ctypes
 import functools
 import math
 from typing import Callable, List, Optional, TypeAlias, Union, Tuple
@@ -8,6 +9,7 @@ from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.python import PythonDevice
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list
+import numpy as np
 
 Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
@@ -314,6 +316,18 @@ class Tensor:
 
   # Trigger evaluation
   def realize(self): realize(self.thunk)
+
+  # Extract data
+  def data(self):
+    # TODO: Change this to something worthy
+    thunk = self.thunk.base
+    if hasattr(thunk, 'buff'):
+      data = thunk.buff.pointer(ctypes.c_float)
+    else:
+      data = thunk.base.cbuff.value
+      return np.array(data)
+    return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
+
 
   # Object Representation
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"

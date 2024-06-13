@@ -44,13 +44,17 @@ class PythonRuntime(Runtime):
     self.address = None
     self.load_stack = deque()
 
-  def _loop(self, s,e,instrs):
-    start_loop_pc = self.pc
-    for i in range(s,e):
+  def _loop(self, s: LocalNode ,e: int, instrs):
+    loop_start = self.pc
+    s_val = self.global_scope[s]
+    self.pc+=1
+    for _ in range(s_val,e):
       # Go to instruction after the for stmt
-      self.pc = start_loop_pc + 1
-      print(f"Loop iter= {i} pc={self.pc}")
       end_loop_pc = self._exec(instrs)
+      # Increment the backing value of the idx var
+      self.global_scope[s] += 1
+      self.pc = loop_start + 1
+
     return end_loop_pc
 
   def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name):
@@ -62,9 +66,8 @@ class PythonRuntime(Runtime):
   def _exec(self, instrs: List[Node]):
     while self.pc < len(instrs):
       instr = instrs[self.pc]
-      print(f"PC={self.pc} instr={instr}")
+      print(f"instr= {instr} pc={self.pc}")
       if isinstance(instr, EndLoopNode):
-        print("END LOOP jump")
         return self.pc
       if isinstance(instr, ConstNode):
         self.pc += 1
@@ -72,7 +75,7 @@ class PythonRuntime(Runtime):
       if isinstance(instr, LocalNode):
         if isinstance(instr.ancestors[0], ALUNode):
           alu_node = instr.ancestors[0]
-          self.global_scope[instr] = self.exec_alu(alu_node) 
+          self.global_scope[instr] = self.exec_alu(alu_node)
         else:
           # const
           self.global_scope[instr] = instr.ancestors[0].val
@@ -83,8 +86,7 @@ class PythonRuntime(Runtime):
         else:
           self.global_scope[instr] = buff.value
       if isinstance(instr, BeginLoopNode):
-        s, e = instr.ancestors[0].ancestors[0].val, instr.ancestors[1].val
-        print(f"loop start={s} end={e}")
+        s, e = instr.ancestors[0], instr.ancestors[1].val
         end_loop_pc = self._loop(s, e, instrs)
         self.pc = end_loop_pc
       if isinstance(instr, AddressNode):
@@ -96,26 +98,27 @@ class PythonRuntime(Runtime):
           if isinstance(idx, LocalNode):
             i = self.global_scope[idx]
           addr += i * stride
-        self.address = addr
         self.global_scope[instr] = addr
       if isinstance(instr, LoadNode):
         node = instr.ancestors[0]
         if isinstance(node, GlobalNode):
           buff = self.find_buff(node.name)
           if node.ptr:
-            loaded = buff.buff.pointer(ctypes.c_float)[self.address]
+            addr = self.global_scope[instr.ancestors[1]]
+            loaded = buff.buff.pointer(ctypes.c_float)[addr]
           else:
             loaded = buff.value
-          self.load_stack.append(loaded)
+          self.global_scope[instr] = loaded
       if isinstance(instr, ALUNode):
-        res = self.exec_alu(instr) 
+        res = self.exec_alu(instr)
         self.global_scope[instr] = res
       if isinstance(instr, StoreNode):
         idx = instr.ancestors[1]
         if isinstance(idx, ConstNode):
           idx = idx.val
         else:
-          idx = self.global_scope[idx]
+          if idx is not None:
+            idx = self.global_scope[idx]
 
         lhs = instr.ancestors[0]
         rhs = self.global_scope[instr.ancestors[2]]
@@ -126,9 +129,10 @@ class PythonRuntime(Runtime):
             buff.buff.pointer(ctypes.c_float)[idx] = rhs
           else:
             buff.value = rhs
+            self.global_scope[lhs] = rhs
         if isinstance(lhs, LocalNode):
           self.global_scope[lhs] = rhs
-          
+
       if isinstance(instr, OffsetNode):
         offset = instr.ancestors[0]
         if isinstance(offset, ALUNode):
@@ -138,29 +142,24 @@ class PythonRuntime(Runtime):
           self.global_scope[instr] = self.global_scope[offset]
 
       self.pc+=1
-  
+    return self.pc
+
   def exec_alu(self, alu_node: ALUNode):
     vals = []
     for operand in alu_node.ancestors:
-      if isinstance(operand, LoadNode):
-        vals.append(self.load_stack.popleft())
-      elif isinstance(operand, LocalNode):
-        vals.append(self.global_scope[operand])
-      elif isinstance(operand, ConstNode):
+      if isinstance(operand, ConstNode):
         vals.append(operand.val)
-      elif isinstance(operand, ALUNode):
-        vals.append(self.global_scope[operand])
       else:
-        raise ValueError(f"operand {operand} is not a valid value")
+        vals.append(self.global_scope[operand])
     # chaining multiple binary ops
     if len(vals) > 2 and alu_node.alu in BinaryOps:
-      v0 = vals[0] 
+      v0 = vals[0]
       for v in vals[1:]:
         res = python_alu[alu_node.alu](v0, v)
         v0 = res
     else:
       res = python_alu[alu_node.alu](*vals)
-    return res 
+    return res
 
   def find_buff(self, name):
     for buff in self.buffs['input'] + self.buffs['output']:

@@ -61,7 +61,8 @@ def _gen_load_kernels(schedule: List[FusedKernel]) -> None:
     else: un_kerneled.append(fk)
     # Allocate output buffers
     for buff in fk.computation.out:
-      buff.buff.allocate()
+      if isinstance(buff, MemBuffer):
+        buff.buff.allocate()
   return load_kernels, un_kerneled
 
 class CompiledKernel:

@@ -46,8 +46,6 @@ class LowIR(Enum):
 class Node:
   op: LowIR
   ancestors: Tuple[Node,...]
-  def __hash__(self):
-    return hash(str(id(self))+str(self.op))
 
 @dataclass(frozen=True, eq=True)
 class ConstNode(Node):
@@ -83,7 +81,8 @@ class AddressNode(Node):
       val = idx.name if isinstance(idx, LocalNode) else idx
       addr += f"{val}*{stride}*{self.step}+"
     return f"{'ADDRESS':<15}{addr[:-1]:<10}"
-  def __hash__(self): return super().__hash__()
+  def __hash__(self):
+    return hash(str(id(self))+str(self.op))
 
 @dataclass(frozen=True, eq=True)
 class LoadNode(Node):
@@ -102,7 +101,7 @@ class AccumulatorNode(Node):
 @dataclass(frozen=True, eq=True)
 class StoreNode(Node):
   def __repr__(self) -> str:
-    addr = str(self.ancestors[1].op)
+    addr = str(self.ancestors[1].op) if self.ancestors[1] is not None else "noop"
     return f"{'STORE':<15}{self.ancestors[0].name:<10}{addr:<20}{str(self.ancestors[2].op):<10}"
 
 @dataclass(frozen=True, eq=True)
