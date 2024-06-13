@@ -115,9 +115,10 @@ class MemBuffer:
   buff: Buffer
   vt: ViewTracker
 
-@dataclass(frozen=True, eq=True)
+@dataclass(frozen=False)
 class ConstBuffer:
   value: ConstType
   device: Device
   vt: ViewTracker
+  def __hash__(self): return hash(id(self))
 

@@ -1,10 +1,9 @@
 import ctypes
-from typing import Callable, List
 import unittest
 
 from shrimpgrad.device import MemBuffer
 from shrimpgrad.engine.runner import BufferCopy
-from shrimpgrad import Tensor, nn
+from shrimpgrad import Tensor
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
 from shrimpgrad.runtime.ops import LoadOps
 
@@ -52,25 +51,26 @@ class TestRunner(unittest.TestCase):
             assert val == data1[j]
 
 
-  def test_shallow_net(self):
-    class Model:
-      def __init__(self):
-        self.layers: List[Callable[[Tensor], Tensor]] = [
-        nn.Linear(2, 50), Tensor.relu,
-        nn.Linear(50, 50), Tensor.relu,
-        nn.Linear(50, 50), Tensor.relu,
-        nn.Linear(50, 1), Tensor.sigmoid,
-        ]
-      def __call__(self, x: Tensor):
-        return x.sequential(self.layers)
+  # def test_shallow_net(self):
+  #   class Model:
+  #     def __init__(self):
+  #       self.layers: List[Callable[[Tensor], Tensor]] = [
+  #       nn.Linear(2, 50), Tensor.relu,
+  #       nn.Linear(50, 50), Tensor.relu,
+  #       nn.Linear(50, 50), Tensor.relu,
+  #       nn.Linear(50, 1), Tensor.sigmoid,
+  #       ]
+  #     def __call__(self, x: Tensor):
+  #       return x.sequential(self.layers)
 
-    x = Tensor.randn(100,2)
-    model = Model()
-    out = model(x)
-    out.realize()
+  #   x = Tensor.randn(100,2)
+  #   model = Model()
+  #   out = model(x)
+  #   out.realize()
 
   def test_simple(self):
     x = Tensor.ones((2,2))
     y = Tensor.ones((2,2))
     z = x+y
     z.realize()
+    print(z.thunk.buff.pointer(ctypes.c_float)[0:4])

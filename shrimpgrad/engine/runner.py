@@ -73,13 +73,12 @@ class CompiledKernel:
     self.buff2name = buff_to_name
   def __repr__(self) -> str: return f"<CompiledKernel id={id(self)}>"
   def __str__(self) -> str:
-    global buff_to_name
     hdr_hdr = f"{'':<^20}{'':>^20}\n"
     header = f"{'':<^10}COMPILED KERNEL{'':>^10}\n"
     dev    = f"DEVICE: {str(self.dev):>5}\n"
-    ins_hdr    = f"INPUTS: \n"
+    ins_hdr    = "INPUTS: \n"
     ins = "\n".join([buff_to_name[buff] if buff in buff_to_name else str(buff) for buff in self.buffs['input']]) + "\n"
-    outs_hdr    = f"OUTPUT: \n"
+    outs_hdr    = "OUTPUT: \n"
     outs =  "\n".join([buff_to_name[buff] if buff in buff_to_name else str(buff) for buff in self.buffs['output']]) + "\n"
     ir_hdr = "IR: \n"
     ir   =  f"{self.ir}\n"
