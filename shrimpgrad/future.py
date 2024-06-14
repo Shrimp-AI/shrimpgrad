@@ -88,7 +88,7 @@ class Thunk:
       new_view = operand.vt
       if operand.isview: base = operand.base
       if base._op is LoadOps.CONST or base.vt.scalar:
-        inputs.append(ConstBuffer(base.arg, base.device, new_view))
+        inputs.append(base.cbuff)
       else: inputs.append(MemBuffer(base.buff, new_view))
     return inputs
 
@@ -106,7 +106,7 @@ class Thunk:
     return Thunk(device, dtype, vt, tuple(operands), op)
 
   def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_thunks: Tuple[Thunk,...]) -> Thunk:
-    return Thunk.from_compute(op, (self, *in_thunks), self.vt, self.device, self.dtype)
+    return Thunk.from_compute(op, (self, *in_thunks), ViewTracker.from_shape(self.vt.shape), self.device, self.dtype)
 
   def reduce(self, op: ReduceOps, axis: Tuple[int,...]) -> Thunk:
     new_shape = tuple([1 if i in axis else s for i,s in enumerate(self.shape)])

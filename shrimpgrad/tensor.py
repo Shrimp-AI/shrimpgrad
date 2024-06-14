@@ -51,7 +51,6 @@ class Tensor:
                for g in ([grads] if len(t.ctx.tensors) == 1 else grads)]
       for t0, g in zip(t.ctx.tensors, grads):
         t0.grad = g if t0.grad is None else t0.grad + g
-      del t.ctx
     return self
 
   @property

@@ -6,7 +6,7 @@ import operator
 import pickle
 from typing import DefaultDict, List
 from shrimpgrad.device import Accelerator, Allocator, Compiler, ConstBuffer, MemBuffer, Runtime
-from shrimpgrad.engine.lower import ALUNode, AddressNode, BeginLoopNode, ConstNode, EndLoopNode, GlobalNode, LoadNode, LocalNode, LowIRGraph, Node, OffsetNode, StoreNode
+from shrimpgrad.engine.lower import ALUNode, AddressNode, BeginLoopNode, ConstNode, EndLoopNode, GlobalNode, IncNode, LoadNode, LocalNode, LowIRGraph, Node, OffsetNode, StoreNode
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 from collections import deque
 
@@ -69,27 +69,28 @@ class PythonRuntime(Runtime):
       print(f"instr= {instr} pc={self.pc}")
       if isinstance(instr, EndLoopNode):
         return self.pc
+
       if isinstance(instr, ConstNode):
         self.pc += 1
         continue
-      if isinstance(instr, LocalNode):
+      elif isinstance(instr, LocalNode):
         if isinstance(instr.ancestors[0], ALUNode):
           alu_node = instr.ancestors[0]
           self.global_scope[instr] = self.exec_alu(alu_node)
         else:
           # const
           self.global_scope[instr] = instr.ancestors[0].val
-      if isinstance(instr, GlobalNode):
+      elif isinstance(instr, GlobalNode):
         buff = self.find_buff(instr.name)
         if isinstance(buff, MemBuffer):
           self.global_scope[instr] = buff.buff
         else:
           self.global_scope[instr] = buff.value
-      if isinstance(instr, BeginLoopNode):
+      elif isinstance(instr, BeginLoopNode):
         s, e = instr.ancestors[0], instr.ancestors[1].val
         end_loop_pc = self._loop(s, e, instrs)
         self.pc = end_loop_pc
-      if isinstance(instr, AddressNode):
+      elif isinstance(instr, AddressNode):
         idxs = instr.idx
         strides = instr.stride
         addr = 0
@@ -99,7 +100,7 @@ class PythonRuntime(Runtime):
             i = self.global_scope[idx]
           addr += i * stride
         self.global_scope[instr] = addr
-      if isinstance(instr, LoadNode):
+      elif isinstance(instr, LoadNode):
         node = instr.ancestors[0]
         if isinstance(node, GlobalNode):
           buff = self.find_buff(node.name)
@@ -109,10 +110,10 @@ class PythonRuntime(Runtime):
           else:
             loaded = buff.value
           self.global_scope[instr] = loaded
-      if isinstance(instr, ALUNode):
+      elif isinstance(instr, ALUNode):
         res = self.exec_alu(instr)
         self.global_scope[instr] = res
-      if isinstance(instr, StoreNode):
+      elif isinstance(instr, StoreNode):
         idx = instr.ancestors[1]
         if isinstance(idx, ConstNode):
           idx = idx.val
@@ -133,13 +134,18 @@ class PythonRuntime(Runtime):
         if isinstance(lhs, LocalNode):
           self.global_scope[lhs] = rhs
 
-      if isinstance(instr, OffsetNode):
+      elif isinstance(instr, OffsetNode):
         offset = instr.ancestors[0]
         if isinstance(offset, ALUNode):
           res = self.exec_alu(offset)
           self.global_scope[instr] = res
         if isinstance(offset, LocalNode):
           self.global_scope[instr] = self.global_scope[offset]
+      elif isinstance(instr, IncNode):
+        loc = instr.ancestors[0]
+        self.global_scope[loc]+=1
+      else:
+        raise TypeError(f"{instr} is not a valid instr")
 
       self.pc+=1
     return self.pc

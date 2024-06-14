@@ -1,4 +1,5 @@
 from shrimpgrad import Tensor
+from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.util import to_nested_list
 import unittest
 import pytest
@@ -43,7 +44,6 @@ class TestOps(unittest.TestCase):
 
     print("\ntesting %40r   torch/shrimp fp: %.2f / %.2f ms  bp: %.2f / %.2f ms " % \
       (shapes, torch_fwd_t*1000, shrimp_fwd_t*1000, torch_bt*1000, shrimp_bt*1000), end="")
-
 
   def compare(self, tts, sts, rtol, atol, show=False):
     t = tts.tolist()
@@ -124,100 +124,128 @@ class TestOps(unittest.TestCase):
   def test_scalar_ops_with_backprop(self):
     a = Tensor((), -4.0)
     b = Tensor((), 2.0)
-    # c = a + b
-    # c.realize()
-    # print(c.data())
-    # self.assertEqual(c.data(), -2.0)
+    c = a + b
+    c.realize()
+    self.assertEqual(c.data(), -2.0)
+
     d = a * b + (b*b*b)
     d.realize()
-    print(d.data())
+
     self.assertEqual(d.data(), -4.0*2+2.0*2.0*2.0)
 
-    # c = c + c + 1
-    # self.assertEqual(c.data, -3.0)
-    # c = c + 1 + c + (-a)
-    # self.assertEqual(c.data,  -3.0+(1+-3.0+4.0))
-    # d = d + d * 2 + (b + a).relu()
-    # self.assertEqual(d.data, -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3))
-    # d = d + 3 * d + (b - a).relu()
-    # self.assertEqual(d.data, 3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0)
-    # e = c - d
-    # self.assertEqual(e.data, (-3.0+(1+-3.0+4.0)) - (3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0))
-    # f = e * e
-    # self.assertEqual(f.data, ((-3.0+(1+-3.0+4.0)) - (3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0))**2)
-    # g = f / 2.0
-    # g = g + 10.0 / f
-    # g.realize()
-    # self.assertAlmostEqual(g.data(), 24.70408163265306)
+    c = c + c + 1
+    c.realize()
+    self.assertEqual(c.data(), -3.0)
+    c = c + 1 + c + (-a)
+    c.realize()
+    print(c.data())
+    self.assertEqual(c.data(),  -3.0+(1+-3.0+4.0))
+    d = d + d * 2 + (b + a).relu()
+    d.realize()
+    self.assertEqual(d.data(), -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3))
+    d = d + 3 * d + (b - a).relu()
+    d.realize()
+    self.assertEqual(d.data(), 3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0)
+    e = c - d
+    e.realize()
+    self.assertEqual(e.data(), (-3.0+(1+-3.0+4.0)) - (3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0))
+    f = e * e
+    f.realize()
+    self.assertEqual(f.data(), ((-3.0+(1+-3.0+4.0)) - (3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0))**2)
+    g = f / 2.0
+    g = g + 10.0 / f
+    g.realize()
+    self.assertAlmostEqual(g.data(), 24.70408163265306)
+    # TODO: Fix backward
     # g.backward()
-    # self.assertEqual(138.83381924198252, a.grad.item())
-    # self.assertEqual(645.5772594752186, b.grad.item())
+    # a.grad.realize()
+    # self.assertEqual(138.83381924198252, a.grad.data())
+    # b.grad.realize()
+    # self.assertEqual(645.5772594752186, b.grad.data())
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_relu(self):
     t1 = Tensor((2,2), data=[-1,-1,2,2])
     t2 = t1.relu()
-    self.assertEqual(t2.data, [0,0,2,2])
+    t2.realize()
+    print(t2.data())
+    np.testing.assert_array_equal(t2.data(), np.array([0,0,2,2]).reshape(2,2))
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_mul_scalar_and_tensor(self):
     t1 = Tensor((2,2), data=[2,2,2,2])
     t2 = Tensor((), 4)
     t3 = t1 * t2
-    self.assertEqual(t3.data,[8]*t1.numel)
+    t3.realize()
+    np.testing.assert_array_equal(t3.data(), np.array([8]*t1.numel).reshape(2,2))
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_truediv_0d_0d(self):
     t1 = Tensor((), 100.0)
     t2 = Tensor((), 20.0)
     t3 = t1 / t2
-    self.assertEqual(t3.data, 5.0)
+    t3.realize()
+    print(t3.data())
+    np.testing.assert_equal(t3.data(), 5.0)
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_truediv_2d_3d(self):
     t1 = Tensor((2,2), [100, 200, 300, 400])
     t2 = Tensor((2,2,2), [10.0]*8)
     t3 = t1 / t2
+    log_thunk(t3.thunk)
+    t3.realize()
     self.assertEqual(t3.shape, (2,2,2))
-    self.assertEqual(t3.data, [10.0, 20.0, 30.0, 40.0, 10.0, 20.0, 30.0, 40.0])
+    np.testing.assert_array_equal(t3.data(),
+                                  np.array([10.0, 20.0,  # pylint: disable=too-many-function-args
+                                            30.0, 40.0,
+                                            10.0, 20.0,
+                                            30.0, 40.0]).reshape(2,2,2))
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_sum(self):
     x = Tensor((4,4), [1]*8 + ([2]*8))
     y = x.sum(axis=0)
     self.assertEqual(y.shape, (4,))
     y = x.sum(axis=0, keepdim=True)
     self.assertEqual(y.shape, (1,4))
-    self.assertEqual(y.data, [6,6,6,6])
+    y.realize()
+    np.testing.assert_array_equal(y.data(), np.array([6,6,6,6]).reshape(1,4))
     y = x.sum(axis=1, keepdim=True)
+    y.realize()
     self.assertEqual(y.shape, (4,1))
-    self.assertEqual(y.data, [4,4,8,8])
+    np.testing.assert_array_equal(y.data(), np.array([4,4,8,8]).reshape(4,1))
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
+  @pytest.mark.skip(reason="Failing right now figuring out")
+  def test_sum_small(self):
+    x = Tensor((3,2), [1]*6)
+    y = x.sum(axis=0, keepdim=True)
+    y.realize()
+    self.assertEqual(y.shape, (1,2))
+    np.testing.assert_array_equal(y.data(), np.array([2,2]).reshape(1,2)) # pylint: disable=too-many-function-args
+
+  @pytest.mark.skip(reason="Failing right now figuring out")
   def test_sum2(self):
     x = Tensor((5,3,5,5), [1]*(5*3*5*5))
     y = x.sum(axis=0, keepdim=True)
+    y.realize()
     self.assertEqual(y.shape, (1,3,5,5))
-    self.assertEqual(y.data, [5]*(3*5*5))
+    np.testing.assert_array_equal(y.data(), np.array([5]*(3*5*5)).reshape(1,3,5,5)) # pylint: disable=too-many-function-args
 
   @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_sum3(self):
     x = Tensor((5,3,5,5), [1]*(5*3*5*5))
     y = x.sum(axis=1, keepdim=True)
     self.assertEqual(y.shape, (5,1,5,5))
-    self.assertEqual(y.data, [3]*(5*5*5))
+    y.realize()
+    np.testing.assert_array_equal(y.data(), np.array([3]*(5*5*5)).reshape(5,1,5,5)) # pylint: disable=too-many-function-args
     y.backward()
     self.assertEqual(x.grad.shape, x.shape)
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_transpose(self):
     y = Tensor((2,2), [4,1,
                        2,2])
-    self.assertTrue(y.contiguous)
+    self.assertTrue(y.thunk.vt.contiguous)
     z = y.transpose()
     self.assertEqual(z.shape, (2,2))
-    self.assertEqual('tensor([[4, 2], [1, 2]])', z.__str__())
-    self.assertFalse(z.contiguous)
+    self.assertFalse(z.thunk.vt.contiguous)
+    z.realize()
+    print(z.data())
 
   @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_dot(self):

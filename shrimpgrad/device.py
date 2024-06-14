@@ -3,10 +3,10 @@ from __future__ import annotations
 import ctypes
 from dataclasses import dataclass
 from typing import Type
-from shrimpgrad.dtype import ConstType, DType 
+from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.meta.singleton import Singleton
 from shrimpgrad.view import ViewTracker
-import numpy as np 
+import numpy as np
 
 class Device(metaclass=Singleton):
   def __init__(self, name:str): self.name = name
@@ -43,7 +43,7 @@ class HostDevice(Device):
 class CPU(HostDevice):
   def __init__(self):
     super().__init__("CPU")
-    self._allocator = CPUAllocator 
+    self._allocator = CPUAllocator
   def allocator(self): return self._allocator()
 
 class CPUAllocator(Allocator):
@@ -54,7 +54,6 @@ class CPUAllocator(Allocator):
     x = np.require(src, requirements='C').data
     x = x.cast("B", shape=(x.nbytes,))
     dst[:] = x
-
 
 class MallocAllocator(Allocator):
   def alloc(self, size:int):
