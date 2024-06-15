@@ -8,7 +8,7 @@ from random import uniform, gauss
 from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.python import PythonDevice
-from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list
+from shrimpgrad.util import argsort, calc_fan_in_fan_out, calc_gain, prod, to_nested_list
 import numpy as np
 
 Num: TypeAlias = Union[float, int, complex]
@@ -314,7 +314,9 @@ class Tensor:
   def is_scalar(self): return not self.ndim
 
   # Trigger evaluation
-  def realize(self): realize(self.thunk)
+  def realize(self) -> Tensor: 
+    realize(self.thunk)
+    return self
 
   # Extract data
   def data(self):
@@ -322,9 +324,14 @@ class Tensor:
     thunk = self.thunk.base
     if hasattr(thunk, 'buff'):
       data = thunk.buff.pointer(ctypes.c_float)
+      if not self.thunk.vt.contiguous:
+        strides = self.thunk.vt.strides 
+        order = argsort(tuple(-x if x > 0 else x for x in strides))
+        return np.frombuffer(data, dtype=np.float32).reshape(thunk.shape).transpose(order)
     else:
       data = thunk.base.cbuff.value
       return np.array(data)
+    
     return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
 
 

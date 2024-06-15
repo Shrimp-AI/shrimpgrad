@@ -66,7 +66,6 @@ class PythonRuntime(Runtime):
   def _exec(self, instrs: List[Node]):
     while self.pc < len(instrs):
       instr = instrs[self.pc]
-      print(f"instr= {instr} pc={self.pc}")
       if isinstance(instr, EndLoopNode):
         return self.pc
 

@@ -334,6 +334,7 @@ class LowerFusedKernel:
     # Move reduce axes to the end via creating a permutation order
     order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
     in0_vt = in0.vt.permute(order)
+    in_shape = in0_vt.shape
     # out_vt = out0.vt.permute(order) if isinstance(out0, MemBuffer) else ViewTracker.from_shape(out_shape)
     if len(axis) == len(in_shape):
       print("FULL AXIS REDUCE")
