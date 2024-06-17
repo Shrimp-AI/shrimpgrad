@@ -303,8 +303,16 @@ class TestOps(unittest.TestCase):
   def test_transpose_(self):
     self.helper_test_ops([(2,3)],lambda x: torch.transpose(x, 1, 0), Tensor.transpose)
 
-  # def test_dot_(self):
-  #   self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias)
+  def test_dot_(self):
+    self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias)
+
+  def test_linear(self):
+    x = Tensor.ones((10,20))
+    w = Tensor.ones((10,20))
+    b = Tensor.ones((10,))
+    out = x.dot(w.transpose())+b
+    out.realize()
+    print(out.data())
 
   def test_mse(self):
     out = Tensor((5,), data=[1.0,0.0,1.0,1.0,2.0])

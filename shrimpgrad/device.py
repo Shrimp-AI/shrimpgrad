@@ -86,6 +86,9 @@ class Buffer:
 
   def pointer(self, to_type=ctypes.c_char):
     if not isinstance(self._buf, memoryview): self._buf = memoryview(self._buf)
+    return self._buf
+
+  def _pointer(self, to_type):
     return ctypes.cast(ctypes.addressof(to_type.from_buffer(self._buf)), ctypes.POINTER(to_type*self.size)).contents
 
   def copyin(self, src: memoryview):
@@ -104,7 +107,6 @@ class Buffer:
 
   def __repr__(self):
     return f'<real buffer nbytes={self.nbytes} dtype={self.dtype} allocated={self.allocated}> ref_count={self._ref_count}'
-  def __hash__(self): return id(self)
 
 def from_mv(mv:memoryview, to_type=ctypes.c_char):
   return ctypes.cast(ctypes.addressof(to_type.from_buffer(mv)), ctypes.POINTER(to_type * len(mv))).contents

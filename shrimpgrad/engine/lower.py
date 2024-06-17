@@ -2,6 +2,7 @@ from __future__ import annotations
 from ctypes import Union
 from dataclasses import dataclass
 from enum import Enum, auto
+import functools
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 from shrimpgrad.device import ConstBuffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType, dtypes
@@ -53,6 +54,9 @@ class ConstNode(Node):
   dtype: DType
   val: ConstType
   def __repr__(self) -> str: return f"{'CONST':<15}{self.val}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class GlobalNode(Node):
@@ -63,6 +67,9 @@ class GlobalNode(Node):
   mutable: bool
   def __repr__(self) -> str:
     return f"{'DEFINE_GLOBAL':<15}{self.name:<10}{('ptr.'+str(self.dtype) if self.ptr else str(self.dtype)):<10}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class LocalNode(Node):
@@ -70,10 +77,13 @@ class LocalNode(Node):
   dtype: DType
   def __repr__(self) -> str:
     return f"{'DEFINE_LOCAL':<15}{self.name:<10}{self.ancestors[0].op:<10}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class AddressNode(Node):
-  idx: List[LocalNode|int]
+  idx: Tuple[LocalNode|int,...]
   stride: Tuple[int,...]
   step: int
   def __repr__(self) -> str:
@@ -82,14 +92,18 @@ class AddressNode(Node):
       val = idx.name if isinstance(idx, LocalNode) else idx
       addr += f"{val}*{stride}*{self.step}+"
     return f"{'ADDRESS':<15}{addr[:-1]:<10}"
-  def __hash__(self):
-    return hash(str(id(self))+str(self.op))
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class LoadNode(Node):
   def __repr__(self) -> str:
     op = '' if not self.ancestors[0].ptr else str(self.ancestors[1].op)
     return f"{'LOAD':<15}{self.ancestors[0].name:<10}{str(self.ancestors[0].dtype):<20}{op:<10}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class AccumulatorNode(Node):
@@ -98,12 +112,18 @@ class AccumulatorNode(Node):
   alu: BinaryOps
   def __repr__(self) -> str:
     return f"{'ACC':<15}{self.alu}{self.ancestors}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class StoreNode(Node):
   def __repr__(self) -> str:
     addr = str(self.ancestors[1].op) if self.ancestors[1] is not None else "noop"
     return f"{'STORE':<15}{self.ancestors[0].name:<10}{addr:<20}{str(self.ancestors[2].op):<10}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class ALUNode(Node):
@@ -112,26 +132,41 @@ class ALUNode(Node):
   def __repr__(self) -> str:
     operands = f"{' ':<10}".join([f"{str(operand.op)}" for operand in self.ancestors])
     return f"{'ALU':<15}{alu2str(self.alu):<9} {operands}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class BeginLoopNode(Node):
   def __repr__(self) -> str:
     return f"{'BEGIN_LOOP':<15}{self.ancestors[0].name:<10}{str(self.ancestors[1].val):<10}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class EndLoopNode(Node):
   def __repr__(self) -> str:
     return "END_LOOP"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class OffsetNode(Node):
   def __repr__(self) -> str:
     return  f"{'OFFSET':<15}{str(self.ancestors[0])[15:]:<10}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 @dataclass(frozen=True, eq=True)
 class IncNode(Node):
   def __repr__(self) -> str:
     return f"{'INC':<15}{self.ancestors[0].name:<10}"
+  @functools.cached_property
+  def hash(self): return hash((self.op, self.ancestors))
+  def __hash__(self): return self.hash
 
 # A graph where each node occupies an index (based on the order of addition)
 # and has 0-to-Many back pointers to dependecies via node.ancestors
@@ -152,7 +187,7 @@ class LowIRGraph:
     return node
 
   def address(self, idxs: List[LocalNode|int], strides: Tuple[int,...], step: int):
-    self.G.append(node:=AddressNode(LowIR.ADDRESS, (), idxs, strides, step))
+    self.G.append(node:=AddressNode(LowIR.ADDRESS, (), tuple(idxs), strides, step))
     return node
 
   def load(self, node: Union[GlobalNode, LocalNode], location: Optional[AddressNode|OffsetNode]) -> Node:

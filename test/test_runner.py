@@ -24,7 +24,7 @@ class TestRunner(unittest.TestCase):
     assert isinstance(dst, MemBuffer)
     copy_kernel = BufferCopy(dst, src, size)
     copy_kernel()
-    for i, val in enumerate(dst.buff.pointer(ctypes.c_float)[0:4]):
+    for i, val in enumerate(dst.buff._pointer(ctypes.c_float)[0:4]):
       assert val == data[i]
 
   def test_two_copy(self):
@@ -45,7 +45,7 @@ class TestRunner(unittest.TestCase):
         assert isinstance(dst, MemBuffer)
         copy_kernel = BufferCopy(dst, src, size)
         copy_kernel()
-        for j, val in enumerate(dst.buff.pointer(ctypes.c_float)[0:4]):
+        for j, val in enumerate(dst.buff._pointer(ctypes.c_float)[0:4]):
           if i == 0:
             assert val == data0[j]
           else:

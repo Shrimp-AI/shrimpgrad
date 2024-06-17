@@ -9,7 +9,7 @@ class DType:
   name: str
   def __repr__(self):
     return f'shrimp.{self.name}'
-  
+
 class dtypes:
   int32: Final[DType] = DType(4, "int32")
   float32: Final[DType] = DType(4, "float32")

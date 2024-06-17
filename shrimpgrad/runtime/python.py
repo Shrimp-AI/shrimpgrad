@@ -1,14 +1,14 @@
 from __future__ import annotations
 import base64
-import ctypes
 import math
 import operator
 import pickle
 from typing import DefaultDict, List
 from shrimpgrad.device import Accelerator, Allocator, Compiler, ConstBuffer, MemBuffer, Runtime
-from shrimpgrad.engine.lower import ALUNode, AddressNode, BeginLoopNode, ConstNode, EndLoopNode, GlobalNode, IncNode, LoadNode, LocalNode, LowIRGraph, Node, OffsetNode, StoreNode
+from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, Node
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 from collections import deque
+from functools import lru_cache
 
 python_alu = {
   UnaryOps.LOG2: lambda x: math.log2(x) if x > 0 else -math.inf if x == 0 else math.nan,
@@ -60,58 +60,61 @@ class PythonRuntime(Runtime):
     ir_graph: LowIRGraph = pickle.loads(lib)
     self.buffs = buffs
     self.buff2name = buff2name
-    self._exec(ir_graph.G)
+    from cProfile import Profile
+    from pstats import SortKey, Stats
+    with Profile() as profile:
+      self._exec(ir_graph.G)
+      Stats(profile).strip_dirs().sort_stats(SortKey.TIME).print_stats()
 
   def _exec(self, instrs: List[Node]):
     while self.pc < len(instrs):
       instr = instrs[self.pc]
-      if isinstance(instr, EndLoopNode):
+      if instr.op is LowIR.END_LOOP:
         return self.pc
 
-      if isinstance(instr, ConstNode):
+      if instr.op is LowIR.CONST:
         self.pc += 1
         continue
-      elif isinstance(instr, LocalNode):
-        if isinstance(instr.ancestors[0], ALUNode):
+      elif instr.op is LowIR.LOCAL:
+        if instr.ancestors[0].op is LowIR.ALU:
           alu_node = instr.ancestors[0]
           self.global_scope[instr] = self.exec_alu(alu_node)
         else:
-          # const
           self.global_scope[instr] = instr.ancestors[0].val
-      elif isinstance(instr, GlobalNode):
+      elif instr.op is LowIR.GLOBAL:
         buff = self.find_buff(instr.name)
         if isinstance(buff, MemBuffer):
           self.global_scope[instr] = buff.buff
         else:
           self.global_scope[instr] = buff.value
-      elif isinstance(instr, BeginLoopNode):
+      elif instr.op is LowIR.BEGIN_LOOP:
         s, e = instr.ancestors[0], instr.ancestors[1].val
         end_loop_pc = self._loop(s, e, instrs)
         self.pc = end_loop_pc
-      elif isinstance(instr, AddressNode):
+      elif instr.op is LowIR.ADDRESS:
         idxs = instr.idx
         strides = instr.stride
         addr = 0
         for idx, stride in zip(idxs, strides):
           i = idx
-          if isinstance(idx, LocalNode):
+          if idx.op is LowIR.LOCAL:
             i = self.global_scope[idx]
           addr += i * stride
         self.global_scope[instr] = addr
-      elif isinstance(instr, LoadNode):
+      elif instr.op is LowIR.LOAD:
         node = instr.ancestors[0]
-        if isinstance(node, GlobalNode):
+        if node.op is LowIR.GLOBAL:
           buff = self.find_buff(node.name)
           if node.ptr:
             addr = self.global_scope[instr.ancestors[1]]
-            loaded = buff.buff.pointer(ctypes.c_float)[addr]
+            loaded = buff.buff.pointer()[addr*4:addr*4+4].cast('f')[0]
           else:
             loaded = buff.value
           self.global_scope[instr] = loaded
-      elif isinstance(instr, ALUNode):
+      elif instr.op is LowIR.ALU:
         res = self.exec_alu(instr)
         self.global_scope[instr] = res
-      elif isinstance(instr, StoreNode):
+      elif instr.op is LowIR.STORE:
         idx = instr.ancestors[1]
         if isinstance(idx, ConstNode):
           idx = idx.val
@@ -125,23 +128,23 @@ class PythonRuntime(Runtime):
         if isinstance(lhs, GlobalNode):
           buff = self.find_buff(lhs.name)
           if lhs.ptr:
-            buff.buff.pointer(ctypes.c_float)[idx] = rhs
+            buff.buff.pointer()[idx*4:idx*4+4].cast('f')[0] = rhs
           else:
             buff.value = rhs
             self.global_scope[lhs] = rhs
         if isinstance(lhs, LocalNode):
           self.global_scope[lhs] = rhs
 
-      elif isinstance(instr, OffsetNode):
+      elif instr.op is LowIR.OFFSET:
         offset = instr.ancestors[0]
-        if isinstance(offset, ALUNode):
+        if offset.op is LowIR.ALU:
           res = self.exec_alu(offset)
           self.global_scope[instr] = res
-        if isinstance(offset, LocalNode):
+        elif offset.op is LowIR.LOCAL:
           self.global_scope[instr] = self.global_scope[offset]
-        if isinstance(offset, ConstNode):
+        else:
           self.global_scope[instr] = offset.val
-      elif isinstance(instr, IncNode):
+      elif instr.op is LowIR.INC:
         loc = instr.ancestors[0]
         self.global_scope[loc]+=1
       else:
@@ -166,7 +169,7 @@ class PythonRuntime(Runtime):
     else:
       res = python_alu[alu_node.alu](*vals)
     return res
-
+  @lru_cache(maxsize=1000)
   def find_buff(self, name):
     for buff in self.buffs['input'] + self.buffs['output']:
       if self.buff2name[buff] == name:
