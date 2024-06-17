@@ -7,6 +7,7 @@ from shrimpgrad.device import ConstBuffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType, dtypes
 from shrimpgrad.engine.scheduler import FusedKernel
 from shrimpgrad.runtime.ops import BinaryOps, LoadOps, ReduceOps, TernaryOps, UnaryOps
+from shrimpgrad.util import prod
 
 def alu2str(op: Union[BinaryOps, UnaryOps]) -> str:
   assert op in BinaryOps or op in UnaryOps, f"{op} is not a binary/unary alu op"
@@ -182,7 +183,7 @@ class LowIRGraph:
     self.G.append(node:=EndLoopNode(LowIR.END_LOOP, (loop, )))
     return node
 
-  def offset(self, val: Union[ConstNode, ALUNode]) -> Node:
+  def offset(self, val: Union[ConstNode, LocalNode, ALUNode]) -> Node:
     self.G.append(node:=OffsetNode(LowIR.OFFSET, (val,)))
     return node
 
@@ -331,16 +332,25 @@ class LowerFusedKernel:
     assert isinstance(in0, MemBuffer), "Reducing a constant is just the constant"
     # Define a global for the input
     g_in = self.lower_io(in0, True)
-    # Move reduce axes to the end via creating a permutation order
-    order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
-    in0_vt = in0.vt.permute(order)
-    in_shape = in0_vt.shape
-    # out_vt = out0.vt.permute(order) if isinstance(out0, MemBuffer) else ViewTracker.from_shape(out_shape)
     if len(axis) == len(in_shape):
-      print("FULL AXIS REDUCE")
+      if in0.vt.contiguous:
+        print("simple contiguous full reduce")
+        zero = self.g.const(dtypes.int32, 0)
+        out_off = self.g.offset(zero)
+        loop, idx = self.lower_begin_for(0, prod(in0.vt.shape))
+        in_off = self.g.offset(idx)
+        rhs = self.lower_load(g_in, idx)
+        lhs = self.lower_load(out, out_off)
+        alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
+        self.lower_store(out, out_off, alu)
+        self.lower_end_loops([loop])
     elif len(axis) > 1:
       print("MULTI AXIS REDUCE")
     else:
+      # Move reduce axes to the end via creating a permutation order
+      order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
+      in0_vt = in0.vt.permute(order)
+      in_shape = in0_vt.shape
       # add an output offset
       off = self.lower_local(dtypes.int32, 0)
       # Create a loop for each dimension that's not the last dimension

@@ -17,7 +17,7 @@ class TestOps(unittest.TestCase):
   def helper_test_ops(self, shapes,
                       torch_op, shrimp_op,
                       atol=1e-6, rtol=1e-3, grad_atol=1e-4, grad_rtol=1e-3,
-                      low=-1.5, high=1.5):
+                      low=-1.5, high=1.5, fwd_only=True):
     torch_ts, shrimp_ts = prepare_tensors(shapes, low, high)
     for x in torch_ts:
       x.retain_grad()
@@ -32,23 +32,26 @@ class TestOps(unittest.TestCase):
 
     self.compare(tr, sr, rtol=rtol, atol=atol)
 
-    # TODO: Fix backward tests
-    # torch_bs = time.monotonic()
-    # tr.backward(gradient=torch.ones_like(tr))
-    # torch_bt = time.monotonic() - torch_bs
+    shrimp_bt = torch_bt = 0
+    if not fwd_only:
+      # TODO: Fix backward tests
+      torch_bs = time.monotonic()
+      tr.backward(gradient=torch.ones_like(tr))
+      torch_bt = time.monotonic() - torch_bs
 
-    # shrimp_bs = time.monotonic()
-    # sr.backward()
-    # shrimp_bt = time.monotonic() - shrimp_bs
+      shrimp_bs = time.monotonic()
+      sr.backward()
+      for t in shrimp_ts: t.grad.realize()
+      shrimp_bt = time.monotonic() - shrimp_bs
 
-    # [self.compare(xt.grad, xs.grad, rtol=grad_rtol, atol=grad_atol) for xt, xs in zip(torch_ts, shrimp_ts)]
+      [self.compare(xt.grad, xs.grad, rtol=grad_rtol, atol=grad_atol) for xt, xs in zip(torch_ts, shrimp_ts)]
 
     print("\ntesting %40r   torch/shrimp fp: %.2f / %.2f ms  bp: %.2f / %.2f ms " % \
-      (shapes, torch_fwd_t*1000, shrimp_fwd_t*1000, 1000*.01, 1000*.01), end="")
+      (shapes, torch_fwd_t*1000, shrimp_fwd_t*1000, torch_bt*1000, shrimp_bt*1000), end="")
 
   def compare(self, tts, sts, rtol, atol, show=False):
     t = tts.detach().numpy()
-    s = sts.data() 
+    s = sts.data()
     np.testing.assert_allclose(t,s, rtol=rtol, atol=atol)
 
   def test_add_1d(self):
@@ -67,6 +70,17 @@ class TestOps(unittest.TestCase):
     np.testing.assert_array_equal(t3.data(),
                                   np.array([2.0]*1000).reshape(10,10,10)) #pylint: disable=too-many-function-args
 
+  def test_add_backward(self):
+    x = Tensor.ones((2,2))
+    y = Tensor.ones((2,2))
+    z = x + y
+    z.realize()
+    z.backward()
+    x.grad.realize()
+    y.grad.realize()
+    np.testing.assert_array_equal(x.grad.data(), np.array([1]*4).reshape(2,2))
+    np.testing.assert_array_equal(y.grad.data(), np.array([1]*4).reshape(2,2))
+
   def test_add_scalar(self):
     x = Tensor((), 2.0)
     y = Tensor((), 3.0)
@@ -80,6 +94,10 @@ class TestOps(unittest.TestCase):
     z = y < x
     z.realize()
     np.testing.assert_array_equal(np.array([True]*4).reshape(2,2), z.data())
+
+  # def test_add_rigorous(self):
+  #   self.helper_test_ops([(2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add, fwd_only=False)
+  #   self.helper_test_ops([(2,2,2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add, fwd_only=False)
 
   def test_gt(self):
     x = Tensor.ones((2,2))
@@ -113,14 +131,13 @@ class TestOps(unittest.TestCase):
     z.realize()
     np.testing.assert_array_equal(z.data(), np.array([True]*4).reshape(2,2))
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_ge(self):
     x = Tensor.ones((2,2))
     y = Tensor.zeros((2,2))
-    self.assertEqual((x>=y).data, [True]*4)
-    self.assertEqual((y>=x).data, [False]*4)
+    np.testing.assert_array_equal((x>=y).realize().data(), np.array([True]*4).reshape(2,2))
+    np.testing.assert_array_equal((y>=x).realize().data(), np.array([False]*4).reshape(2,2))
     y = Tensor.ones((2,2))
-    self.assertEqual((x>=y).data, [True]*4)
+    np.testing.assert_array_equal((x>=y).realize().data(), np.array([True]*4).reshape(2,2))
 
   def test_scalar_ops_with_backprop(self):
     a = Tensor((), -4.0)
@@ -246,7 +263,6 @@ class TestOps(unittest.TestCase):
     print(z.data())
     np.testing.assert_array_equal(np.array([4,1,2,2]).reshape(2,2).transpose((1,0)), z.data())
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_dot(self):
     x = Tensor((2,2), [1,0,
                        0,1])
@@ -256,7 +272,6 @@ class TestOps(unittest.TestCase):
     z.realize()
     np.testing.assert_array_equal(np.array([4,1,2,2]).reshape(2,2), z.data())
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_dotND(self):
     self.helper_test_ops([(2,2),(2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
     self.helper_test_ops([(2,2,2), (2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
@@ -271,50 +286,48 @@ class TestOps(unittest.TestCase):
     self.helper_test_ops([(45,65)],torch.log, Tensor.log)
     self.helper_test_ops([()], torch.log, Tensor.log)
 
-  @pytest.mark.skip(reason="Not possible without full axis reduces lowering")
   def test_mean(self):
     self.helper_test_ops([(45,65)],torch.mean, Tensor.mean)
-    self.helper_test_ops([()], torch.mean, Tensor.mean)
+    # TODO: Lower reducing a constant
+    # self.helper_test_ops([()], torch.mean, Tensor.mean)
 
   def test_square(self):
     self.helper_test_ops([(45,65)],torch.square, Tensor.square)
     self.helper_test_ops([()], torch.square, Tensor.square)
 
-  @pytest.mark.skip(reason="Not possible without full axis reduces lowering")
   def test_square_mean(self):
     self.helper_test_ops([(45,65)],lambda x: torch.square(x).mean(), lambda x: x.square().mean())
-    self.helper_test_ops([()], lambda x: torch.square(x).mean(), lambda x: x.square().mean())
+    # TODO: Lower reducing a constant
+    # self.helper_test_ops([()], lambda x: torch.square(x).mean(), lambda x: x.square().mean())
 
   def test_transpose_(self):
     self.helper_test_ops([(2,3)],lambda x: torch.transpose(x, 1, 0), Tensor.transpose)
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
-  def test_dot_(self):
-    self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias)
+  # def test_dot_(self):
+  #   self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias)
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_mse(self):
     out = Tensor((5,), data=[1.0,0.0,1.0,1.0,2.0])
     target = Tensor(shape=(5,), data=[0,0,0,1,2])
     sout = out.mse(target)
-    sout.backward()
-    sgrad = out.grad
+    sout.realize()
+    # sout.backward()
+    # sgrad = out.grad
 
     out = torch.tensor([1.0,0.0,1.0,1.0,2.0], requires_grad=True)
     out.retain_grad()
     target = torch.Tensor([0,0,0,1,2])
     loss = torch.nn.MSELoss()
     tout = loss(out, target)
-    tout.backward()
-    tgrad = out.grad
+    # tout.backward()
+    # tgrad = out.grad
 
     self.compare(tout, sout, atol=1e-6, rtol=1e-3)
-    self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)
+    # self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
-  def test_sigmoid(self):
-    self.helper_test_ops([(45,65)],torch.sigmoid, Tensor.sigmoid)
-    self.helper_test_ops([()], torch.sigmoid, Tensor.sigmoid)
+  # def test_sigmoid(self):
+  #   self.helper_test_ops([(45,65)],torch.sigmoid, Tensor.sigmoid)
+  #   self.helper_test_ops([()], torch.sigmoid, Tensor.sigmoid)
 
 
   @pytest.mark.skip(reason="Not possible without e2e realization of the graph")

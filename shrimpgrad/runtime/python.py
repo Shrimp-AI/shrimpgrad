@@ -54,7 +54,6 @@ class PythonRuntime(Runtime):
       # Increment the backing value of the idx var
       self.global_scope[s] += 1
       self.pc = loop_start + 1
-
     return end_loop_pc
 
   def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name):
@@ -140,6 +139,8 @@ class PythonRuntime(Runtime):
           self.global_scope[instr] = res
         if isinstance(offset, LocalNode):
           self.global_scope[instr] = self.global_scope[offset]
+        if isinstance(offset, ConstNode):
+          self.global_scope[instr] = offset.val
       elif isinstance(instr, IncNode):
         loc = instr.ancestors[0]
         self.global_scope[loc]+=1

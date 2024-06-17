@@ -3,7 +3,8 @@ from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import LowIR, LowIRGraph, LowerFusedKernel
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
 from shrimpgrad.runtime.ops import BinaryOps
-from shrimpgrad.tensor import Tensor 
+from shrimpgrad.tensor import Tensor
+import numpy as np
 
 class TestLower(unittest.TestCase):
   def ae(self, a, b): self.assertEqual(a,b)
@@ -15,7 +16,7 @@ class TestLower(unittest.TestCase):
     self.ae(c0.op, LowIR.CONST)
     self.ae((), c0.ancestors)
     self.ae(c0, g.G[0])
-  
+
   def test_global(self):
     g = LowIRGraph()
     g0 = g.define_global('data0', dtypes.float32, True, 0)
@@ -24,7 +25,7 @@ class TestLower(unittest.TestCase):
     self.ae(g0.op, LowIR.GLOBAL)
     self.ae(g0.mutable, True)
     self.ae(g0.pos, 0)
-  
+
   def test_local(self):
     g = LowIRGraph()
     c0 = g.const(dtypes.float32, 10.0)
@@ -32,15 +33,15 @@ class TestLower(unittest.TestCase):
     self.ae(v1.ancestors, (c0,))
     self.ae(v1.name, 'idx0')
     self.ae(v1.op, LowIR.LOCAL)
-  
+
   def test_load(self):
     g = LowIRGraph()
     g0 = g.define_global('data0', dtypes.float32, True, 0)
-    addr = g.address(0, 2, 1) 
+    addr = g.address(0, 2, 1)
     load = g.load(g0, addr)
     self.ae(load.ancestors[0], g0)
     self.ae(load.ancestors[1], addr)
-  
+
   def test_accumulate(self):
     g = LowIRGraph()
     g0 = g.define_global('data0', dtypes.float32, True, 0)
@@ -64,7 +65,7 @@ class TestLower(unittest.TestCase):
     addr2 = g.address(0,0,0)
     store = g.store(g0, addr2, g1l)
     self.ae(store.ancestors, (g0, addr2, g1l))
-  
+
   def test_alu(self):
     g = LowIRGraph()
     g0 = g.define_global('data0', dtypes.float32, True, 0)
@@ -100,13 +101,13 @@ class TestLower(unittest.TestCase):
     ir_graphs = lfk.lower()
     for ir_graph in ir_graphs:
       ir_graph.print()
-  
+
   def test_lower_unary(self):
     x = Tensor.rand(2,2)
-    out = x.log() 
+    out = x.log()
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
-    # 1 copy, 1 const, 1 log  
+    # 1 copy, 1 const, 1 log
     self.assertEqual(3, len(schedule))
     print_schedule(schedule)
     lfk = LowerFusedKernel(schedule)
@@ -122,14 +123,14 @@ class TestLower(unittest.TestCase):
 
     a = x + y
 
-    b = z * a 
+    b = z * a
 
-    c = w * a 
+    c = w * a
 
     d = b / c
 
     out = d.sum(axis=0)
-    
+
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
     print_schedule(schedule)
@@ -148,3 +149,17 @@ class TestLower(unittest.TestCase):
     for i, ir_graph in enumerate(ir_graphs):
       print(f"GRAPH {i}")
       ir_graph.print()
+
+  def test_lower_full_axis_reduce(self):
+    x = Tensor.ones((2,))
+    y = x.sum()
+    fkb = FusedKernelBuilder(y.thunk)
+    schedule = fkb.schedule()
+    lfk = LowerFusedKernel(schedule)
+    ir_graphs = lfk.lower()
+    for i, ir_graph in enumerate(ir_graphs):
+      print(f"GRAPH {i}")
+      ir_graph.print()
+    y.realize()
+    print(y.data())
+    np.testing.assert_array_equal(y.data(), 2.0)

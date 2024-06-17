@@ -1,15 +1,15 @@
 import math
-from typing import Any, Optional, Tuple, TypeAlias 
+from typing import Any, Optional, Tuple, TypeAlias
 import shrimpgrad as shrimp
 from shrimpgrad.device import Device
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps, ReduceOps
 from shrimpgrad.util import argsort
-from shrimpgrad.future import Thunk 
+from shrimpgrad.future import Thunk
 
 OptionalGradients: TypeAlias = Tuple[Optional[Thunk], ...]
 
 class FunctionContext:
-  def __init__(self, device: Device, *tensors): 
+  def __init__(self, device: Device, *tensors):
     self.device = device
     self.needs_input_grad = [t.requires_grad for t in tensors]
     self.requires_grad = True if any(self.needs_input_grad) else None if None in self.needs_input_grad else False
@@ -23,7 +23,7 @@ class Function(FunctionContext):
     )
 
   @staticmethod
-  def backward(ctx: FunctionContext, *grad_outputs: Any) -> Any: 
+  def backward(ctx: FunctionContext, *grad_outputs: Any) -> Any:
     raise NotImplementedError(
       "You must implement the backward function for autograd.Function. "
     )
@@ -48,12 +48,12 @@ class Add(Function):
 
 class Sub(Function):
   @staticmethod
-  def forward(ctx: FunctionContext, x:Thunk, y:Thunk) -> Thunk: 
-    return x.alu(BinaryOps.SUB, y) 
+  def forward(ctx: FunctionContext, x:Thunk, y:Thunk) -> Thunk:
+    return x.alu(BinaryOps.SUB, y)
   @staticmethod
-  def backward(ctx: FunctionContext, grad_output:Thunk) -> OptionalGradients: 
+  def backward(ctx: FunctionContext, grad_output:Thunk) -> OptionalGradients:
     return grad_output, \
-           grad_output.alu(UnaryOps.NEG) 
+           grad_output.alu(UnaryOps.NEG)
 
 class Mul(Function):
   @staticmethod
@@ -62,7 +62,7 @@ class Mul(Function):
     return x.alu(BinaryOps.MUL, y)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
-    x, y = ctx.x, ctx.y 
+    x, y = ctx.x, ctx.y
     return (x.alu(BinaryOps.MUL, grad_out), y.alu(BinaryOps.MUL, grad_out))
 
 class Div(Function):
@@ -72,11 +72,11 @@ class Div(Function):
     return x.alu(BinaryOps.DIV, y)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
-    x, y = ctx.x, ctx.y 
+    x, y = ctx.x, ctx.y
     '''
     dz/dx -> x/y = x * y^-1 = 1/y
     dz/dy -> x/y = x * y^-1 = -x*y^-2 = -x/y^2
-    ''' 
+    '''
     numerator = x.alu(UnaryOps.NEG)
     numerator = numerator.alu(BinaryOps.MUL, grad_out)
     denominator = y.alu(BinaryOps.MUL, y)
@@ -103,13 +103,13 @@ class ReLU(Function):
     x = ctx.x
     # dx' = 0 if x < else 1
     dx = x.const(0.0).alu(BinaryOps.CMPLT, x)
-    return dx.alu(BinaryOps.MUL, grad_out) 
+    return dx.alu(BinaryOps.MUL, grad_out)
 
 class Sum(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, axis: Tuple[int,...]=(0,)) -> Thunk:
     ctx.x = x
-    return x.reduce(ReduceOps.SUM, axis=axis) 
+    return x.reduce(ReduceOps.SUM, axis=axis)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
     x = ctx.x
@@ -142,23 +142,23 @@ class Permute(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, order: Tuple[int, ...]) -> Thunk:
     ctx.order = order
-    return x.permute(order) 
-  @staticmethod 
+    return x.permute(order)
+  @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
     return grad_out.permute(argsort(ctx.order))
-  
+
 class Expand(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, shape: Tuple[int, ...]) -> Thunk:
     ctx.expanded_axis = [i for i,(si,so) in enumerate(zip(x.shape, shape)) if si != so]
-    return x.expand(shape) 
+    return x.expand(shape)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
-    return grad_out.reduce(ReduceOps.SUM, axis=tuple(ctx.expanded_axis)) 
+    return grad_out.reduce(ReduceOps.SUM, axis=tuple(ctx.expanded_axis))
 
 class Less(Function):
   @staticmethod
-  def forward(ctx: FunctionContext, x:Thunk, y:Thunk) -> Thunk: 
+  def forward(ctx: FunctionContext, x:Thunk, y:Thunk) -> Thunk:
     return x.alu(BinaryOps.CMPLT, y)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out:Thunk) -> OptionalGradients: return None, None
@@ -188,7 +188,7 @@ class Where(Function):
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
     cond = ctx.cond
     return cond.alu(TernaryOps.WHERE, grad_out, grad_out.const(0.0)), \
-      cond.alu(TernaryOps.WHERE, grad_out.const(0.0), grad_out) 
+      cond.alu(TernaryOps.WHERE, grad_out.const(0.0), grad_out)
 
 class Sigmoid(Function):
   @staticmethod
@@ -196,7 +196,7 @@ class Sigmoid(Function):
     a = x.alu(BinaryOps.MUL, x.const(-1.0/math.log(2))).alu(UnaryOps.EXP2)
     b = a.const((1.0)).alu(BinaryOps.ADD, a)
     c = b.const(1.0).alu(BinaryOps.ADD, b)
-    ctx.ret = c.const(1.0).alu(BinaryOps.DIV, c) 
+    ctx.ret = c.const(1.0).alu(BinaryOps.DIV, c)
     return ctx.ret
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:

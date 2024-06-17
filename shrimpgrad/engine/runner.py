@@ -2,7 +2,7 @@ from collections import defaultdict
 from typing import DefaultDict, List
 from shrimpgrad.device import Accelerator, ConstBuffer, MemBuffer
 from shrimpgrad.engine.lower import LowIRGraph, LowerFusedKernel
-from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder, print_schedule
+from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.ops import LoadOps
 
@@ -25,7 +25,6 @@ def _lower(schedule: List[FusedKernel]) -> List[LowIRGraph]:
 def realize(out: Thunk):
   kernels: List[CompiledKernel|BufferCopy] = []
   sched = _schedule(out)
-  print_schedule(sched)
   load_kerns, unkerned = _gen_load_kernels(sched)
   for load_kern in load_kerns:
     load_kern()
@@ -41,7 +40,6 @@ def realize(out: Thunk):
   ir_graphs = _lower(unkerned)
   for irg, buffs in zip(ir_graphs, buffers):
     kernels.append(CompiledKernel(irg, out.device, buff_to_name, buffs))
-  # list(map(print, [str(k) for k in kernels]))
   for kernel in kernels:
     kernel()
 
