@@ -6,7 +6,7 @@ pkgs.mkShell {
     (buildPythonPackage rec {
       name = "shrimpgrad";
       src = ./.;
-      propagatedBuildInputs = [ pylint pytest numpy cffi graphviz torch networkx pydot];
+      propagatedBuildInputs = [ scikit-learn pylint pytest numpy cffi graphviz torch networkx pydot];
     })
   ];
 }

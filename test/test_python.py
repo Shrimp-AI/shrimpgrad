@@ -17,18 +17,13 @@ class TestPython(unittest.TestCase):
     pcg = PyCodeGen(ir_graphs)
     pcg.gen()
     pcg.print()
-    
+
   def test_linear_model(self):
     x = Tensor.ones((10,20))
     w = Tensor.ones((10,20))
     b = Tensor.ones((10,))
     out = x.dot(w.transpose())+b
-    fkb = FusedKernelBuilder(out.thunk)
-    schedule = fkb.schedule()
-    lfk = LowerFusedKernel(schedule)
-    ir_graphs = lfk.lower()
-    pcg = PyCodeGen(ir_graphs)
-    pcg.gen()
-    pcg.print()
+    out.realize()
+    print(out.data())
 
 

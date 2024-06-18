@@ -1,7 +1,6 @@
 from shrimpgrad import Tensor
 from shrimpgrad.engine.graph import log_thunk
 import unittest
-import pytest
 import torch
 import numpy as np
 import time
@@ -95,9 +94,9 @@ class TestOps(unittest.TestCase):
     z.realize()
     np.testing.assert_array_equal(np.array([True]*4).reshape(2,2), z.data())
 
-  # def test_add_rigorous(self):
-  #   self.helper_test_ops([(2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add, fwd_only=False)
-  #   self.helper_test_ops([(2,2,2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add, fwd_only=False)
+  def test_add_rigorous(self):
+    self.helper_test_ops([(2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add)
+    self.helper_test_ops([(2,2,2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add)
 
   def test_gt(self):
     x = Tensor.ones((2,2))
@@ -333,14 +332,12 @@ class TestOps(unittest.TestCase):
     self.compare(tout, sout, atol=1e-6, rtol=1e-3)
     # self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)
 
-  # def test_sigmoid(self):
-  #   self.helper_test_ops([(45,65)],torch.sigmoid, Tensor.sigmoid)
-  #   self.helper_test_ops([()], torch.sigmoid, Tensor.sigmoid)
+  def test_sigmoid(self):
+    self.helper_test_ops([(45,65)],torch.sigmoid, Tensor.sigmoid)
+    self.helper_test_ops([()], torch.sigmoid, Tensor.sigmoid)
 
 
-  @pytest.mark.skip(reason="Not possible without e2e realization of the graph")
   def test_binary_cross_entropy(self):
     self.helper_test_ops([(32,10), (32,10)],
-                        lambda x, y: torch.nn.functional.binary_cross_entropy(x.sigmoid(), y.clip(0,1)),
-                        lambda x, y: x.sigmoid().binary_cross_entropy(y.clamp(0,1)))
-    # self.helper_test_ops([(), ()], torch.sigmoid, Tensor.sigmoid)
+                        lambda x, y: torch.nn.functional.binary_cross_entropy(x.sigmoid(), y),
+                        lambda x, y: x.sigmoid().binary_cross_entropy(y), low=0.0, high=1.0)

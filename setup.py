@@ -13,6 +13,7 @@ setup(
           "torch",
           "pytest",
           "networkx",
+          "scikit-learn"
       ],
     },
 )

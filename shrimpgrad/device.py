@@ -89,6 +89,7 @@ class Buffer:
     return self._buf
 
   def _pointer(self, to_type):
+    if not isinstance(self._buf, memoryview): self._buf = memoryview(self._buf)
     return ctypes.cast(ctypes.addressof(to_type.from_buffer(self._buf)), ctypes.POINTER(to_type*self.size)).contents
 
   def copyin(self, src: memoryview):

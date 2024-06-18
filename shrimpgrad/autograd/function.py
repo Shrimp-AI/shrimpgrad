@@ -194,9 +194,8 @@ class Sigmoid(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk) -> Thunk:
     a = x.alu(BinaryOps.MUL, x.const(-1.0/math.log(2))).alu(UnaryOps.EXP2)
-    b = a.const((1.0)).alu(BinaryOps.ADD, a)
-    c = b.const(1.0).alu(BinaryOps.ADD, b)
-    ctx.ret = c.const(1.0).alu(BinaryOps.DIV, c)
+    b = a.const(1.0).alu(BinaryOps.ADD, a)
+    ctx.ret = b.const(1.0).alu(BinaryOps.DIV, b)
     return ctx.ret
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
