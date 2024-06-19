@@ -314,26 +314,26 @@ class Tensor:
   def is_scalar(self): return not self.ndim
 
   # Trigger evaluation
-  def realize(self) -> Tensor: 
+  def realize(self) -> Tensor:
     realize(self.thunk)
     return self
 
   # Extract data
   def data(self):
     # TODO: Change this to something worthy
-    thunk = self.thunk.base
-    if hasattr(thunk, 'buff'):
-      data = thunk.buff.pointer(ctypes.c_float)
+    base = self.thunk.base
+    if hasattr(base, 'buff'):
+      data = base.buff.pointer(ctypes.c_float)
       if not self.thunk.vt.contiguous:
-        strides = self.thunk.vt.strides 
-        order = argsort(tuple(-x if x > 0 else x for x in strides))
-        return np.frombuffer(data, dtype=np.float32).reshape(thunk.shape).transpose(order)
+        strides = tuple([s*4 for s in self.thunk.vt.strides])
+        arr = np.frombuffer(data, dtype=np.float32).reshape(self.shape)
+        arr = np.lib.stride_tricks.as_strided(arr, strides=strides)
+        return arr
     else:
-      data = thunk.base.cbuff.value
+      data = base.cbuff.value
       return np.array(data)
-    
-    return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
 
+    return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
 
   # Object Representation
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"

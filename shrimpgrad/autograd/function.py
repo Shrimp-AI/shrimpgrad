@@ -63,7 +63,7 @@ class Mul(Function):
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
     x, y = ctx.x, ctx.y
-    return (x.alu(BinaryOps.MUL, grad_out), y.alu(BinaryOps.MUL, grad_out))
+    return (y.alu(BinaryOps.MUL, grad_out), x.alu(BinaryOps.MUL, grad_out))
 
 class Div(Function):
   @staticmethod

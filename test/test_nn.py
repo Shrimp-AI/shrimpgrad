@@ -77,9 +77,10 @@ class TestNN(unittest.TestCase):
     torch_z = torch_model(torch_x).square().mean()
     np.testing.assert_allclose(np.array(z.data()), torch_z.detach().numpy(), atol=5e-4, rtol=1e-5)
     # TODO: FIX BACKWARD PASSES
-    # torch_z.backward()
-    # z.backward()
-    # np.testing.assert_allclose(np.array(model.w.grad.data).reshape(2,2).transpose(), torch_model.weight.grad.detach().numpy(), atol=1e-6, rtol=1e-3)
+    torch_z.backward()
+    z.backward()
+    model.w.grad.realize()
+    np.testing.assert_allclose(model.w.grad.data(), torch_model.weight.grad.detach().numpy(), atol=1e-6, rtol=1e-3)
 
   def test_basic_net(self):
     X, y  = dataset()

@@ -1,9 +1,9 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import Callable, List, TypeAlias 
+from typing import Callable, List, TypeAlias
 from shrimpgrad.engine.postdomtree import PostDomTree
-from shrimpgrad.future import IndexedForwardGraph, Thunk, ThunkGraph 
-from shrimpgrad.runtime.ops import AlgebraicOp 
+from shrimpgrad.future import IndexedForwardGraph, Thunk, ThunkGraph
+from shrimpgrad.runtime.ops import AlgebraicOp
 
 FuseCondition: TypeAlias = Callable[[AlgebraicOp, bool], bool]
 
@@ -12,16 +12,16 @@ class Group:
   def __init__(self, algebraic_op: AlgebraicOp, root: Thunk):
     self.aop, self.root = algebraic_op, root
     self.parent = None
-  
+
   def find_root(self) -> Group:
     # find with path compression
-    if self.parent is None: return self 
+    if self.parent is None: return self
 
     # Climb the parent chain
     root = self
     while root.parent is not None: root = root.parent
     # Update the parents to point to the new root
-    p = self 
+    p = self
     while p != root:
       parent = p.parent
       p.parent = root
@@ -33,16 +33,16 @@ class Group:
     parent = parent.find_root()
     if child == parent: return
     child.parent = parent
-      
-  def __repr__(self): return f"<Group root={self.root} parent={self.parent}>"
+
+  def __repr__(self): return f"<Group id={id(self)} root={self.root} parent={self.parent}>"
 
 class FusionEngine:
-  def __init__(self, g: IndexedForwardGraph): 
+  def __init__(self, g: IndexedForwardGraph):
     self.dom_tree = PostDomTree(g)
-    
+
     self.num_to_node = self.dom_tree.dfs_post_order
     self.groups: List[Group] = [Group(node.algebraic_op, node) for node in self.num_to_node]
-  
+
   def get_node_index(self, node: Thunk) -> int: return self.dom_tree.node2num(node)
   def get_children(self, node: Thunk) -> List[Thunk]: return self.dom_tree.graph.G[node]
 
@@ -51,26 +51,26 @@ class FusionEngine:
       thunk = self.num_to_node[i]
       ipdom = self.dom_tree.ipdom(thunk)
       ipdom_group = self.groups[self.get_node_index(ipdom)]
-      if ipdom_group.find_root() == group.find_root(): 
-        continue     
+      ipdom_root, group_root = ipdom_group.find_root(), group.find_root()
+      if ipdom_root.root == group_root.root or ipdom_root == group_root: continue
       if thunk.algebraic_op == AlgebraicOp.INJECTIVE:
-        # check that all intermediate thunks are injective or if it's the sink, a reduction or injective 
-        fcnd: FuseCondition = lambda kind, is_sink: kind == AlgebraicOp.INJECTIVE or (is_sink and kind == AlgebraicOp.REDUCTION) 
+        # check that all intermediate thunks are injective or if it's the sink, a reduction or injective
+        fcnd: FuseCondition = lambda kind, is_sink: kind == AlgebraicOp.INJECTIVE or (is_sink and kind == AlgebraicOp.REDUCTION)
         if(self.check_path(thunk, ipdom, fcnd)):
           self.commit_fuse(thunk, ipdom)
     return self.aggregate_groups()
-  
+
   def aggregate_groups(self) -> ThunkGraph:
     gmap: ThunkGraph = defaultdict(list)
     for group in self.groups:
-      if group.parent is None: 
+      if group.parent is None:
         continue
       gmap[group.parent.root].append(group.root)
     return gmap
 
   def check_path(self, src: Thunk, sink: Thunk, fcnd: FuseCondition):
     assert src != sink, "check path requires src and sink to be different"
-    visited = set() 
+    visited = set()
     def _check_path(src: Thunk, sink: Thunk) -> bool:
       if src in visited: return True
       visited.add(src)
@@ -89,7 +89,7 @@ class FusionEngine:
     visited = set()
     target = self.groups[self.get_node_index(sink)]
     def _commit_fuse(src: Thunk, sink: Thunk, target: Group):
-      if src == sink or src in visited: 
+      if src == sink or src in visited:
         return
       visited.add(src)
       group = self.groups[self.get_node_index(src)]

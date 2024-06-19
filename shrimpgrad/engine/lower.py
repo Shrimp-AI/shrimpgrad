@@ -367,20 +367,16 @@ class LowerFusedKernel:
     assert isinstance(in0, MemBuffer), "Reducing a constant is just the constant"
     # Define a global for the input
     g_in = self.lower_io(in0, True)
-    if len(axis) == len(in_shape):
-      if in0.vt.contiguous:
-        print("simple contiguous full reduce")
-        zero = self.g.const(dtypes.int32, 0)
-        out_off = self.g.offset(zero)
-        loop, idx = self.lower_begin_for(0, prod(in0.vt.shape))
-        in_off = self.g.offset(idx)
-        rhs = self.lower_load(g_in, idx)
-        lhs = self.lower_load(out, out_off)
-        alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
-        self.lower_store(out, out_off, alu)
-        self.lower_end_loops([loop])
-    elif len(axis) > 1:
-      print("MULTI AXIS REDUCE")
+    if len(axis) == len(in_shape) and in0.vt.contiguous:
+      zero = self.g.const(dtypes.int32, 0)
+      out_off = self.g.offset(zero)
+      loop, idx = self.lower_begin_for(0, prod(in0.vt.shape))
+      in_off = self.g.offset(idx)
+      rhs = self.lower_load(g_in, idx)
+      lhs = self.lower_load(out, out_off)
+      alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
+      self.lower_store(out, out_off, alu)
+      self.lower_end_loops([loop])
     else:
       # Move reduce axes to the end via creating a permutation order
       order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
@@ -416,9 +412,13 @@ class LowerFusedKernel:
       lhs = self.lower_load(out, out_off)
       alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
       self.lower_store(out, out_off, alu)
-      self.lower_end_loops([loops[-1]])
-      self.g.inc(off)
-      self.lower_end_loops(loops[:-1])
+
+      num_axis = len(axis)
+      for i, loop in enumerate(loops):
+        self.lower_end_loops([loop])
+        if i + 1 == num_axis:
+          self.g.inc(off)
+
 
   def lower_begin_for(self, s: int, e: int) -> Tuple[BeginLoopNode, LocalNode]:
     c0 = self.g.const(dtypes.int32, s) # start

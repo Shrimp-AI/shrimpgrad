@@ -7,7 +7,6 @@ from shrimpgrad.device import Accelerator, Allocator, Compiler, ConstBuffer, Mem
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 
-
 pyalu2src = {
   UnaryOps.LOG2: lambda x: f"math.log2({x}) if {x} > 0 else -math.inf if {x} == 0 else math.nan",
   UnaryOps.EXP2: lambda x: f"math.exp({x}*math.log(2))",
@@ -47,7 +46,6 @@ class PythonRuntime(Runtime):
     src = pickle.loads(lib)
     self.buffs = buffs
     self.buff2name = buff2name
-    print(src)
     vin = {}
     for buff in buffs['input'] + buffs['output']:
       if isinstance(buff, MemBuffer):

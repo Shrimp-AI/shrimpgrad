@@ -151,7 +151,7 @@ class Thunk:
     shape = self.shape if shape is None else shape
     return Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
 
-  def __str__(self) -> str: return f"<THUNK {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"
+  def __str__(self) -> str: return f"<THUNK id={id(self)} {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"
   def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}>"
   def __hash__(self): return id(self)
 

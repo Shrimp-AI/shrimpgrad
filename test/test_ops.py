@@ -33,7 +33,6 @@ class TestOps(unittest.TestCase):
 
     shrimp_bt = torch_bt = 0
     if not fwd_only:
-      # TODO: Fix backward tests
       torch_bs = time.monotonic()
       tr.backward(gradient=torch.ones_like(tr))
       torch_bt = time.monotonic() - torch_bs
@@ -79,6 +78,9 @@ class TestOps(unittest.TestCase):
     y.grad.realize()
     np.testing.assert_array_equal(x.grad.data(), np.array([1]*4).reshape(2,2))
     np.testing.assert_array_equal(y.grad.data(), np.array([1]*4).reshape(2,2))
+
+  def test_mul_bwd(self):
+    self.helper_test_ops([(2,2),(2,2)],torch.mul, Tensor.mul, fwd_only=False)
 
   def test_add_scalar(self):
     x = Tensor((), 2.0)
@@ -173,18 +175,16 @@ class TestOps(unittest.TestCase):
     g = g + 10.0 / f
     g.realize()
     self.assertAlmostEqual(g.data(), 24.70408163265306)
-    # TODO: Fix backward
-    # g.backward()
-    # a.grad.realize()
-    # self.assertEqual(138.83381924198252, a.grad.data())
-    # b.grad.realize()
-    # self.assertEqual(645.5772594752186, b.grad.data())
+    g.backward()
+    a.grad.realize()
+    self.assertEqual(138.83381924198252, a.grad.data())
+    b.grad.realize()
+    self.assertEqual(645.5772594752186, b.grad.data())
 
   def test_relu(self):
     t1 = Tensor((2,2), data=[-1,-1,2,2])
     t2 = t1.relu()
     t2.realize()
-    print(t2.data())
     np.testing.assert_array_equal(t2.data(), np.array([0,0,2,2]).reshape(2,2))
 
   def test_mul_scalar_and_tensor(self):
@@ -195,12 +195,7 @@ class TestOps(unittest.TestCase):
     np.testing.assert_array_equal(t3.data(), np.array([8]*t1.numel).reshape(2,2))
 
   def test_truediv_0d_0d(self):
-    t1 = Tensor((), 100.0)
-    t2 = Tensor((), 20.0)
-    t3 = t1 / t2
-    t3.realize()
-    print(t3.data())
-    np.testing.assert_equal(t3.data(), 5.0)
+    self.helper_test_ops([(),()], torch.div, Tensor.div, fwd_only=False)
 
   def test_truediv_2d_3d(self):
     t1 = Tensor((2,2), [100, 200, 300, 400])
@@ -234,6 +229,14 @@ class TestOps(unittest.TestCase):
     y.realize()
     self.assertEqual(y.shape, (1,2))
     np.testing.assert_array_equal(y.data(), np.array([3,3]).reshape(1,2)) # pylint: disable=too-many-function-args
+  def test_sum_small_2_axis(self):
+    x = Tensor((3,2,2), [1]*12)
+    y = x.sum(axis=(0,1), keepdim=True)
+    y.realize()
+    self.assertEqual(y.shape, (1,1,2))
+    x_ = np.array([1]*12).reshape(3,2,2)
+    x_ = x_.sum((0,1), keepdims=True)
+    np.testing.assert_array_equal(y.data(), x_) # pylint: disable=too-many-function-args
 
   def test_sum2(self):
     x = Tensor((5,3,5,5), [1]*(5*3*5*5))
@@ -259,7 +262,6 @@ class TestOps(unittest.TestCase):
     self.assertEqual(z.shape, (2,2))
     self.assertFalse(z.thunk.vt.contiguous)
     z.realize()
-    print(z.data())
     np.testing.assert_array_equal(np.array([4,1,2,2]).reshape(2,2).transpose((1,0)), z.data())
 
   def test_dot(self):
@@ -272,38 +274,38 @@ class TestOps(unittest.TestCase):
     np.testing.assert_array_equal(np.array([4,1,2,2]).reshape(2,2), z.data())
 
   def test_dotND(self):
-    self.helper_test_ops([(2,2),(2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
-    self.helper_test_ops([(2,2,2), (2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
-    self.helper_test_ops([(2,2,2,2,2,2), (2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
-    self.helper_test_ops([(3,1,4,1,5,3), (3,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul)
+    self.helper_test_ops([(2,2),(2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul, fwd_only=False)
+    self.helper_test_ops([(2,2,2), (2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul, fwd_only=False)
+    self.helper_test_ops([(2,2,2,2,2,2), (2,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul, fwd_only=False)
+    self.helper_test_ops([(3,1,4,1,5,3), (3,2)], torch_op=torch.matmul, shrimp_op=Tensor.matmul, fwd_only=False)
 
   def test_exp(self):
-    self.helper_test_ops([(45,65)],torch.exp, Tensor.exp)
-    self.helper_test_ops([()], torch.exp, Tensor.exp)
+    self.helper_test_ops([(45,65)],torch.exp, Tensor.exp, fwd_only=False)
+    self.helper_test_ops([()], torch.exp, Tensor.exp, fwd_only=False)
 
   def test_log(self):
-    self.helper_test_ops([(45,65)],torch.log, Tensor.log)
-    self.helper_test_ops([()], torch.log, Tensor.log)
+    self.helper_test_ops([(45,65)],torch.log, Tensor.log, fwd_only=False)
+    self.helper_test_ops([()], torch.log, Tensor.log, fwd_only=False)
 
   def test_mean(self):
-    self.helper_test_ops([(45,65)],torch.mean, Tensor.mean)
+    self.helper_test_ops([(45,65)],torch.mean, Tensor.mean, fwd_only=False)
     # TODO: Lower reducing a constant
     # self.helper_test_ops([()], torch.mean, Tensor.mean)
 
   def test_square(self):
-    self.helper_test_ops([(45,65)],torch.square, Tensor.square)
-    self.helper_test_ops([()], torch.square, Tensor.square)
+    self.helper_test_ops([(45,65)],torch.square, Tensor.square, fwd_only=False)
+    self.helper_test_ops([()], torch.square, Tensor.square, fwd_only=False)
 
   def test_square_mean(self):
-    self.helper_test_ops([(45,65)],lambda x: torch.square(x).mean(), lambda x: x.square().mean())
+    self.helper_test_ops([(45,65)],lambda x: torch.square(x).mean(), lambda x: x.square().mean(), fwd_only=False)
     # TODO: Lower reducing a constant
     # self.helper_test_ops([()], lambda x: torch.square(x).mean(), lambda x: x.square().mean())
 
   def test_transpose_(self):
-    self.helper_test_ops([(2,3)],lambda x: torch.transpose(x, 1, 0), Tensor.transpose)
+    self.helper_test_ops([(2,3)],lambda x: torch.transpose(x, 1, 0), Tensor.transpose, fwd_only=False)
 
   def test_dot_(self):
-    self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias)
+    self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias, fwd_only=False)
 
   def test_linear(self):
     x = Tensor.ones((10,20))
@@ -311,33 +313,33 @@ class TestOps(unittest.TestCase):
     b = Tensor.ones((10,))
     out = x.dot(w.transpose())+b
     out.realize()
-    print(out.data())
 
   def test_mse(self):
     out = Tensor((5,), data=[1.0,0.0,1.0,1.0,2.0])
     target = Tensor(shape=(5,), data=[0,0,0,1,2])
     sout = out.mse(target)
     sout.realize()
-    # sout.backward()
-    # sgrad = out.grad
+    sout.backward()
+    sgrad = out.grad
+    sgrad.realize()
 
     out = torch.tensor([1.0,0.0,1.0,1.0,2.0], requires_grad=True)
     out.retain_grad()
     target = torch.Tensor([0,0,0,1,2])
     loss = torch.nn.MSELoss()
     tout = loss(out, target)
-    # tout.backward()
-    # tgrad = out.grad
+    tout.backward()
+    tgrad = out.grad
 
     self.compare(tout, sout, atol=1e-6, rtol=1e-3)
-    # self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)
+    self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)
 
   def test_sigmoid(self):
-    self.helper_test_ops([(45,65)],torch.sigmoid, Tensor.sigmoid)
-    self.helper_test_ops([()], torch.sigmoid, Tensor.sigmoid)
+    self.helper_test_ops([(45,65)],torch.sigmoid, Tensor.sigmoid, fwd_only=False)
+    self.helper_test_ops([()], torch.sigmoid, Tensor.sigmoid, fwd_only=False)
 
 
   def test_binary_cross_entropy(self):
     self.helper_test_ops([(32,10), (32,10)],
                         lambda x, y: torch.nn.functional.binary_cross_entropy(x.sigmoid(), y),
-                        lambda x, y: x.sigmoid().binary_cross_entropy(y), low=0.0, high=1.0)
+                        lambda x, y: x.sigmoid().binary_cross_entropy(y), low=0.0, high=1.0, fwd_only=False)
