@@ -465,8 +465,11 @@ class LowerFusedKernel:
       strd0, strd1, strd2 = vt0.strides, vt1.strides, vt2.strides
 
       # Dimension and shapes should be the same
-      # so use vt0
-      loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
+      # so use vt0 unless it's a const
+      if inputs[0].__class__ == ConstBuffer:
+        loops, idxs = self.lower_start_loops(vt1.ndim, vt1.shape)
+      else:
+        loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
       self.lower_bop(inputs[0], inputs[1], output, idxs, strd0, strd1, strd2, 1, op)
       self.lower_end_loops(loops)
       return

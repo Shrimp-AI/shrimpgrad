@@ -96,6 +96,10 @@ class TestOps(unittest.TestCase):
     z.realize()
     np.testing.assert_array_equal(np.array([True]*4).reshape(2,2), z.data())
 
+  def test_lt2(self):
+    y = Tensor((4,1), [1.0,0.0,1.0,0.0])
+    np.testing.assert_array_equal((y > 0.0).realize().data(), np.array([True, False, True, False]).reshape(4,1))
+
   def test_add_rigorous(self):
     self.helper_test_ops([(2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add)
     self.helper_test_ops([(2,2,2,2),(2,2)], torch_op=torch.add, shrimp_op=Tensor.add)
