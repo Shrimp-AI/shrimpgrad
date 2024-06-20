@@ -34,6 +34,7 @@ class FusedKernelBuilder:
           thunk = group.root
           inputs = thunk.get_input_buffers()
           output = thunk.get_output_buffer()
+          if thunk.realized is not None: continue
           ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
           kernels.append(FusedKernel(ir))
         else:
