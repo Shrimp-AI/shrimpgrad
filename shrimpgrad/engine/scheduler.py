@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List, Union, Sequence
 from shrimpgrad.device import ConstBuffer, MemBuffer
-from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.future import IndexedForwardGraph, Thunk
 from shrimpgrad.engine.fuse_ops import FusionEngine
 from shrimpgrad.runtime.ops import Op

@@ -234,7 +234,7 @@ class TestOps(unittest.TestCase):
     y = x.sum(axis=(0,1), keepdim=True)
     y.realize()
     self.assertEqual(y.shape, (1,1,2))
-    x_ = np.array([1]*12).reshape(3,2,2)
+    x_ = np.array([1]*12).reshape(3,2,2) # pylint: disable=too-many-function-args
     x_ = x_.sum((0,1), keepdims=True)
     np.testing.assert_array_equal(y.data(), x_) # pylint: disable=too-many-function-args
 

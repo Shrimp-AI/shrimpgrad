@@ -8,7 +8,7 @@ from random import uniform, gauss
 from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.python import PythonDevice
-from shrimpgrad.util import argsort, calc_fan_in_fan_out, calc_gain, prod, to_nested_list
+from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list
 import numpy as np
 
 Num: TypeAlias = Union[float, int, complex]
