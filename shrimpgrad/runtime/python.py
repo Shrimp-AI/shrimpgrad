@@ -47,9 +47,12 @@ class PythonRuntime(Runtime):
     self.buffs = buffs
     self.buff2name = buff2name
     vin = {}
+    buff_cache = {}
     for buff in buffs['input'] + buffs['output']:
       if isinstance(buff, MemBuffer):
-        vin[buff2name[buff]] = buff.buff._pointer(ctypes.c_float)
+        if id(buff.buff) not in buff_cache:
+          buff_cache[id(buff.buff)] = buff.buff._pointer(ctypes.c_float)
+        vin[buff2name[buff]] = buff_cache[id(buff.buff)] 
       else:
         vin[buff2name[buff]] = buff
     exec(src, vin) # pylint: disable=exec-used

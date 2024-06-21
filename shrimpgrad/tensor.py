@@ -347,6 +347,8 @@ class Tensor:
       return np.array(data)
 
     return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
+  
+  def numpy(self): return self.realize().data()
 
   # Object Representation
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"

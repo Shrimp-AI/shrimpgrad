@@ -479,7 +479,7 @@ class LowerFusedKernel:
       if vt0.scalar and vt1.scalar:
         self.lower_assign(out, rhs, vt0, vt1, [])
         return
-      elif inputs[0].__class__ == ConstBuffer:
+      if inputs[0].__class__ == ConstBuffer:
         loops, idxs = self.lower_start_loops(vt1.ndim, vt1.shape)
       else:
         loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)

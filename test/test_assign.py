@@ -97,3 +97,25 @@ class TestAssign(unittest.TestCase):
     # Now times_a will be 2*3
     new = a + (times_a-1)
     np.testing.assert_allclose(new.realize().data(), 7)
+
+  def test_assign_diamond_possible(self):
+    # TODO: Torch returns 4 here
+    a = Tensor.ones((4,)).realize()
+    times_a = a*3
+    a.assign(Tensor.full((4,), 2.))
+    # times_a = 6, a = 2
+    new = a + (times_a-1)
+    np.testing.assert_allclose(new.numpy(), 7)
+
+  def test_assign_diamond_alt(self):
+    a = Tensor.ones((4,)).realize()
+    a.assign(Tensor.full((4,), 2.))
+    times_a = a*3
+    new = a + times_a
+    np.testing.assert_allclose(new.numpy(), 8)
+
+  def test_double_assign(self):
+    a = Tensor.ones((4,)).realize()
+    a += 1
+    a += 1
+    np.testing.assert_allclose(a.numpy(),3) 
