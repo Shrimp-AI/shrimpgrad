@@ -97,11 +97,18 @@ class Tensor:
     if reverse: x, y = y, x
     return x.broadcast_to(bs), y.broadcast_to(bs)
 
+  def replace(self, x: Tensor) -> Tensor:
+    assert x.shape == self.shape, f'shape mismatch on replace {self.shape} != {x.shape}'
+    assert x.dtype == self.dtype, f'dtype mismatch on replace {self.dtype} != {x.dtype}'
+    assert self.thunk.base.realized is None, 'replace requires tensor to be unrealized'
+    self.thunk = x.thunk
+    return self
+
   def assign(self, x: Tensor) -> Tensor:
     assert x.shape == self.shape, f'shape mismatch on assign {self.shape} != {x.shape}'
     assert x.dtype == self.dtype, f'dtype mismatch on assign {self.dtype} != {x.dtype}'
-    if self.thunk.base.realized is None:
-      self.thunk = x.thunk
+    if self.thunk.base.realized is None: return self.replace(x)
+    self.thunk = self.thunk.assign(x.thunk)
     return self
 
   def cast(self, dtype: DType) -> Tensor:
@@ -204,6 +211,12 @@ class Tensor:
   def __truediv__(self, other): return self.div(other)
   def __rtruediv__(self, other): return self.div(other, reverse=True)
   def __matmul__(self, other) -> Tensor: return self.matmul(other)
+
+  def __iadd__(self, x) -> Tensor: return self.assign(self.add(x))
+  def __isub__(self, x) -> Tensor: return self.assign(self.sub(x))
+  def __imul__(self, x) -> Tensor: return self.assign(self.mul(x))
+  def __itruediv__(self, x) -> Tensor: return self.assign(self.div(x))
+  def __imatmul__(self, x) -> Tensor: return self.assign(self.matmul(x))
 
   # Activation Functions
   def relu(self) -> Tensor:

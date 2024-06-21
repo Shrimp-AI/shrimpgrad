@@ -448,6 +448,18 @@ class LowerFusedKernel:
     for loop in loops:
       self.g.end_loop(loop)
 
+  def lower_assign(self, out, rhs, vt_lhs, vt_rhs, idxs):
+    strd0, strd1 = vt_lhs.strides, vt_rhs.strides
+    if not idxs:
+      lrhs = self.lower_load(rhs, None)
+      self.lower_store(out, None, lrhs)
+      return
+    addr0 = self.g.address(idxs, strd0, 1)
+    addr2 = self.g.address(idxs, strd1, 1)
+    lrhs = self.lower_load(rhs, addr2)
+    self.lower_store(out, addr0, lrhs)
+    return
+
   def lower_single_op_kernel(self, fused_kernel: FusedKernel):
     assert len(fused_kernel.computation.ins) == 1
     assert len(fused_kernel.computation.out) == 1
@@ -455,8 +467,24 @@ class LowerFusedKernel:
     output = fused_kernel.computation.out[0]
     op = fused_kernel.computation.ops[0]
     arg = fused_kernel.computation.args[0]
-    if op in LoadOps:
+    if op in LoadOps and op is not LoadOps.ASSIGN:
       self.lower_io(output, is_input=True)
+      return
+    if op is LoadOps.ASSIGN:
+      # input 0 is the same as output
+      vt0, vt1 = inputs[0].vt, inputs[1].vt
+      _ = self.lower_io(inputs[0], True)
+      rhs = self.lower_io(inputs[1], True)
+      out = self.lower_io(output, False)
+      if vt0.scalar and vt1.scalar:
+        self.lower_assign(out, rhs, vt0, vt1, [])
+        return
+      elif inputs[0].__class__ == ConstBuffer:
+        loops, idxs = self.lower_start_loops(vt1.ndim, vt1.shape)
+      else:
+        loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
+      self.lower_assign(out, rhs, vt0, vt1, idxs)
+      self.lower_end_loops(loops)
       return
     if op in BinaryOps:
       # Marshall the buffer views
@@ -526,6 +554,12 @@ class LowerFusedKernel:
         self.lower_rop(i[0], o, arg, op)
         # Return because reduce is always the last fused operation
         return
+      if op is LoadOps.ASSIGN:
+        # input 0 is the same as output
+        _ = self.lower_io(i[0], True)
+        rhs = self.lower_io(i[1], True)
+        out = self.lower_io(o, False)
+        self.lower_assign(out, rhs, o.vt, i[1].vt, idxs)
     self.lower_end_loops(loops)
 
   def lower(self) -> List[LowIRGraph]:

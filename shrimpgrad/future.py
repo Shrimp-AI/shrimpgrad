@@ -38,7 +38,11 @@ class Thunk:
     # The base has no base because it is the base (so based)
     self._base = None
     if base is None:
-      if op != LoadOps.CONST and not self.vt.scalar:
+      if op == LoadOps.ASSIGN:
+        lhs = self._operands[0].base
+        # += etc. requires lhs to be filled with the values of lhs
+        self.buff = lhs.buff if hasattr(lhs, 'buff') else lhs.cbuff
+      elif op != LoadOps.CONST and not self.vt.scalar:
         # I'm the base I own the real buffer
         self.buff = Buffer(self.device, self.vt.numel, self.dtype)
       else:
@@ -154,12 +158,10 @@ class Thunk:
   def const(self, val: ConstType, shape: Tuple[int,...]=None):
     shape = self.shape if shape is None else shape
     return Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
-  
+
   def assign(self, rhs: Thunk) -> Thunk:
-    # lhs is unrealized, rhs is unrealized -> Tensor.replace(self, rhs)
-    # lhs is unrealised, rhs is realized -> Tensor.replace(self, rhs)
-    # lhs is realised, rhs is unrealized -> 
-    pass
+    assert self.numel == rhs.numel, f"assign size mismatch {self.numel} != {rhs.numel}"
+    return Thunk.loadop(LoadOps.ASSIGN, rhs.shape, rhs.dtype, rhs.device, (rhs.vt, ), (self.base, rhs))
 
   def __str__(self) -> str: return f"<THUNK id={id(self)} {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"
   def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}>"

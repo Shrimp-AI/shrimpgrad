@@ -5,7 +5,7 @@ from typing import Any, List, Union, Sequence
 from shrimpgrad.device import ConstBuffer, MemBuffer
 from shrimpgrad.future import IndexedForwardGraph, Thunk
 from shrimpgrad.engine.fuse_ops import FusionEngine
-from shrimpgrad.runtime.ops import Op
+from shrimpgrad.runtime.ops import LoadOps, Op
 
 @dataclass
 class MidIR:
@@ -34,7 +34,7 @@ class FusedKernelBuilder:
           thunk = group.root
           inputs = thunk.get_input_buffers()
           output = thunk.get_output_buffer()
-          if thunk.realized is not None: continue
+          if thunk.realized is not None and thunk._op is not LoadOps.ASSIGN: continue
           ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
           kernels.append(FusedKernel(ir))
         else:

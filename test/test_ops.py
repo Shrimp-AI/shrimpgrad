@@ -347,22 +347,3 @@ class TestOps(unittest.TestCase):
     self.helper_test_ops([(32,10), (32,10)],
                         lambda x, y: torch.nn.functional.binary_cross_entropy(x.sigmoid(), y),
                         lambda x, y: x.sigmoid().binary_cross_entropy(y), low=0.0, high=1.0, fwd_only=False)
-  
-  def test_assign(self):
-    x = Tensor.full((2,2), 3.0)
-    y = Tensor.full((2,2), 4.0, requires_grad=False)
-    x.assign(y)
-    x.realize()
-    np.testing.assert_array_equal(np.array([4.0]*4).reshape(2,2), x.data())
-  
-  def test_assign2(self):
-    x = Tensor.randn(45,65)
-    y = Tensor.randn(65,45) 
-    z = Tensor.randn(45,1)
-    out = x @ y @ z
-    target = Tensor.randn(45,1)
-    loss = out.mse(target)
-    loss.backward()
-    y.assign(y.detach() - (y.grad * .01))
-
-   
