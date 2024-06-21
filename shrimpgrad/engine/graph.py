@@ -46,8 +46,10 @@ def log_thunk(thunk:'Thunk', scheduled=False):
     G.add_node(nm(thunk), style='"filled,dashed"', fillcolor="#80ff8080", color="black", label=label)
     G.add_edge(nm(thunk.base), nm(thunk), color='#00000060')
     thunk = thunk.base
-  if thunk.realized is None:
-    label_append = []
+  # if thunk.realized is None:
+  label_append = []
+  label = 'EMPTY LOADS'
+  if hasattr(thunk, '_operands'):
     for idx,x in enumerate(thunk._operands):
       if nm(x) not in G.nodes: log_thunk(x)
       if x.base.realized is None and x.base._op is LoadOps.CONST:
@@ -58,9 +60,9 @@ def log_thunk(thunk:'Thunk', scheduled=False):
       (str(set(x.shape for x in thunk._operands))+"\n"+str(thunk.shape) if thunk._op in ReduceOps else str(thunk.shape)) + \
       (f"\n{thunk.dtype.name} id={id(thunk)}" if thunk.dtype.name != "float" else "")+f"\n{thunk._op}"+(f"\n{thunk.arg}" if thunk._op in {LoadOps.CONST, UnaryOps.CAST} else "") + \
       (f"\n{thunk.device}") + ''.join(label_append) + '"'
-    G.add_node(nm(thunk), style='"filled,dashed"', fillcolor=[v for k,v in top_colors.items() if thunk._op in k][0] + "80", color="black", label=label)
-    if scheduled: G.nodes[nm(thunk)]['shape'] = 'box'
-  else:
-    if nm(thunk) not in G.nodes:
-      # realized but unseen?
-      G.add_node(nm(thunk), label=f'"{str(thunk.base.realized)[5:-1].replace(" ", chr(10))}\nb:{nm(thunk.realized)}"', style='filled', fillcolor="orange")
+  G.add_node(nm(thunk), style='"filled,dashed"', fillcolor=[v for k,v in top_colors.items() if thunk._op in k][0] + "80", color="black", label=label)
+  if scheduled: G.nodes[nm(thunk)]['shape'] = 'box'
+  # else:
+  #   if nm(thunk) not in G.nodes:
+  #     # realized but unseen?
+  #     G.add_node(nm(thunk), label=f'"{str(thunk.base.realized)[5:-1].replace(" ", chr(10))}\nb:{nm(thunk.realized)}"', style='filled', fillcolor="orange")

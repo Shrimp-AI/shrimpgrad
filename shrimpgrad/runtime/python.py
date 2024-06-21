@@ -52,9 +52,10 @@ class PythonRuntime(Runtime):
       if isinstance(buff, MemBuffer):
         if id(buff.buff) not in buff_cache:
           buff_cache[id(buff.buff)] = buff.buff._pointer(ctypes.c_float)
-        vin[buff2name[buff]] = buff_cache[id(buff.buff)] 
+        vin[buff2name[buff]] = buff_cache[id(buff.buff)]
       else:
         vin[buff2name[buff]] = buff
+    print(src)
     exec(src, vin) # pylint: disable=exec-used
 
 class PyCodeGen:
