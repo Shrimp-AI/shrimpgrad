@@ -154,6 +154,12 @@ class Thunk:
   def const(self, val: ConstType, shape: Tuple[int,...]=None):
     shape = self.shape if shape is None else shape
     return Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
+  
+  def assign(self, rhs: Thunk) -> Thunk:
+    # lhs is unrealized, rhs is unrealized -> Tensor.replace(self, rhs)
+    # lhs is unrealised, rhs is realized -> Tensor.replace(self, rhs)
+    # lhs is realised, rhs is unrealized -> 
+    pass
 
   def __str__(self) -> str: return f"<THUNK id={id(self)} {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"
   def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}>"

@@ -98,10 +98,10 @@ class Tensor:
     return x.broadcast_to(bs), y.broadcast_to(bs)
 
   def assign(self, x: Tensor) -> Tensor:
-    assert(self.requires_grad == False), 'l-value invalid since it requires gradients'
-    assert(x.shape == self.shape), f'shape mismatch on assign {self.shape} != {x.shape}'
-    assert(x.dtype == self.dtype), f'dtype mismatch on assign {self.dtype} != {x.dtype}'
-    self.thunk = x.data
+    assert x.shape == self.shape, f'shape mismatch on assign {self.shape} != {x.shape}'
+    assert x.dtype == self.dtype, f'dtype mismatch on assign {self.dtype} != {x.dtype}'
+    if self.thunk.base.realized is None:
+      self.thunk = x.thunk
     return self
 
   def cast(self, dtype: DType) -> Tensor:
