@@ -135,7 +135,7 @@ class TestAssign(unittest.TestCase):
 
   pytest.mark.skip('Solve double realize problem')
   def test_assign_double_diamond(self):
-    # TODO: Double realize causes sub graph to execute twice (fix)
+    # TODO: Issue 7 - Double realize causes sub graph to execute twice (fix)
     a = Tensor.full((4,), 2).realize()
     b = Tensor.full((4,), 3).realize()
     a_prev = a*4
@@ -149,7 +149,7 @@ class TestAssign(unittest.TestCase):
     np.testing.assert_equal(a.data(), 8)
 
   def test_assign_double_diamond_reduce(self):
-    # TODO: Double diamond causes certain sub-expression to be evaluated twice
+    # TODO: Issue 7 - Double diamond causes certain sub-expression to be evaluated twice
     a0 = Tensor.full((16, 16), 10).realize()
     a1 = Tensor.full((16, 16), 20).realize()
     b0 = Tensor.full((16, ), 1).realize()
