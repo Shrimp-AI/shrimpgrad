@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='shrimpgrad',
     author='Kevin Kenyon',
-    license='MIT',
+    license='GPL-3.0',
     version='0.0.1',
     python_requires='>=3.11',
     packages=find_packages(),

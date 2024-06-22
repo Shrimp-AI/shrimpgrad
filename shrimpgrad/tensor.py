@@ -8,7 +8,7 @@ from random import uniform, gauss
 from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.python import PythonDevice
-from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod, to_nested_list
+from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod
 import numpy as np
 
 Num: TypeAlias = Union[float, int, complex]
@@ -74,7 +74,6 @@ class Tensor:
     # i.e.) indexing x[0,0,0] x.shape=(2,2,2) should return a scalar view of x
     if not len(self.shape): raise IndexError('invalid index of a 0-dim tensor. Use `tensor.item()`')
     x = Tensor(self.shape, self.thunk)
-    x.index_view = to_nested_list(self, key)
     return x
 
   # Broadcasting, Assignment, Casting and Data Augmentation
@@ -347,7 +346,7 @@ class Tensor:
       return np.array(data)
 
     return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
-  
+
   def numpy(self): return self.realize().data()
 
   # Object Representation

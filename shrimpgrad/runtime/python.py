@@ -55,7 +55,6 @@ class PythonRuntime(Runtime):
         vin[buff2name[buff]] = buff_cache[id(buff.buff)]
       else:
         vin[buff2name[buff]] = buff
-    print(src)
     exec(src, vin) # pylint: disable=exec-used
 
 class PyCodeGen:
