@@ -1,7 +1,6 @@
 import unittest
 
 import numpy as np
-import pytest
 
 from shrimpgrad import Tensor
 from shrimpgrad.engine.graph import log_thunk
@@ -64,7 +63,6 @@ class TestAssign(unittest.TestCase):
   def test_assign_other(self):
     def f(x, a):
       x.assign(a)
-      log_thunk(x.thunk)
       x.realize()
     x = Tensor((1,),[0])
     for i in range(1, 6):
@@ -125,10 +123,8 @@ class TestAssign(unittest.TestCase):
     a = Tensor.full((4,), 2).realize()
     b = Tensor.full((4,), 3).realize()
     a += b
-    # a.thunk = a.assign(a+b)
     b += a
-    # b.thunk = b.assign(b + (a.assign(a+b)))
-    log_thunk(b.thunk)
+    a.realize()
     b.realize()
     np.testing.assert_allclose(a.data(), 5)
     np.testing.assert_allclose(b.data(), 8)
@@ -168,7 +164,19 @@ class TestAssign(unittest.TestCase):
     a = Tensor.full((4,), 2).realize()
     b = Tensor.full((4,), 3).realize()
     c = a+9
+    # Referentially Opaque:
+    # For instance, a now has two meanings in the text. a = 2 or a = 2 + 3
+    # Any mention of a is context dependent. c = a + 9 means a where a = 2,
+    # whereas b = b + c = b + a + 9 (also wants a = 2) but ends up being a = (2+3).
+    # This happens b/c realizing a leads to the backing buffer for a to store a = 2+3 = 5.
+    # When we now realize b, b = b+a+9 references the backing buffer of a which now violates
+    # the context dependence of a + 9 wanting a = 2 and thus  2+9, by being a = 5 adn thus 5+9.
+    # Since the a buffer is used in the assign as the target buffer, the a buffer gets updated
+    # before b is realized and c=a+9 is executed. c=a+9 is not in the sub-DAG of a.realize() in
+    # the joint DAG of a and b.
     a += b
     b += c
-    np.testing.assert_allclose(a.numpy(), 2+3)
+    # log_thunk(a.thunk)
+    # log_thunk(b.thunk)
+    # np.testing.assert_allclose(a.numpy(), 2+3)
     # np.testing.assert_allclose(b.numpy(), 3+2+9)

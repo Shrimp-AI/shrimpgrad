@@ -34,11 +34,33 @@ class FusedKernelBuilder:
           thunk = group.root
           inputs = thunk.get_input_buffers()
           output = thunk.get_output_buffer()
+          # Skip copies that are realized so we don't overwrite forward pass values.
+          # This is crucial for backwards passes functioning properly.
+          # Assign thunks can be realized in forward passes as their backing buffer
+          # is realized. This is useful for optimizer updates to params.
           if thunk.realized is not None and thunk._op is not LoadOps.ASSIGN: continue
           ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
           kernels.append(FusedKernel(ir))
         else:
           fused = list(reversed(self.fused_ops[group.root])) + [group.root]
+          fused_unrealized = []
+          # If a thunk in this fusion group is already realized, there's no
+          # need to schedule it again, it's backing buffer already has
+          # the result that we would compute again causing a doubling of the buffer .
+          # This is vital when running
+          # backward passes because backward functions sometimes use input thunks that
+          # become realized in the forward pass. When backward includes those thunks
+          # in the backwards graph, it will cause those forward sub-graphs to be re-executed
+          # here we eliminate this duplicate computation by not scheduling thunks that are
+          # realized. In a forward pass the only realized thunks are LoadOps.EMPTY, but they
+          # don't make it to the scheduling phase. The only time we skip here is in backwards
+          # graph scheduling.
+          for thunk in fused:
+            if thunk.realized is not None and thunk._op is not LoadOps.ASSIGN:
+              continue
+            fused_unrealized.append(thunk)
+          if not fused_unrealized: continue
+          fused = fused_unrealized
           inputs = [t.get_input_buffers() for t in fused]
           # Get the output for the last thunk
           output = [t.get_output_buffer() for t in fused]
