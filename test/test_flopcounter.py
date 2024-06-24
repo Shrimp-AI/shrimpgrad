@@ -1,8 +1,8 @@
 import unittest
 
 from shrimpgrad import Tensor
-from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
-from shrimpgrad.engine.perf import flop_counter
+from shrimpgrad.engine.scheduler import FusedKernelBuilder
+from shrimpgrad.engine.perf import flop_counter, memory_estimator
 
 class TestFlopCounter(unittest.TestCase):
   def test_single_add(self):
@@ -25,11 +25,10 @@ class TestFlopCounter(unittest.TestCase):
   def test_mul_sum_add(self):
     x = Tensor.ones((2,2))
     y = Tensor.ones((2,2))
-    mul = x*y
-    sum = mul.sum()
-    add = sum + sum
-    s = FusedKernelBuilder(add.thunk).schedule()
-    print_schedule(s)
+    m = x*y
+    s= m.sum()
+    a = s + s
+    s = FusedKernelBuilder(a.thunk).schedule()
     flop = flop_counter(s)
     assert flop == 9
 
@@ -45,7 +44,6 @@ class TestFlopCounter(unittest.TestCase):
 
   def test_flops_sum2d(self):
     x = Tensor.ones((4,4))
-    y = Tensor.ones((2,2))
     op0 = x.sum(0)
     s = FusedKernelBuilder(op0.thunk).schedule()
 
@@ -56,3 +54,11 @@ class TestFlopCounter(unittest.TestCase):
     s = FusedKernelBuilder(op1.thunk).schedule()
     flop = flop_counter(s)
     assert flop ==  16+4
+
+  def test_memory_add(self):
+    x = Tensor.ones((2,2))
+    y = Tensor.ones((2,2))
+    out0 = x + y
+    s = FusedKernelBuilder(out0.thunk).schedule()
+    mem = memory_estimator(s)
+    assert mem == 112
