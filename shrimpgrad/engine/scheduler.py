@@ -28,10 +28,13 @@ class FusedKernelBuilder:
 
   def schedule_fused(self) -> List[FusedKernel]:
     kernels = []
+    visited = set()
     for group in self.groups[::-1]:
       if group.parent is None:
         if group.root not in self.fused_ops:
           thunk = group.root
+          if thunk in visited: continue
+          visited.add(thunk)
           inputs = thunk.get_input_buffers()
           output = thunk.get_output_buffer()
           # Skip copies that are realized so we don't overwrite forward pass values.
@@ -58,6 +61,9 @@ class FusedKernelBuilder:
           for thunk in fused:
             if thunk.realized is not None and thunk._op is not LoadOps.ASSIGN:
               continue
+            if thunk in visited:
+              continue
+            visited.add(thunk)
             fused_unrealized.append(thunk)
           if not fused_unrealized: continue
           fused = fused_unrealized
