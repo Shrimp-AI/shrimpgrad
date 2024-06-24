@@ -40,4 +40,5 @@ class SGD(Optimizer):
           g = b
       t.assign(t.detach() - self.lr*g)
       t.realize()
+      if b is not None: b.realize()
 

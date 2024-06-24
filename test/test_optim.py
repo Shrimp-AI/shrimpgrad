@@ -3,6 +3,7 @@ import unittest
 from shrimpgrad import Tensor
 import shrimpgrad.nn.optim as optim
 import torch
+import numpy as np
 
 
 class TestOptimizer(unittest.TestCase):
@@ -35,18 +36,17 @@ class TestOptimizer(unittest.TestCase):
     z.realize()
     z.backward()
 
-    print(p1.data(), p2.data())
     sgd = optim.SGD([p1,p2])
     sgd.step()
-    print(p1.data(), p2.data())
 
     x_ = torch.ones((2,2))
     y_ = torch.full((2,2), 3.0)
     p1_ = torch.full((2,2), 2.0, requires_grad=True)
     p2_ = torch.full((2,2), 3.0, requires_grad=True)
     z_ = x_.matmul(y_).matmul(p1_).relu().matmul(p2_).relu().sub(torch.full((2,2), 17.1)).square().mean()
-    print(p1_, p2_)
     z_.backward()
     sgd_ = torch.optim.SGD([p1_, p2_])
     sgd_.step()
-    print(p1_, p2_)
+
+    np.testing.assert_allclose(p1_.detach().numpy(), p1.data())
+    np.testing.assert_allclose(p2_.detach().numpy(), p2.data(), rtol=1e-5, atol=1e-5)

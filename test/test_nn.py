@@ -1,7 +1,6 @@
 from typing import List, Callable
 from shrimpgrad import Tensor, nn
 import unittest
-from shrimpgrad.engine.graph import log_thunk
 import torch
 import numpy as np
 
