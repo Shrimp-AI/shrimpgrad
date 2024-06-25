@@ -68,7 +68,7 @@ class CompiledKernel:
   def __init__(self, ir: LowIRGraph, dev: Accelerator, buff_to_name, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]]
 ) -> None:
     self.ir, self.dev, self.buffs = ir, dev, buffs
-    self.src = self.dev.renderer().render(self.ir)
+    self.src, self.name2pos = self.dev.renderer().render(self.ir)
     self.lib = self.dev.compiler().compile(self.src)
     self.buff2name = buff_to_name
   def __repr__(self) -> str: return f"<CompiledKernel id={id(self)}>"
@@ -85,7 +85,7 @@ class CompiledKernel:
     footer = f"{'':<^20}{'':>^20}\n"
     return hdr_hdr + header + dev + ins_hdr + ins + outs_hdr + outs + ir_hdr + ir + footer
   def __call__(self):
-    self.rt = self.dev.runtime().exec(self.lib, self.buffs, self.buff2name)
+    self.rt = self.dev.runtime().exec(self.lib, self.buffs, self.buff2name, self.name2pos)
 
 class BufferCopy:
   def __init__(self, dst: MemBuffer, src: MemBuffer, size: int):

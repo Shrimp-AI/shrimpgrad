@@ -36,13 +36,15 @@ class PythonAllocator(Allocator):
   def free(self): return
 
 class PythonRenderer:
-  def render(self, ir_graph: LowIRGraph) -> str: return base64.b64encode(pickle.dumps(PyCodeGen([ir_graph]).gen().tostring()))
+  def render(self, ir_graph: LowIRGraph) -> str:
+    src, num2pos = PyCodeGen([ir_graph]).gen().tostring()
+    return base64.b64encode(pickle.dumps(src)), num2pos
 
 class PythonCompiler(Compiler):
   def compile(self, src:str) -> bytes: return base64.b64decode(src)
 
 class PythonRuntime(Runtime):
-  def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name):
+  def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name, _):
     src = pickle.loads(lib)
     self.buffs = buffs
     self.buff2name = buff2name
@@ -82,7 +84,7 @@ class PyCodeGen:
     for src in self.src:
       out += "  " + src + "\n"
     out += f"f_{id(self)}({params})"
-    return out
+    return out, []
 
   def gen(self):
     for irg in self.irgs:

@@ -1,13 +1,12 @@
 from __future__ import annotations
 import ctypes
 import subprocess
-from typing import DefaultDict, List, Tuple
-from shrimpgrad.device import Accelerator, ConstBuffer, MallocAllocator, MemBuffer, Renderer
-from shrimpgrad.dtype import DType, dtypes
+from typing import DefaultDict, List
+from shrimpgrad.device import Accelerator, Compiler, ConstBuffer, MallocAllocator, MemBuffer, Renderer, Runtime
+from shrimpgrad.dtype import dtypes
 import tempfile
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
-from shrimpgrad.runtime.ops import Op, UnaryOps, BinaryOps, TernaryOps
-from shrimpgrad.runtime.profiler import Profile
+from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 
 c_alu = {
   UnaryOps.LOG2: lambda x: f'log2({x})',
@@ -62,14 +61,16 @@ class ClangCodeGen:
       print("  " + src)
 
   def tostring(self):
+    name2pos = {g[0]:i for i,g in enumerate(self.gs)}
     params = ','.join([self.param2src(g) for g in self.gs])
     out = f"{self.preamble}"
     out += (f"void f_shrimp({params}) {{\n")
     for src in self.src:
       out += "  " + src + "\n"
     out += '}'
+    print(name2pos)
     print(out)
-    return out
+    return out, name2pos
 
   def gen(self):
     for irg in self.irgs:
@@ -173,8 +174,7 @@ class ClangCodeGen:
       return
     self.instr_to_src[alu_node] = c_alu[alu_node.alu](*vals)
 
-
-class ClangCompiler:
+class ClangCompiler(Compiler):
   def compile(self, src: str):
     try:
       with tempfile.TemporaryFile() as outfile:
@@ -184,21 +184,17 @@ class ClangCompiler:
     except subprocess.CalledProcessError as e:
       print(f"clang failure: {e}")
 
-class ClangRuntime(metaclass=Profile):
+class ClangRuntime(Runtime):
   def _exec(self, *args): return getattr(self.lib, 'f_shrimp')(*args)
-  def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name):
+  def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name, name2pos):
     self.lib = lib
     self.buffs = buffs
     self.buff2name = buff2name
-    vin = {}
-    buff_cache = {}
-    for buff in buffs['input'] + buffs['output']:
-      if isinstance(buff, MemBuffer):
-        if id(buff.buff) not in buff_cache:
-          buff_cache[id(buff.buff)] = buff.buff._pointer(ctypes.c_float)
-        vin[buff2name[buff]] = buff_cache[id(buff.buff)]
+    vin = [None]*len(name2pos)
+    for buff in buffs['output'] + buffs['input']:
+      name = buff2name[buff]
+      if buff.__class__ is MemBuffer:
+        vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
       else:
-        vin[buff2name[buff]] = buff
-    self._exec(vin) # pylint: disable=exec-used
-
-
+        vin[name2pos[name]] = ctypes.c_float(buff.value)
+    self._exec(*vin) # pylint: disable=exec-used
