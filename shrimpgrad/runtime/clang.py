@@ -1,11 +1,12 @@
 from __future__ import annotations
 import ctypes
 import subprocess
-from typing import List, Tuple
-from shrimpgrad.device import Accelerator, MallocAllocator, Renderer
+from typing import DefaultDict, List, Tuple
+from shrimpgrad.device import Accelerator, ConstBuffer, MallocAllocator, MemBuffer, Renderer
 from shrimpgrad.dtype import DType, dtypes
 import tempfile
-from shrimpgrad.runtime.ops import Op, UnaryOps, BinaryOps, TernaryOps 
+from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
+from shrimpgrad.runtime.ops import Op, UnaryOps, BinaryOps, TernaryOps
 from shrimpgrad.runtime.profiler import Profile
 
 c_alu = {
@@ -20,66 +21,184 @@ c_alu = {
   BinaryOps.DIV: lambda x,y: f'{x}/{y}',
   TernaryOps.WHERE: lambda x,y,z: f'{x} ? {y} : {z}'}
 
-class ClangRenderer(Renderer):
-  def __init__(self):  self.func = {}
-  def _dtype_to_c(self, dtype: DType, ptr=True) -> str:
-    if dtype == dtypes.float32: return 'float'+ ('*' if ptr else '')
-    if dtype == dtypes.int32: return 'int' + ('*' if ptr else '')
-    if dtype == dtypes.bool: return 'bool' + ('*' if ptr else '')
-  def create_op(self, op: Op, shape:Tuple[int,...], strides:List[int], dtype: DType) -> None:
-    ctype = self._dtype_to_c(dtype) if op not in [BinaryOps.XOR, BinaryOps.MOD] else 'int*'
-    if op in BinaryOps: self.func[op] = {'args':{'in0':ctype, 'in1':ctype, 'out0': ctype}, 'name':op.name.lower()+'shrimp', 'shape':shape, 'strides':strides}
-    if op in UnaryOps: self.func[op] = {'args':{'in0':ctype, 'out0':ctype}, 'name':op.name.lower()+'shrimp', 'shape':shape, 'strides':strides}
-  def autogen(self, shape: Tuple[int,...], strides:List[int], dtype: DType):
-    for op in c_alu.keys():
-      self.create_op(op, shape, strides, dtype)
-  def render(self): return
-
-class ClangCodeGenerator:
-  def __init__(self, prg: ClangRenderer): self.prg, self._preamble, self._src = prg, '#include<stdio.h>\n#include<math.h>\n', ''
-  def render(self):
-    for op, opts in self.prg.func.items():
-      self._src += self._function(opts['name'], opts['args'], self._loops(opts['shape'], self._op(op, opts['args'].keys(), opts['shape'], opts['strides']))) + '\n'
-    return self._preamble + self._src
-  # Code Generation (Private)
-  def _loop(self,v, s, e, step, body): return f'for(int {v} = {s}; {v} < {e}; {v}+={step}) {{{body}}}'
-  def _loops(self, shape: Tuple[int,...], body: str) -> str: 
-    def build(shp, depth=0):
-      if not shp: return body
-      return self._loop(f'i{depth}', 0, shp[0], 1, build(shp[1:], depth+1))
-    return build(shape)
-  def _loop_vars(self, num_loops): return [f'i{num}' for num in range(num_loops)]
-  def _op(self, op: Op, args, shape, strides):
-    offset = '+'.join([self._offset(i, strd, 1) for i, strd in zip(self._loop_vars(len(shape)), strides)])
-    c_code = '' 
-    if op in BinaryOps: c_code = c_alu[op](*self._many_ptrinc(list(args)[0:2], offset))
-    if op in UnaryOps: c_code = c_alu[op](self._ptrinc(list(args)[0], offset))
-    if op in TernaryOps: c_code = c_alu[op](*self._many_ptrinc(list(args)[0:3], offset))
-    return f'out0[{offset}]={c_code};'
-  def _ptrinc(self, arg, offset): return f'{arg}[{offset}]' # ptr[offset]
-  def _many_ptrinc(self, args, offset): return [self._ptrinc(arg, offset) for arg in args]
-  def _offset(self, off:str, strd:int, step:int) -> str: return f'{off}*{strd}*{step}'
-  def _function(self, name:str, args: dict, body:str) -> str: return f'void {name} ({self._unpack_args(args)}) {{ { body} }}'
-  def _unpack_args(self, args: dict):  return ','.join([f'{typ} {name} ' for name, typ in args.items()])
-
-class ClangCompiler:
-  def compile(self, prg: ClangRenderer):
-    try:
-      with tempfile.TemporaryFile() as outfile:
-        subprocess.run(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
-                        '-o', str(outfile.name)], check=True, input=prg.render().encode('utf-8'))
-        return ctypes.CDLL('./'+str(outfile.name))
-    except subprocess.CalledProcessError as e:
-      print(f"clang failure: {e}") 
-
-class ClangRuntime(metaclass=Profile):
-  def __init__(self, lib): self.lib = lib
-  def exec(self, op: Op, *args): return getattr(self.lib, op.name.lower() + 'shrimp')(*args)
-
 class ClangDevice(Accelerator):
   def __init__(self) -> None:
     super().__init__("CLANG", MallocAllocator, ClangRenderer, ClangCompiler, ClangRuntime)
   def allocator(self): return self._allocator()
   def compiler(self): return self._compiler()
   def runtime(self): return self._runtime()
-  def renderer(self): return self._renderer
+  def renderer(self): return self._renderer()
+  def __repr__(self): return "<ClangDevice>"
+
+class ClangRenderer(Renderer):
+  def render(self, ir_graph: LowIRGraph):
+    return ClangCodeGen([ir_graph]).gen().tostring()
+
+class ClangCodeGen:
+  def __init__(self, ir_graphs: List[LowIRGraph]):
+    self.preamble ='#include<stdio.h>\n#include<math.h>\n'
+    self.gs = []
+    self.irgs = ir_graphs
+    self.src = []
+    self.instr_to_src = {}
+    self.indent = 0
+
+  @property
+  def spaces(self): return ' ' * self.indent
+
+  def param2src(self, g):
+    param = 'float'
+    if g[4]== dtypes.int32:
+      param = 'int'
+    if g[1]:
+      param += '*'
+    param += ' ' + g[0]
+    return param
+
+  def print(self):
+    print(self.preamble)
+    print(f"void f_shrimp({','.join([self.param2src(g) for g in self.gs])}) {{")
+    for src in self.src:
+      print("  " + src)
+
+  def tostring(self):
+    params = ','.join([self.param2src(g) for g in self.gs])
+    out = f"{self.preamble}"
+    out += (f"void f_shrimp({params}) {{\n")
+    for src in self.src:
+      out += "  " + src + "\n"
+    out += '}'
+    print(out)
+    return out
+
+  def gen(self):
+    for irg in self.irgs:
+      instrs = irg.G
+      i = 0
+      while i < len(instrs):
+        instr = instrs[i]
+        if instr.op is LowIR.END_LOOP:
+          self.indent -= 2
+          self.src.append(self.spaces+'}')
+          i += 1
+          continue
+        if instr.op is LowIR.CONST:
+          i += 1
+          continue
+        elif instr.op is LowIR.LOCAL:
+          self.instr_to_src[instr] = instr.name
+          if instr.ancestors[0].op is LowIR.ALU:
+            alu_node = instr.ancestors[0]
+            rhs = self.instr_to_src[alu_node]
+            self.src.append(f"{self.spaces}int {instr.name} = {rhs};")
+          else: # const
+            self.src.append(f"{self.spaces}int {instr.name} = {instr.ancestors[0].val};")
+        elif instr.op is LowIR.GLOBAL:
+          self.gs.append((instr.name, instr.ptr, instr.pos, instr.mutable, instr.dtype))
+        elif instr.op is LowIR.BEGIN_LOOP:
+          s, e = instr.ancestors[0], instr.ancestors[1].val
+          self.src.append(f"{self.spaces}for (; {s.name} < {e}; {s.name}++) {{ ")
+          self.indent += 2
+        elif instr.op is LowIR.ADDRESS:
+          addr = ''
+          for idx, stride in zip(instr.idx, instr.stride):
+            val = idx.name if isinstance(idx, LocalNode) else idx
+            addr += f"{val}*{stride}+"
+          self.instr_to_src[instr] = addr[:-1] if addr else 0
+        elif instr.op is LowIR.LOAD:
+          g = instr.ancestors[0]
+          addr = instr.ancestors[1]
+          if addr is not None:
+            idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
+            self.instr_to_src[instr] = f"{g.name}[{idx}]"
+          else:
+            self.instr_to_src[instr] = g.name
+        elif instr.op is LowIR.ALU:
+          self.exec_alu(instr)
+        elif instr.op is LowIR.STORE: self.store(instr)
+        elif instr.op is LowIR.OFFSET: self.offset(instr)
+        elif instr.op is LowIR.INC:
+          loc = instr.ancestors[0]
+          self.src.append(f"{self.spaces}{loc.name}++;")
+        else:
+          raise TypeError(f"{instr} is not a valid instr")
+        i+=1
+    return self
+
+  def store(self, instr):
+    idx = instr.ancestors[1]
+    if isinstance(idx, ConstNode):
+      idx = idx.val
+    else:
+      if idx is not None:
+        idx = self.instr_to_src[idx]
+
+    lhs = instr.ancestors[0]
+    rhs = self.instr_to_src[instr.ancestors[2]]
+
+    if isinstance(lhs, GlobalNode):
+      if lhs.ptr:
+        r = f"{lhs.name}[{idx}] = {rhs}"
+      else:
+        r = f"{lhs.name} = {rhs}"
+    else:
+      r = f"{lhs.name} = {rhs}"
+    self.src.append(self.spaces + r + ";")
+    return r
+
+  def offset(self, instr):
+    offset = instr.ancestors[0]
+    if offset.op is LowIR.ALU:
+      self.instr_to_src[instr] = self.instr_to_src[offset]
+    elif offset.op is LowIR.LOCAL:
+      self.instr_to_src[instr] = offset.name
+    else:
+      self.instr_to_src[instr] = offset.val
+
+  def exec_alu(self, alu_node: ALUNode):
+    vals = []
+    for operand in alu_node.ancestors:
+      if isinstance(operand, ConstNode):
+        vals.append(operand.val)
+      elif operand.op is LowIR.LOCAL:
+        vals.append(operand.name)
+      else:
+        vals.append(self.instr_to_src[operand])
+    if len(vals) > 2:
+      op = alu2str(alu_node.alu)
+      code = ''
+      for i in range(len(vals)):
+        code += f"{vals[i]} {op} "
+      self.instr_to_src[alu_node] = code[:-2]
+      return
+    self.instr_to_src[alu_node] = c_alu[alu_node.alu](*vals)
+
+
+class ClangCompiler:
+  def compile(self, src: str):
+    try:
+      with tempfile.TemporaryFile() as outfile:
+        subprocess.run(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
+                        '-o', str(outfile.name)], check=True, input=src.encode('utf-8'))
+        return ctypes.CDLL('./'+str(outfile.name))
+    except subprocess.CalledProcessError as e:
+      print(f"clang failure: {e}")
+
+class ClangRuntime(metaclass=Profile):
+  def _exec(self, *args): return getattr(self.lib, 'f_shrimp')(*args)
+  def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name):
+    self.lib = lib
+    self.buffs = buffs
+    self.buff2name = buff2name
+    vin = {}
+    buff_cache = {}
+    for buff in buffs['input'] + buffs['output']:
+      if isinstance(buff, MemBuffer):
+        if id(buff.buff) not in buff_cache:
+          buff_cache[id(buff.buff)] = buff.buff._pointer(ctypes.c_float)
+        vin[buff2name[buff]] = buff_cache[id(buff.buff)]
+      else:
+        vin[buff2name[buff]] = buff
+    self._exec(vin) # pylint: disable=exec-used
+
+
