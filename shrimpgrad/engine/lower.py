@@ -278,7 +278,7 @@ class LowerFusedKernel:
     self.node_to_symbol[cbuff] = name
     return g0
 
-  # Lower a buffer input or output into a global pointer
+  # Lower a buffer input or output into a global
   def lower_buffer(self, mbuff: MemBuffer, is_input: bool) -> GlobalNode:
     if mbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[mbuff]]
     prefix, mutable = ("out", True) if not is_input else ("data", False)

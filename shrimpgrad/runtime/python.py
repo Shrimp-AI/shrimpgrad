@@ -57,6 +57,7 @@ class PythonRuntime(Runtime):
         vin[buff2name[buff]] = buff_cache[id(buff.buff)]
       else:
         vin[buff2name[buff]] = buff
+    print(src)
     exec(src, vin) # pylint: disable=exec-used
 
 class PyCodeGen:
@@ -121,6 +122,8 @@ class PyCodeGen:
           self.instr_to_src[instr] = addr[:-1] if addr else 0
         elif instr.op is LowIR.LOAD:
           g = instr.ancestors[0]
+          is_defined = any(g_[0] == g.name for g_ in self.gs) 
+          if is_defined: self.gs.append((g.name, g.ptr, g.pos, g.mutable))
           addr = instr.ancestors[1]
           if addr is not None:
             idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val

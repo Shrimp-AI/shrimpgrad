@@ -7,7 +7,7 @@ from shrimpgrad.dtype import DType, dtypes, ConstType
 from random import uniform, gauss
 from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
-from shrimpgrad.runtime.python import PythonDevice
+from shrimpgrad.runtime.clang import ClangDevice 
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod
 import numpy as np
 
@@ -18,7 +18,7 @@ def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tupl
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device=PythonDevice(), requires_grad:Optional[bool]=None) -> Tensor:
+  def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
     self.requires_grad, self.index_view = requires_grad, None
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function

@@ -49,8 +49,7 @@ class ClangCodeGen:
     param = 'float'
     if g[4]== dtypes.int32:
       param = 'int'
-    if g[1]:
-      param += '*'
+    param += '*'
     param += ' ' + g[0]
     return param
 
@@ -68,8 +67,6 @@ class ClangCodeGen:
     for src in self.src:
       out += "  " + src + "\n"
     out += '}'
-    print(name2pos)
-    print(out)
     return out, name2pos
 
   def gen(self):
@@ -108,12 +105,17 @@ class ClangCodeGen:
           self.instr_to_src[instr] = addr[:-1] if addr else 0
         elif instr.op is LowIR.LOAD:
           g = instr.ancestors[0]
+          # Ensure the global is defined. Since all LowIRGraph's share the same symbol table
+          # sometimes a later IR won't define a global already defined in a previous IR.
+          # Here we define it to ensure it ends up in the parameter list.
+          is_defined = any(g_[0] == g.name for g_ in self.gs) 
+          if not is_defined: self.gs.append((g.name, g.ptr, g.pos, g.mutable, g.dtype))
           addr = instr.ancestors[1]
           if addr is not None:
             idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
             self.instr_to_src[instr] = f"{g.name}[{idx}]"
           else:
-            self.instr_to_src[instr] = g.name
+            self.instr_to_src[instr] = "(*"+g.name+")"
         elif instr.op is LowIR.ALU:
           self.exec_alu(instr)
         elif instr.op is LowIR.STORE: self.store(instr)
@@ -141,9 +143,9 @@ class ClangCodeGen:
       if lhs.ptr:
         r = f"{lhs.name}[{idx}] = {rhs}"
       else:
-        r = f"{lhs.name} = {rhs}"
+        r = f"*{lhs.name} = {rhs}"
     else:
-      r = f"{lhs.name} = {rhs}"
+      r = f"*{lhs.name} = {rhs}"
     self.src.append(self.spaces + r + ";")
     return r
 
@@ -176,6 +178,7 @@ class ClangCodeGen:
 
 class ClangCompiler(Compiler):
   def compile(self, src: str):
+    print(f"compiling\n{src}")
     try:
       with tempfile.TemporaryFile() as outfile:
         subprocess.run(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
@@ -191,10 +194,26 @@ class ClangRuntime(Runtime):
     self.buffs = buffs
     self.buff2name = buff2name
     vin = [None]*len(name2pos)
-    for buff in buffs['output'] + buffs['input']:
+
+    # TODO: Remove this hacky bit to extract 
+    # the result of an output of const by making consts use buffers of size 1
+    const_vals = []
+
+    for buff in buffs['output']:
       name = buff2name[buff]
       if buff.__class__ is MemBuffer:
         vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
       else:
-        vin[name2pos[name]] = ctypes.c_float(buff.value)
-    self._exec(*vin) # pylint: disable=exec-used
+        vin[name2pos[name]] = ctypes.byref(val:=ctypes.c_float(buff.value))
+        const_vals.append((buff,val))
+
+    for buff in buffs['input']:
+      name = buff2name[buff]
+      if buff.__class__ is MemBuffer:
+        vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
+      else:
+        vin[name2pos[name]] = ctypes.byref(ctypes.c_float(buff.value))
+
+    self._exec(*vin) 
+    for buff, val in const_vals:
+      buff.value = val.value

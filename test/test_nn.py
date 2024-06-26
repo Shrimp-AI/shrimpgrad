@@ -64,7 +64,6 @@ class TestNN(unittest.TestCase):
     x = Tensor((2,2), [1.0,2.0,3.0,4.0])
     model = nn.Linear(2,2)
     z = model(x).square().mean()
-    # log_thunk(z.thunk)
     z.realize()
     with torch.no_grad():
       torch_model = torch.nn.Linear(2,2).eval()
