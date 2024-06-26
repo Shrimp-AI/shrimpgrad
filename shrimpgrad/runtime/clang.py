@@ -1,10 +1,8 @@
 from __future__ import annotations
-import ctypes
-import subprocess
+import ctypes, pathlib, tempfile, subprocess
 from typing import DefaultDict, List
 from shrimpgrad.device import Accelerator, Compiler, ConstBuffer, MallocAllocator, MemBuffer, Renderer, Runtime
 from shrimpgrad.dtype import dtypes
-import tempfile
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 
@@ -108,7 +106,7 @@ class ClangCodeGen:
           # Ensure the global is defined. Since all LowIRGraph's share the same symbol table
           # sometimes a later IR won't define a global already defined in a previous IR.
           # Here we define it to ensure it ends up in the parameter list.
-          is_defined = any(g_[0] == g.name for g_ in self.gs) 
+          is_defined = any(g_[0] == g.name for g_ in self.gs)
           if not is_defined: self.gs.append((g.name, g.ptr, g.pos, g.mutable, g.dtype))
           addr = instr.ancestors[1]
           if addr is not None:
@@ -177,25 +175,26 @@ class ClangCodeGen:
     self.instr_to_src[alu_node] = c_alu[alu_node.alu](*vals)
 
 class ClangCompiler(Compiler):
-  def compile(self, src: str):
-    print(f"compiling\n{src}")
-    try:
-      with tempfile.TemporaryFile() as outfile:
-        subprocess.run(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
-                        '-o', str(outfile.name)], check=True, input=src.encode('utf-8'))
-        return ctypes.CDLL('./'+str(outfile.name))
-    except subprocess.CalledProcessError as e:
-      print(f"clang failure: {e}")
+  def compile(self, src: str) -> bytes:
+    with tempfile.NamedTemporaryFile(delete=True) as outfile:
+      subprocess.check_output(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
+                      '-o', str(outfile.name)], input=src.encode('utf-8'))
+      return pathlib.Path(outfile.name).read_bytes()
 
 class ClangRuntime(Runtime):
-  def _exec(self, *args): return getattr(self.lib, 'f_shrimp')(*args)
+  def _exec(self, *args):
+    with tempfile.NamedTemporaryFile(delete=True) as cached_file_path:
+      pathlib.Path(cached_file_path.name).write_bytes(self.lib)
+      self.fxn = ctypes.CDLL(str(cached_file_path.name))['f_shrimp']
+      self.fxn(*args)
+
   def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name, name2pos):
     self.lib = lib
     self.buffs = buffs
     self.buff2name = buff2name
     vin = [None]*len(name2pos)
 
-    # TODO: Remove this hacky bit to extract 
+    # TODO: Remove this hacky bit used to extract
     # the result of an output of const by making consts use buffers of size 1
     const_vals = []
 
@@ -214,6 +213,6 @@ class ClangRuntime(Runtime):
       else:
         vin[name2pos[name]] = ctypes.byref(ctypes.c_float(buff.value))
 
-    self._exec(*vin) 
+    self._exec(*vin)
     for buff, val in const_vals:
       buff.value = val.value
