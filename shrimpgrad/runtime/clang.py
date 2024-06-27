@@ -1,7 +1,7 @@
 from __future__ import annotations
 import ctypes, pathlib, tempfile, subprocess
 from typing import DefaultDict, List
-from shrimpgrad.device import Accelerator, Compiler, ConstBuffer, MallocAllocator, MemBuffer, Renderer, Runtime
+from shrimpgrad.device import Accelerator, Compiler, ConstBuffer, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
 from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
@@ -18,14 +18,24 @@ c_alu = {
   BinaryOps.DIV: lambda x,y: f'{x}/{y}',
   TernaryOps.WHERE: lambda x,y,z: f'{x} ? {y} : {z}'}
 
-class ClangDevice(Accelerator):
+class ClangDevice(Accelerator, Jitable):
   def __init__(self) -> None:
     super().__init__("CLANG", MallocAllocator, ClangRenderer, ClangCompiler, ClangRuntime)
   def allocator(self): return self._allocator()
   def compiler(self): return self._compiler()
   def runtime(self): return self._runtime()
   def renderer(self): return self._renderer()
-  def __repr__(self): return "<ClangDevice>"
+  def jitify(self, kernels):
+    srcs = []
+    buffs = []
+    buff2names = []
+    for ck in kernels:
+      srcs.append(ck.src)
+      buffs.extend(ck.buffs['input'] + ck.buffs['output'])
+      buff2names.append(ck.buff2name)
+    print(srcs)
+    print(buffs)
+    print(buff2names)
 
 class ClangRenderer(Renderer):
   def render(self, ir_graph: LowIRGraph):

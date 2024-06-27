@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections import defaultdict
 from typing import DefaultDict, List
 from shrimpgrad.device import Accelerator, ConstBuffer, MemBuffer
@@ -22,6 +23,11 @@ def _lower(schedule: List[FusedKernel]) -> List[LowIRGraph]:
   buff_to_name = lkb.node_to_symbol
   return irgs
 
+# When running with JIT, the JIT engine will
+# add itself to this list, allowing the runner
+# to add the kernel to the JIT engine.
+shrimp_jit = []
+
 def realize(out: Thunk):
   kernels: List[CompiledKernel|BufferCopy] = []
   sched = _schedule(out)
@@ -41,6 +47,7 @@ def realize(out: Thunk):
   for irg, buffs in zip(ir_graphs, buffers):
     kernels.append(CompiledKernel(irg, out.device, buff_to_name, buffs))
   for kernel in kernels:
+    if shrimp_jit: shrimp_jit[0].jit_capture(kernel)
     kernel()
 
 def _gen_load_kernels(schedule: List[FusedKernel]) -> None:

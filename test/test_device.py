@@ -1,4 +1,4 @@
-from shrimpgrad.device import CPU, MallocAllocator
+from shrimpgrad.device import CPU, Jitable, MallocAllocator
 from shrimpgrad.runtime.clang import ClangDevice
 import unittest
 
@@ -12,6 +12,7 @@ class TestDevice(unittest.TestCase):
     dev0 = ClangDevice()
     self.assertEqual(dev0, dev)
     self.assertTrue(isinstance(dev.allocator(), MallocAllocator))
+    self.assertTrue(isinstance(dev, Jitable))
 
   def test_host_device(self):
     dev = CPU()

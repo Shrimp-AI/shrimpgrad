@@ -8,10 +8,25 @@ from shrimpgrad.meta.singleton import Singleton
 from shrimpgrad.view import ViewTracker
 import numpy as np
 
+"""
+ Base Classes for Device
+
+ A host device is the CPU on the executing machine, mainly used for copying
+ user provided data into a buffer.
+
+ An acclerator device is any stack of compiler, allocator, runtime, renderer
+ and jittable with the purpose of speeding up inference and training.
+
+ For example, the ClangDevice provides support for executing Shrimp Tensor computations
+ via C.
+
+ Devices are singletons.
+"""
 class Device(metaclass=Singleton):
   def __init__(self, name:str): self.name = name
   def __eq__(self, other: Device): return self.name == other.name
   def __hash__(self): return id(self)
+  def __repr__(self): return self.name
 
 class Allocator:
   def alloc(self): raise NotImplementedError('implement alloc')
@@ -35,10 +50,13 @@ class Accelerator(Device):
   def compiler(self) -> Compiler: raise NotImplementedError('implement compiler for accelerator')
   def allocator(self) -> Allocator: raise NotImplementedError('implement allocator for accelerator')
   def runtime(self) -> Runtime: raise NotImplementedError('implement runtime for accelerator')
-  def renderer(self): raise NotImplementedError('implement renderer for accelerator')
+  def renderer(self) -> Renderer: raise NotImplementedError('implement renderer for accelerator')
 
-class HostDevice(Device):
-  pass
+# A mixin for devices that want the capability of executing native only.
+class Jitable:
+  def jitify(self): raise NotImplementedError('implement jitify')
+
+class HostDevice(Device): pass
 
 class CPU(HostDevice):
   def __init__(self):
