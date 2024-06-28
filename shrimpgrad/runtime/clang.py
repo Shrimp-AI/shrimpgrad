@@ -26,34 +26,42 @@ class ClangDevice(Accelerator, Jitable):
   def compiler(self): return self.compiler_
   def runtime(self): return self._runtime()
   def renderer(self): return self._renderer()
-  def jitify(self, kernels):
+  def jitify(self, kernels, input_buffers):
     native_src = []
     prgs: List[ClangProgram] = [ck.prg for ck in kernels]
     buffs = [ck.buffs for ck in kernels]
     buff2names = [ck.buff2name for ck in kernels]
-
     # Add all imports
     native_src.append(prgs[0].preamble)
-
     # Add all the functions
     for prg in prgs:
-      fsrc = f"{prg.fsig} {{\n{prg.fbdy}}}"
+      fsrc = f"{prg.fsig} {{\n{prg.fbdy}}}\n"
       native_src.append(fsrc)
-
-    native_src.append("\nvoid batched() {{ \n")
+    args = [f"float* arg{i}" for i in range(len(input_buffers))]
+    body = []
+    native_src.append(f"\nvoid batched({','.join(args)}) {{ \n")
+    in_names = {}
     for i,buff in enumerate(buffs):
       for buff_ in buff['input'] + buff['output']:
         if buff_.__class__ is MemBuffer:
-          native_src.append(f"  float* {buff2names[i][buff_]} = (float *)0x{ctypes.addressof(buff_.buff._pointer(ctypes.c_float)):X};\n")
+          if buff_.buff not in input_buffers:
+            body.append(f"  float* {buff2names[i][buff_]}{i} = (float*)0x{ctypes.addressof(buff_.buff._pointer(ctypes.c_float)):X};\n")
+          else:
+            in_names[buff2names[i][buff_]] = input_buffers.index(buff_.buff)
         else:
-          native_src.append(f" float* {buff2names[i][buff_]} =  (float *)0x{ctypes.addressof(ctypes.c_float(buff.value)):X};\n")
-
-    for prg in prgs:
-      args = [None] * len(prg.args2pos)
-      for n, pos in prg.args2pos.items():
-        args[pos] = n
+          if buff_ not in input_buffers:
+            body.append(f" float* {buff2names[i][buff_]}{i} =  (float*)0x{ctypes.addressof(ctypes.c_float(buff.value)):X};\n")
+          else:
+            in_names[buff2names[i][buff_]] = input_buffers.index(buff_.buff)
+    native_src.extend(body)
+    for i,prg in enumerate(prgs):
+      args = [] 
+      for n, _ in prg.args2pos.items():
+        if n in in_names:
+          args.append(f"arg{in_names[n]}")
+          continue
+        args.append(f"{n}{i}")
       native_src.append(f"  {prg.fname}({','.join(args)});\n")
-
     native_src.append("}\n")
     native_src_ = "".join(native_src)
     print(native_src_)
@@ -62,7 +70,6 @@ class ClangDevice(Accelerator, Jitable):
       pathlib.Path(cached_file_path.name).write_bytes(native_lib)
       self.fxn = ctypes.CDLL(str(cached_file_path.name))['batched']
       return self.fxn
-
 
 class ClangProgram:
   def __init__(self, src:str, preamble: str, fsig: str, fbdy: str,

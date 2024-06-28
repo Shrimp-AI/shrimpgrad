@@ -344,7 +344,6 @@ class Tensor:
     else:
       data = base.cbuff.value
       return np.array(data)
-
     return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
 
   def numpy(self): return self.realize().data()
