@@ -75,24 +75,12 @@ class CompiledKernel:
   def __init__(self, ir: LowIRGraph, dev: Accelerator, buff_to_name, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]]
 ) -> None:
     self.ir, self.dev, self.buffs = ir, dev, buffs
-    self.src, self.name2pos = self.dev.renderer().render(self.ir)
-    self.lib = self.dev.compiler().compile(self.src)
+    self.prg = self.dev.renderer().render(self.ir)
+    self.lib = self.dev.compiler().cached_compile(self.prg.src)
     self.buff2name = buff_to_name
   def __repr__(self) -> str: return f"<CompiledKernel id={id(self)}>"
-  def __str__(self) -> str:
-    hdr_hdr = f"{'':<^20}{'':>^20}\n"
-    header = f"{'':<^10}COMPILED KERNEL{'':>^10}\n"
-    dev    = f"DEVICE: {str(self.dev):>5}\n"
-    ins_hdr    = "INPUTS: \n"
-    ins = "\n".join([buff_to_name[buff] if buff in buff_to_name else str(buff) for buff in self.buffs['input']]) + "\n"
-    outs_hdr    = "OUTPUT: \n"
-    outs =  "\n".join([buff_to_name[buff] if buff in buff_to_name else str(buff) for buff in self.buffs['output']]) + "\n"
-    ir_hdr = "IR: \n"
-    ir   =  f"{self.ir}\n"
-    footer = f"{'':<^20}{'':>^20}\n"
-    return hdr_hdr + header + dev + ins_hdr + ins + outs_hdr + outs + ir_hdr + ir + footer
   def __call__(self):
-    self.rt = self.dev.runtime().exec(self.lib, self.buffs, self.buff2name, self.name2pos)
+    self.rt = self.dev.runtime().exec(self.lib, self.prg.fname, self.buffs, self.buff2name, self.prg.args2pos)
 
 class BufferCopy:
   def __init__(self, dst: MemBuffer, src: MemBuffer, size: int):

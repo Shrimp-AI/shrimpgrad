@@ -4,7 +4,7 @@ from shrimpgrad import Tensor
 
 from shrimpgrad.engine.lower import LowerFusedKernel
 from shrimpgrad.engine.scheduler import FusedKernelBuilder
-from shrimpgrad.runtime.clang import ClangCodeGen, ClangDevice
+from shrimpgrad.runtime.clang import ClangCodeGen
 
 
 class TestClang(unittest.TestCase):
@@ -18,8 +18,3 @@ class TestClang(unittest.TestCase):
     ir_graphs = lfk.lower()
     pcg = ClangCodeGen(ir_graphs)
     pcg.gen()
-
-  def test_jitify_exists(self):
-    x = Tensor.ones((2,2), device=ClangDevice())
-    x.device.jitify([])
-

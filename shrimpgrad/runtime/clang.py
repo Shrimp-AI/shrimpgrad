@@ -1,6 +1,6 @@
 from __future__ import annotations
 import ctypes, pathlib, tempfile, subprocess
-from typing import DefaultDict, List
+from typing import DefaultDict, Dict, List
 from shrimpgrad.device import Accelerator, Compiler, ConstBuffer, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
 from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
@@ -21,25 +21,57 @@ c_alu = {
 class ClangDevice(Accelerator, Jitable):
   def __init__(self) -> None:
     super().__init__("CLANG", MallocAllocator, ClangRenderer, ClangCompiler, ClangRuntime)
+    self.compiler_ = self._compiler()
   def allocator(self): return self._allocator()
-  def compiler(self): return self._compiler()
+  def compiler(self): return self.compiler_
   def runtime(self): return self._runtime()
   def renderer(self): return self._renderer()
   def jitify(self, kernels):
-    srcs = []
-    buffs = []
-    buff2names = []
-    for ck in kernels:
-      srcs.append(ck.src)
-      buffs.extend(ck.buffs['input'] + ck.buffs['output'])
-      buff2names.append(ck.buff2name)
-    print(srcs)
-    print(buffs)
-    print(buff2names)
+    native_src = []
+    prgs: List[ClangProgram] = [ck.prg for ck in kernels]
+    buffs = [ck.buffs for ck in kernels]
+    buff2names = [ck.buff2name for ck in kernels]
+
+    # Add all imports
+    native_src.append(prgs[0].preamble)
+
+    # Add all the functions
+    for prg in prgs:
+      fsrc = f"{prg.fsig} {{\n{prg.fbdy}}}"
+      native_src.append(fsrc)
+
+    native_src.append("\nvoid batched() {{ \n")
+    for i,buff in enumerate(buffs):
+      for buff_ in buff['input'] + buff['output']:
+        if buff_.__class__ is MemBuffer:
+          native_src.append(f"  float* {buff2names[i][buff_]} = (float *)0x{ctypes.addressof(buff_.buff._pointer(ctypes.c_float)):X};\n")
+        else:
+          native_src.append(f" float* {buff2names[i][buff_]} =  (float *)0x{ctypes.addressof(ctypes.c_float(buff.value)):X};\n")
+
+    for prg in prgs:
+      args = [None] * len(prg.args2pos)
+      for n, pos in prg.args2pos.items():
+        args[pos] = n
+      native_src.append(f"  {prg.fname}({','.join(args)});\n")
+
+    native_src.append("}\n")
+    native_src_ = "".join(native_src)
+    print(native_src_)
+    native_lib = self.compiler().cached_compile(native_src_)
+    with tempfile.NamedTemporaryFile(delete=True) as cached_file_path:
+      pathlib.Path(cached_file_path.name).write_bytes(native_lib)
+      self.fxn = ctypes.CDLL(str(cached_file_path.name))['batched']
+      return self.fxn
+
+
+class ClangProgram:
+  def __init__(self, src:str, preamble: str, fsig: str, fbdy: str,
+               fname: str, args2pos: Dict[str, int]):
+    self.preamble, self.fsig, self.fbdy, self.fname, self.args2pos, self.src = preamble, fsig, fbdy, fname, args2pos, src
 
 class ClangRenderer(Renderer):
   def render(self, ir_graph: LowIRGraph):
-    return ClangCodeGen([ir_graph]).gen().tostring()
+    return ClangCodeGen([ir_graph]).gen().to_program()
 
 class ClangCodeGen:
   def __init__(self, ir_graphs: List[LowIRGraph]):
@@ -67,15 +99,21 @@ class ClangCodeGen:
     for src in self.src:
       print("  " + src)
 
-  def tostring(self):
-    name2pos = {g[0]:i for i,g in enumerate(self.gs)}
+  def func_name(self):
+    # TODO: Better naming algo
+    return f"f_{id(self.irgs[0])}"
+
+  def to_program(self):
     params = ','.join([self.param2src(g) for g in self.gs])
-    out = f"{self.preamble}"
-    out += (f"void f_shrimp({params}) {{\n")
+    src_ = self.preamble
+    fname = self.func_name()
+    fsig = f"void {fname}({params})"
+    src_ += fsig + " { \n"
+    body = ''
     for src in self.src:
-      out += "  " + src + "\n"
-    out += '}'
-    return out, name2pos
+      body += "  " + src + "\n"
+    src_ += body + "}\n"
+    return ClangProgram(src_, self.preamble, fsig, body, fname, {g[0]:i for i,g in enumerate(self.gs)})
 
   def gen(self):
     for irg in self.irgs:
@@ -192,13 +230,13 @@ class ClangCompiler(Compiler):
       return pathlib.Path(outfile.name).read_bytes()
 
 class ClangRuntime(Runtime):
-  def _exec(self, *args):
+  def _exec(self, func_name:str, *args):
     with tempfile.NamedTemporaryFile(delete=True) as cached_file_path:
       pathlib.Path(cached_file_path.name).write_bytes(self.lib)
-      self.fxn = ctypes.CDLL(str(cached_file_path.name))['f_shrimp']
+      self.fxn = ctypes.CDLL(str(cached_file_path.name))[func_name]
       self.fxn(*args)
 
-  def exec(self, lib: bytes, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name, name2pos):
+  def exec(self, lib: bytes, func_name:str, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name, name2pos):
     self.lib = lib
     self.buffs = buffs
     self.buff2name = buff2name
@@ -223,6 +261,6 @@ class ClangRuntime(Runtime):
       else:
         vin[name2pos[name]] = ctypes.byref(ctypes.c_float(buff.value))
 
-    self._exec(*vin)
+    self._exec(func_name, *vin)
     for buff, val in const_vals:
       buff.value = val.value

@@ -19,5 +19,6 @@ class TestJit(unittest.TestCase):
     self.assertEqual(len(f.jit_kernels), 0)
     z = f(x,y)
     self.assertEqual(len(f.jit_kernels), 1)
+    z = f(x,y)
     np.testing.assert_allclose(z.data(), 2.0)
 

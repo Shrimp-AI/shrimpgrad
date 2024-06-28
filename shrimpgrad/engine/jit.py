@@ -5,9 +5,6 @@ from shrimpgrad import Tensor
 from shrimpgrad.device import Jitable
 from shrimpgrad.engine.runner import CompiledKernel, shrimp_jit
 
-
-
-
 class JitExec:
   pass
 
@@ -16,8 +13,9 @@ def jit_capture_kernels(kernels: List[CompiledKernel], device: Jitable):
   assert isinstance(device, Jitable), f"device {device} is not jittable"
   assert kernels, "no kernels to capture"
   print(f"[JIT_CAPTURE_KERNELS] capturing {len(kernels)} kernels for {device}")
-  device.jitify(kernels)
+  native_fxn = device.jitify(kernels)
   print("[DONE JIT_CAPTURE_KERNELS]")
+  return native_fxn
 
 ReturnType = TypeVar('ReturnType')
 class ShrimpJit(Generic[ReturnType]):
@@ -31,6 +29,7 @@ class ShrimpJit(Generic[ReturnType]):
     # The number of times this jitted function has
     # executed.
     self.exec_cnt = 0
+    self.native_lib = None
 
   def __call__(self, *args, **kwargs) -> ReturnType:
     input_tensors = [(name, t) for name, t in enumerate(args) if t.__class__ is Tensor]
@@ -45,10 +44,16 @@ class ShrimpJit(Generic[ReturnType]):
       self.ret = self.fn(*args, **kwargs)
       shrimp_jit.clear()
       device = self.ret.device
-      jit_capture_kernels(self.jit_kernels, device)
+      self.native_fxn = jit_capture_kernels(self.jit_kernels, device)
+      self.native_fxn()
     else:
       #  jit exec
       print("[JIT_EXEC]")
+      assert self.native_fxn is not None, 'Native function failed to compile!'
+      print(self.native_fxn)
+      # self.native_fxn()
+      print("[JIT_EXEC DONE]")
+
 
     self.exec_cnt += 1
     return self.ret

@@ -38,7 +38,14 @@ class Renderer:
   def render(self): raise NotImplementedError('implement render')
 
 class Compiler:
+  def __init__(self):
+    self.cache = {}
   def compile(self): raise NotImplementedError('implement compile')
+  def cached_compile(self, src: str):
+    if src in self.cache:
+      return self.cache[src]
+    self.cache[src] = self.compile(src)
+    return self.cache[src]
 
 class Runtime:
   def exec(self): raise NotImplementedError('implement exec')
