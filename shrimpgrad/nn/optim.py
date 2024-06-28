@@ -2,7 +2,6 @@
 from typing import Iterable
 from shrimpgrad.tensor import Tensor
 
-
 class Optimizer:
   def __init__(self, params: Iterable[Tensor], lr=1e-3):
     assert params, 'params are empty'
@@ -37,7 +36,10 @@ class SGD(Optimizer):
           g += self.momentum*b
         else:
           g = b
-      t.assign(t.detach() - self.lr*g)
-      t.realize()
+      # TODO: Assign is creating some strange effects so reverting to direct
+      # overwriting of the buffer
+      delta = t.detach() - self.lr*g
+      delta.realize()
+      t.thunk.base.buff = delta.thunk.base.buff
       if b is not None: b.realize()
 

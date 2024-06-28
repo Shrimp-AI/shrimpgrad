@@ -1,5 +1,4 @@
 
-from ctypes import cast
 from typing import Callable, Generic, List, TypeVar
 
 from shrimpgrad import Tensor
@@ -15,7 +14,7 @@ class JitExec:
 
 def jit_capture_kernels(kernels: List[CompiledKernel], device: Jitable):
   assert isinstance(device, Jitable), f"device {device} is not jittable"
-  assert kernels, f"no kernels to capture"
+  assert kernels, "no kernels to capture"
   print(f"[JIT_CAPTURE_KERNELS] capturing {len(kernels)} kernels for {device}")
   device.jitify(kernels)
   print("[DONE JIT_CAPTURE_KERNELS]")
@@ -50,7 +49,6 @@ class ShrimpJit(Generic[ReturnType]):
     else:
       #  jit exec
       print("[JIT_EXEC]")
-      pass
 
     self.exec_cnt += 1
     return self.ret

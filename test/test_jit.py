@@ -1,4 +1,3 @@
-from itertools import repeat
 import unittest
 
 from shrimpgrad import Tensor
@@ -21,4 +20,4 @@ class TestJit(unittest.TestCase):
     z = f(x,y)
     self.assertEqual(len(f.jit_kernels), 1)
     np.testing.assert_allclose(z.data(), 2.0)
-  
+
