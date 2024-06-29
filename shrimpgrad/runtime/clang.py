@@ -38,28 +38,38 @@ class ClangDevice(Accelerator, Jitable):
       fsrc = f"{prg.fsig} {{\n{prg.fbdy}}}\n"
       native_src.append(fsrc)
     args = [f"float* arg{i}" for i in range(len(input_buffers))]
-    body = []
+    body = {}
     native_src.append(f"\nvoid batched({','.join(args)}) {{ \n")
     in_names = {}
+    declared = set()
     for i,buff in enumerate(buffs):
       for buff_ in buff['input'] + buff['output']:
         if buff_.__class__ is MemBuffer:
           if buff_.buff not in input_buffers:
-            body.append(f"  float* {buff2names[i][buff_]}{i} = (float*)0x{ctypes.addressof(buff_.buff._pointer(ctypes.c_float)):X};\n")
+            if (name:=f"{buff2names[i][buff_]}{i}") in declared: continue
+            declared.add(name)
+            body[name] = (f"  float* {name} = (float*)0x{ctypes.addressof(buff_.buff._pointer(ctypes.c_float)):X};\n")
           else:
             in_names[buff2names[i][buff_]] = input_buffers.index(buff_.buff)
         else:
           if buff_ not in input_buffers:
-            body.append(f" float* {buff2names[i][buff_]}{i} =  (float*)0x{ctypes.addressof(ctypes.c_float(buff.value)):X};\n")
+            if (name:=f"{buff2names[i][buff_]}{i}") in declared: continue
+            declared.add(name)
+            body[name] = (f"  float* {name} =  (float*)0x{ctypes.addressof(ctypes.c_float(buff_.value)):X};\n")
           else:
             in_names[buff2names[i][buff_]] = input_buffers.index(buff_.buff)
-    native_src.extend(body)
+
+    # native_src.extend(body)
     for i,prg in enumerate(prgs):
-      args = [] 
+      args = []
       for n, _ in prg.args2pos.items():
         if n in in_names:
           args.append(f"arg{in_names[n]}")
           continue
+        name = f"{n}{i}"
+        if name in body:
+          native_src.append(body[f"{n}{i}"])
+          del body[name]
         args.append(f"{n}{i}")
       native_src.append(f"  {prg.fname}({','.join(args)});\n")
     native_src.append("}\n")

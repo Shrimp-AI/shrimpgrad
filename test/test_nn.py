@@ -76,7 +76,6 @@ class TestNN(unittest.TestCase):
     torch_x = torch.tensor(x.data().copy()).reshape(2,2)
     torch_z = torch_model(torch_x).square().mean()
     np.testing.assert_allclose(np.array(z.data()), torch_z.detach().numpy(), atol=5e-4, rtol=1e-5)
-    # TODO: FIX BACKWARD PASSES
     torch_z.backward()
     z.backward()
     model.w.grad.realize()
@@ -91,7 +90,7 @@ class TestNN(unittest.TestCase):
     b0 = shrimp_model.layers[0].bias
     w1 = shrimp_model.layers[2].w
     b1 = shrimp_model.layers[2].bias
-    sloss = shrimp_model(Tensor.fromlist(X.shape, X.flatten().tolist())).binary_cross_entropy(Tensor.fromlist(y.shape, y.flatten().tolist()))
+    sloss = shrimp_model(Tensor.fromlist(X.shape, X.flatten().tolist())).reshape(100).binary_cross_entropy(Tensor.fromlist(y.shape, y.flatten().tolist()))
     sloss.realize()
     tw0 = torch.tensor(w0.data().copy(), dtype=torch.float32,requires_grad=True).reshape(*w0.shape)
     tb0 = torch.tensor(b0.data().copy(), dtype=torch.float32, requires_grad=True).reshape(*b0.shape)
@@ -103,12 +102,11 @@ class TestNN(unittest.TestCase):
     tout = torch_model(torch.tensor(X, dtype=torch.float32)).reshape(100)
     tloss = torch.nn.functional.binary_cross_entropy(tout, torch.tensor(y, dtype=torch.float32))
 
-    # TODO: Tweak tolerances and compare with different BCE, torch bce is not identical
-    # np.testing.assert_allclose(np.array(sloss.data), tloss.detach().numpy(), atol=1e-6, rtol=1e-2)
+    np.testing.assert_allclose(sloss.data(), tloss.detach().numpy(), atol=1e-6, rtol=1e-2)
 
     sloss.backward()
     tloss.backward()
-    # np.testing.assert_allclose(np.array(w0.grad.data).reshape(50,2).transpose(), torch_model.linear_relu_stack[0].weight.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
+    np.testing.assert_allclose(w0.grad.numpy(), torch_model.linear_relu_stack[0].weight.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
 
   def test_basic_net_(self):
     weights_shrimp, weights_torch = prepare_tensors([(2,2),(2,2),(2,), (2,)])
@@ -133,7 +131,7 @@ class TestNN(unittest.TestCase):
 
     z1.backward()
     z1_.backward()
-    # np.testing.assert_allclose(np.array(w0.grad.data).reshape(*w0.grad.shape).transpose(), w0_.grad.detach().numpy(), atol=1e-4, rtol=1e-2)
+    np.testing.assert_allclose(w0.grad.numpy(), w0_.grad.detach().numpy(), atol=1e-4, rtol=1e-2)
 
   def test_basic_net_bce_loss_(self):
     weights_shrimp, weights_torch = prepare_tensors([(2,2),(1,2),(2,), (1,)])
@@ -156,14 +154,12 @@ class TestNN(unittest.TestCase):
     z1_ = (torch.matmul(z0_, w1_.transpose(0,1)) + b1_ ).sigmoid()
     np.testing.assert_allclose(z1.data(), z1_.detach().numpy(), atol=1e-6, rtol=1e-3)
 
-    z2 = z1.binary_cross_entropy(_:=Tensor.fromlist(y.shape, y.flatten().tolist()))
+    z2 = z1.reshape(100).binary_cross_entropy(_:=Tensor.fromlist(y.shape, y.flatten().tolist()))
     z2.realize()
-    _ = torch.nn.functional.binary_cross_entropy(z1_.reshape(100), torch.tensor(y, dtype=torch.float32))
-    # TODO: BCE doesn't match up with torch unless I write a custom BCE for torch that matches our impl
-    # np.testing.assert_allclose(z2.data(), z2_.detach().numpy(), atol=1e-6, rtol=1e-3)
+    z2_ = torch.nn.functional.binary_cross_entropy(z1_.reshape(100), torch.tensor(y, dtype=torch.float32))
+    np.testing.assert_allclose(z2.data(), z2_.detach().numpy(), atol=1e-6, rtol=1e-3)
 
-    # z2.backward()
-    # z2_.backward()
+    z2.backward()
+    z2_.backward()
 
-
-    # np.testing.assert_allclose(np.array(w0.grad.data).reshape(*w0.grad.shape).transpose(), w0_.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
+    np.testing.assert_allclose(w0.grad.numpy(), w0_.grad.detach().numpy(), atol=1e-4, rtol=1e-3)

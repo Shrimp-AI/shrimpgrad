@@ -4,6 +4,7 @@ from shrimpgrad.engine.jit import ShrimpJit
 import numpy as np
 
 import time
+
 def _simple_test(add, extract=lambda x: x, N=10):
   for i in range(5):
     a = Tensor.randn(N, N)
@@ -21,7 +22,7 @@ class TestJit(unittest.TestCase):
       z = x + y
       return z.realize()
     _simple_test(f)
-  
+
   def test_simple_jit_reset(self):
     @ShrimpJit
     def add(a, b): return (a+b).realize()
@@ -33,7 +34,7 @@ class TestJit(unittest.TestCase):
     @ShrimpJit
     def add(a, b): return (a+b)
     _simple_test(add)
-  
+
   def test_jit_multiple_outputs(self):
     @ShrimpJit
     def f(a, b): return (a+b).realize(), (a-b).realize(), (a*b).realize()
@@ -44,15 +45,3 @@ class TestJit(unittest.TestCase):
       np.testing.assert_allclose(c.numpy(), a.numpy()+b.numpy(), atol=1e-4, rtol=1e-5)
       np.testing.assert_allclose(d.numpy(), a.numpy()-b.numpy(), atol=1e-4, rtol=1e-5)
       np.testing.assert_allclose(e.numpy(), a.numpy()*b.numpy(), atol=1e-4, rtol=1e-5)
-
-  # def test_jit_shape_mismatch(self):
-  #   @ShrimpJit
-  #   def add(a, b): return (a+b).realize()
-  #   for _ in range(5):
-  #     a = Tensor.randn(10, 10)
-  #     b = Tensor.randn(10, 10)
-  #     add(a, b)
-  #   bad = Tensor.randn(20, 20)
-  #   with self.assertRaises(AssertionError):
-  #     add(a, bad)
-

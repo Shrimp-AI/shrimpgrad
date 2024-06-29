@@ -32,10 +32,7 @@ class TestOptimizer(unittest.TestCase):
     y = Tensor.full((2,2), 3.0)
     p1 = Tensor.full((2,2), 2.0, requires_grad=True)
     p2 = Tensor.full((2,2), 3.0, requires_grad=True)
-    z = x.matmul(y).matmul(p1).relu().matmul(p2).relu().sub(Tensor.full((2,2), 17.1)).square().mean()
-    z.realize()
-    z.backward()
-
+    _ = x.matmul(y).matmul(p1).relu().matmul(p2).relu().sub(Tensor.full((2,2), 17.1)).square().mean().backward()
     sgd = optim.SGD([p1,p2])
     sgd.step()
 

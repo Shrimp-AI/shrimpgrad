@@ -1,5 +1,6 @@
 
 from typing import Iterable
+from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.tensor import Tensor
 
 class Optimizer:
@@ -36,10 +37,7 @@ class SGD(Optimizer):
           g += self.momentum*b
         else:
           g = b
-      # TODO: Assign is creating some strange effects so reverting to direct
-      # overwriting of the buffer
-      delta = t.detach() - self.lr*g
-      delta.realize()
-      t.thunk.base.buff = delta.thunk.base.buff
+      t.assign(t.detach() - self.lr*g)
+      t.realize()
       if b is not None: b.realize()
 
