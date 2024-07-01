@@ -1,6 +1,7 @@
 import unittest
 import numpy as np
 from shrimpgrad import Tensor
+from shrimpgrad.engine.jit import ShrimpJit
 
 
 class TestAssign(unittest.TestCase):
@@ -35,7 +36,6 @@ class TestAssign(unittest.TestCase):
     x.realize()
     np.testing.assert_array_equal(x.data(), 2.0)
 
-
   def test_assign_zeros_good(self):
     a = Tensor.zeros((10,10))
     a.assign(Tensor.ones((10,10)))
@@ -44,7 +44,6 @@ class TestAssign(unittest.TestCase):
     b.realize()
     np.testing.assert_allclose(b.data(), 0)
     np.testing.assert_allclose(a.data(), 1)
-
 
   def test_assign_add_double(self):
     def f(x):
@@ -92,7 +91,7 @@ class TestAssign(unittest.TestCase):
     a.assign(Tensor.full((4,), 2.))
     # Now times_a will be 2*3
     new = a + (times_a-1)
-    np.testing.assert_allclose(new.realize().data(), 7)
+    np.testing.assert_allclose(new.realize().data(), 4)
 
   def test_assign_diamond_possible(self):
     # TODO: Torch returns 4 here
@@ -101,7 +100,7 @@ class TestAssign(unittest.TestCase):
     a.assign(Tensor.full((4,), 2.))
     # times_a = 6, a = 2
     new = a + (times_a-1)
-    np.testing.assert_allclose(new.numpy(), 7)
+    np.testing.assert_allclose(new.numpy(), 4)
 
   def test_assign_diamond_alt(self):
     a = Tensor.ones((4,)).realize()
@@ -146,7 +145,6 @@ class TestAssign(unittest.TestCase):
     b1 = Tensor.full((16, ), 2).realize()
     r0 = (a0 - b1).sum(1)
     r1 = (a1 - b0).sum(1)
-    r1.realize()
     b0.assign(r0 * b0)
     b1.assign(r1 * b1)
     np.testing.assert_equal(b0.numpy(), 128)
@@ -156,7 +154,6 @@ class TestAssign(unittest.TestCase):
     a = Tensor.full((4,), 2).realize()
     b = Tensor.full((4,), 3).realize()
     c = a+9
-    c.realize()
     # Referentially Opaque:
     # For instance, a now has two meanings in the text. a = 2 or a = 2 + 3
     # Any mention of a is context dependent. c = a + 9 means a where a = 2,
@@ -173,16 +170,60 @@ class TestAssign(unittest.TestCase):
     np.testing.assert_allclose(b.numpy(), 3+2+9)
 
   def test_crossunder_assign_merge(self):
-
     a = Tensor.full((4,), 2).realize()
     b = Tensor.full((4,), 3).realize()
     c = a+9
-    c.realize()
     a += b
     b += c
     out = a*b
-
     out.realize()
-
     np.testing.assert_allclose(a.numpy(), 2+3)
     np.testing.assert_allclose(b.numpy(), 3+2+9)
+
+  def test_simple_assignment_multioutput(self):
+    a = Tensor.randn(32, 32).realize()
+    b = Tensor.full((32, ), 1.).realize()
+    c = Tensor.full((32, ), 2.).realize()
+    d = Tensor.full((32, ), 3.).realize()
+
+    r = a.sum(axis=1)
+    b.assign(r + b)
+    c.assign(r + c)
+    d.assign(r + d)
+
+    np.testing.assert_allclose(b.numpy(), a.sum(1).numpy()+1)
+    np.testing.assert_allclose(c.numpy(), a.sum(1).numpy()+2)
+    np.testing.assert_allclose(d.numpy(), a.sum(1).numpy()+3)
+
+  def test_permuted_assignment_correct(self):
+    a = Tensor.arange(0,4 * 4).reshape(4, 4).realize()
+    b = Tensor.arange(0,4 * 4).reshape(4, 4).realize()
+    # TODO: scheduler limitation, should NOT raise AssertionError from numpy.
+    a = a.permute((1, 0))
+    new_val = a + b
+    a.assign(new_val)
+    np.testing.assert_equal(a.numpy(), np.arange(4 * 4).reshape(4, 4).transpose(1, 0) + np.arange(4 * 4).reshape(4, 4))
+
+  def test_assign_add_jit(self):
+    @ShrimpJit
+    def f(x):
+      x += 1
+      return x.realize()
+
+    x = Tensor((1,),[0])
+    for _ in range(5): f(x)
+    assert x.data()[0] == 5
+
+  def test_assign_add_jit_other(self):
+    @ShrimpJit
+    def f(x):
+      x += 1
+      return x.realize()
+    x = Tensor((1,),[0])
+    for _ in range(5): f(x)
+    assert x.data()[0] == 5
+
+    # TODO: Input doesn't match do something in JIT
+    # y = Tensor((1,),[0])
+    # for _ in range(4): f(y)
+    # assert y.data()[0] == 4

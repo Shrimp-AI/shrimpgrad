@@ -80,7 +80,11 @@ class CompiledKernel:
     self.buff2name = buff_to_name
   def __repr__(self) -> str: return f"<CompiledKernel id={id(self)}>"
   def __call__(self):
-    self.rt = self.dev.runtime().exec(self.lib, self.prg.fname, self.buffs, self.buff2name, self.prg.args2pos)
+    try:
+      self.rt = self.dev.runtime().exec(self.lib, self.prg.fname, self.buffs, self.buff2name, self.prg.args2pos)
+    except Exception as e:
+      print(self.prg.src)
+      raise e
 
 class BufferCopy:
   def __init__(self, dst: MemBuffer, src: MemBuffer, size: int):

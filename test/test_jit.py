@@ -1,9 +1,14 @@
+import ctypes
 import unittest
 from shrimpgrad import Tensor
 from shrimpgrad.engine.jit import ShrimpJit
+from shrimpgrad.nn.optim import SGD
 import numpy as np
 
+
 import time
+
+from shrimpgrad.nn import Linear, get_parameters
 
 def _simple_test(add, extract=lambda x: x, N=10):
   for i in range(5):
@@ -39,9 +44,72 @@ class TestJit(unittest.TestCase):
     @ShrimpJit
     def f(a, b): return (a+b).realize(), (a-b).realize(), (a*b).realize()
     for _ in range(5):
-      a = Tensor.randn(10, 10)
-      b = Tensor.randn(10, 10)
+      a = Tensor.randn(9, 10)
+      b = Tensor.randn(9, 10)
       c, d, e = f(a, b)
-      np.testing.assert_allclose(c.numpy(), a.numpy()+b.numpy(), atol=1e-4, rtol=1e-5)
-      np.testing.assert_allclose(d.numpy(), a.numpy()-b.numpy(), atol=1e-4, rtol=1e-5)
-      np.testing.assert_allclose(e.numpy(), a.numpy()*b.numpy(), atol=1e-4, rtol=1e-5)
+      np.testing.assert_allclose(c.data(), a.numpy()+b.numpy(), atol=1e-4, rtol=1e-5)
+      np.testing.assert_allclose(d.data(), a.numpy()-b.numpy(), atol=1e-4, rtol=1e-5)
+      np.testing.assert_allclose(e.data(), a.numpy()*b.numpy(), atol=1e-4, rtol=1e-5)
+
+  def test_jit_multiple_outputs_const(self):
+    @ShrimpJit
+    def f(a, b): return (a+b).realize(), (a-b).realize(), (a*b).realize()
+    for _ in range(5):
+      a = Tensor.rand()
+      b = Tensor.rand()
+      c, d, e = f(a, b)
+      print(f"{a.data() = } {b.data() = }")
+      print(f"{c.data() = } {d.data() = } {e.data() = }")
+      np.testing.assert_allclose(c.data(), a.numpy()+b.numpy(), atol=1e-4, rtol=1e-5)
+      np.testing.assert_allclose(d.data(), a.numpy()-b.numpy(), atol=1e-4, rtol=1e-5)
+      np.testing.assert_allclose(e.data(), a.numpy()*b.numpy(), atol=1e-4, rtol=1e-5)
+
+  def test_jit_baby_nn(self):
+    class Model:
+      def __init__(self):
+        self.w = Tensor.ones((2,2))
+      def __call__(self, x: Tensor):
+        return (x + self.w).relu()
+
+    m = Model()
+    x = Tensor.ones((2,2))
+    sgd = SGD([m.w])
+    def f(x):
+      out = m(x)
+      loss = out.mean()
+      loss.backward()
+      sgd.step()
+      return loss
+
+    f(x)
+    f(x)
+    f(x)
+    f(x)
+
+    out = m(x)
+    out.realize()
+
+  def test_jit_nn_model(self):
+    class Model:
+      def __init__(self):
+        self.layers = [
+          Linear(10,10), Tensor.relu,
+          Linear(10,1), Tensor.relu
+        ]
+      def __call__(self, x: Tensor):
+        return x.sequential(self.layers)
+      def layer_one_weights(self):
+        return self.layers[0].w.thunk.base.buff._pointer(ctypes.c_float)[0:10], self.layers[0].bias
+    m = Model()
+    y = Tensor.ones((10,1))
+    x = Tensor.ones((10,10))
+    sgd = SGD(get_parameters(m))
+    @ShrimpJit
+    def f(x):
+      out = m(x)
+      loss = out.sub(y).square().mean()
+      loss.backward()
+      sgd.step()
+      return loss
+    for _ in range(5): f(x)
+    _ = m(x).realize()

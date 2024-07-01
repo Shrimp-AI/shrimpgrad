@@ -107,8 +107,7 @@ class TestLower(unittest.TestCase):
     out = x.log()
     fkb = FusedKernelBuilder(out.thunk)
     schedule = fkb.schedule()
-    # 1 copy, 1 const, 1 log
-    self.assertEqual(3, len(schedule))
+    self.assertEqual(2, len(schedule))
     print_schedule(schedule)
     lfk = LowerFusedKernel(schedule)
     ir_graphs = lfk.lower()

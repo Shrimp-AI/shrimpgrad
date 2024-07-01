@@ -28,6 +28,7 @@ class ClangDevice(Accelerator, Jitable):
   def renderer(self): return self._renderer()
   def jitify(self, kernels, input_buffers):
     native_src = []
+    persist = {}
     prgs: List[ClangProgram] = [ck.prg for ck in kernels]
     buffs = [ck.buffs for ck in kernels]
     buff2names = [ck.buff2name for ck in kernels]
@@ -55,9 +56,12 @@ class ClangDevice(Accelerator, Jitable):
           if buff_ not in input_buffers:
             if (name:=f"{buff2names[i][buff_]}{i}") in declared: continue
             declared.add(name)
-            body[name] = (f"  float* {name} =  (float*)0x{ctypes.addressof(ctypes.c_float(buff_.value)):X};\n")
+            f=ctypes.c_float(buff_.value)
+            persist[name]=f
+            addr = ctypes.addressof(persist[name])
+            body[name] = (f"  float* {name} =  (float*)0x{addr:X};\n")
           else:
-            in_names[buff2names[i][buff_]] = input_buffers.index(buff_.buff)
+            in_names[buff2names[i][buff_]] = input_buffers.index(buff_)
 
     # native_src.extend(body)
     for i,prg in enumerate(prgs):
@@ -204,7 +208,7 @@ class ClangCodeGen:
 
     if isinstance(lhs, GlobalNode):
       if lhs.ptr:
-        r = f"{lhs.name}[{idx}] = {rhs}"
+        r = f"{lhs.name}[{idx if idx is not None else 0}] = {rhs}"
       else:
         r = f"*{lhs.name} = {rhs}"
     else:
@@ -259,25 +263,11 @@ class ClangRuntime(Runtime):
     self.buff2name = buff2name
     vin = [None]*len(name2pos)
 
-    # TODO: Remove this hacky bit used to extract
-    # the result of an output of const by making consts use buffers of size 1
-    const_vals = []
-
     for buff in buffs['output']:
       name = buff2name[buff]
-      if buff.__class__ is MemBuffer:
-        vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
-      else:
-        vin[name2pos[name]] = ctypes.byref(val:=ctypes.c_float(buff.value))
-        const_vals.append((buff,val))
-
+      vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
     for buff in buffs['input']:
       name = buff2name[buff]
-      if buff.__class__ is MemBuffer:
-        vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
-      else:
-        vin[name2pos[name]] = ctypes.byref(ctypes.c_float(buff.value))
+      vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
 
     self._exec(func_name, *vin)
-    for buff, val in const_vals:
-      buff.value = val.value

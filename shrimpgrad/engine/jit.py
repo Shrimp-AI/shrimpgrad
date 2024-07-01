@@ -37,7 +37,7 @@ class ShrimpJit(Generic[ReturnType]):
 
   def __call__(self, *args, **kwargs) -> ReturnType:
     input_tensors: List[Tensor] = [(name, t) for name, t in enumerate(args) if t.__class__ is Tensor]
-    self.input_buffers = [t.thunk.base.buff if not t.is_scalar() else t.thunk.base.cbuff for _, t in input_tensors]
+    self.input_buffers = [t.thunk.base.buff for _, t in input_tensors]
     for _, t in input_tensors: t.realize()
     if self.exec_cnt == 0:
       print("[JIT_IGNORE]")
@@ -53,12 +53,12 @@ class ShrimpJit(Generic[ReturnType]):
       shrimp_jit.clear()
       device = self.ret.device if self.ret.__class__ is Tensor else self.ret[0].device
       self.native_fxn = jit_capture_kernels(self.jit_kernels, self.input_buffers, device)
-      self.native_fxn(*[b._pointer(ctypes.c_float) for b in self.input_buffers])
+      del self.replace_buffer
     else:
       #  jit exec
       print("[JIT_EXEC]")
       assert self.native_fxn is not None, 'Native function failed to compile!'
-      self.native_fxn(*[b._pointer(ctypes.c_float) for b in self.input_buffers])
+      self.native_fxn(*[b._pointer(ctypes.c_float) if not b.__class__ is ConstBuffer else ctypes.byref(ctypes.c_float(b.value)) for b in self.input_buffers])
     self.exec_cnt += 1
     return self.ret
 
@@ -70,13 +70,11 @@ class ShrimpJit(Generic[ReturnType]):
       new_buff = self.add_buffer(buff)
       b2n[new_buff] = name
       buffs['input'].append(new_buff)
-      print("capturing new buffer")
     for buff in ck.buffs['output']:
       name = ck.buff2name[buff]
       new_buff = self.add_buffer(buff)
       b2n[new_buff] = name
       buffs['output'].append(new_buff)
-      print("capturing new buffer")
     self.jit_kernels.append(CompiledKernel(ck.ir, ck.dev, b2n, buffs))
 
   def add_buffer(self, b: Union[MemBuffer|ConstBuffer]) -> Union[MemBuffer|ConstBuffer]:
@@ -85,6 +83,6 @@ class ShrimpJit(Generic[ReturnType]):
       if b.buff.allocated: return b
       self.replace_buffer[b] = ret = MemBuffer(Buffer(b.buff.device, b.buff.size, b.buff.dtype), b.vt)
     else:
-      self.replace_buffer[b] = ret = ConstBuffer(b.value, b.device, b.vt)
+      return b
     return ret
 

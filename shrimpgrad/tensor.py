@@ -7,7 +7,7 @@ from shrimpgrad.dtype import DType, dtypes, ConstType
 from random import uniform, gauss
 from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
-from shrimpgrad.runtime.clang import ClangDevice 
+from shrimpgrad.runtime.clang import ClangDevice
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod
 import numpy as np
 
@@ -24,7 +24,9 @@ class Tensor:
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
     if isinstance(data, Thunk): self.thunk = data
-    else: self.thunk = Thunk.load_from_cpu(data, dtype, shape)
+    else:
+      if shape == () and not isinstance(data, ConstType) and len(data) == 1: data = data[0]
+      self.thunk = Thunk.load_from_cpu(data, dtype, shape)
     if self.thunk.device != device: self.thunk = self.thunk.copy_to_device(device)
 
   def backward(self) -> Tensor:
@@ -99,16 +101,13 @@ class Tensor:
   def replace(self, x: Tensor) -> Tensor:
     assert x.shape == self.shape, f'shape mismatch on replace {self.shape} != {x.shape}'
     assert x.dtype == self.dtype, f'dtype mismatch on replace {self.dtype} != {x.dtype}'
-    assert self.thunk.base.realized is None, 'replace requires tensor to be unrealized'
     self.thunk = x.thunk
     return self
 
   def assign(self, x: Tensor) -> Tensor:
     assert x.shape == self.shape, f'shape mismatch on assign {self.shape} != {x.shape}'
     assert x.dtype == self.dtype, f'dtype mismatch on assign {self.dtype} != {x.dtype}'
-    if self.thunk.base.realized is None: return self.replace(x)
-    self.thunk = self.thunk.assign(x.thunk)
-    return self
+    return self.replace(x)
 
   def cast(self, dtype: DType) -> Tensor:
     from shrimpgrad.autograd.function import Cast
@@ -341,9 +340,10 @@ class Tensor:
         arr = np.frombuffer(data, dtype=np.float32).reshape(self.shape)
         arr = np.lib.stride_tricks.as_strided(arr, strides=strides)
         return arr
+      if base.shape == ():
+        return np.frombuffer(data, dtype=np.float32).reshape(())
     else:
-      data = base.cbuff.value
-      return np.array(data)
+      raise TypeError("self is not realized wheres the bufff")
     return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
 
   def numpy(self): return self.realize().data()

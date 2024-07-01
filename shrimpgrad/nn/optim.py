@@ -1,6 +1,5 @@
 
 from typing import Iterable
-from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.tensor import Tensor
 
 class Optimizer:

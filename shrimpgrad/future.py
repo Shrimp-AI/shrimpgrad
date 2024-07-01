@@ -3,7 +3,7 @@ from collections import defaultdict, deque
 from functools import partial
 from typing import Any, Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, TypeAlias, Union
 from weakref import WeakValueDictionary, ref
-from shrimpgrad.device import CPU, Device, Buffer, ConstBuffer, MemBuffer
+from shrimpgrad.device import CPU, Device, Buffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
 from shrimpgrad.util import prod
@@ -41,13 +41,10 @@ class Thunk:
       if op == LoadOps.ASSIGN:
         lhs = self._operands[0].base
         # += etc. requires lhs to be filled with the values of lhs
-        self.buff = lhs.buff if hasattr(lhs, 'buff') else lhs.cbuff
-      elif op != LoadOps.CONST and not self.vt.scalar:
-        # I'm the base I own the real buffer
-        self.buff = Buffer(self.device, self.vt.numel, self.dtype)
+        self.buff = lhs.buff
       else:
-        self.arg = 0.0 if arg is None else arg
-        self.cbuff = ConstBuffer(self.arg, self.device, self.vt)
+        # I'm the base I own the real buffer
+        self.buff = Buffer(self.device, self.vt.numel if not self.vt.scalar else 1, self.dtype)
     else:
       assert base.base == base, "base must be the base"
       self._base = base
@@ -88,21 +85,17 @@ class Thunk:
     assert(self.isreduce), f"{self._op} don't have a reduce input shape"
     return self._operands[0].shape
 
-  def get_input_buffers(self) -> Sequence[Union[ConstBuffer, MemBuffer]]:
+  def get_input_buffers(self) -> Sequence[Union[MemBuffer]]:
     inputs = []
     if self.isroot: return inputs
     for operand in self._operands:
       base = operand
       new_view = operand.vt
       if operand.isview: base = operand.base
-      if base._op is LoadOps.CONST or base.vt.scalar:
-        inputs.append(base.cbuff)
-      else: inputs.append(MemBuffer(base.buff, new_view))
+      inputs.append(MemBuffer(base.buff, new_view))
     return inputs
 
-  def get_output_buffer(self) -> Union[MemBuffer, ConstBuffer]:
-    if self._op is LoadOps.CONST or self.vt.scalar:
-      return self.cbuff
+  def get_output_buffer(self) -> Union[MemBuffer]:
     return MemBuffer(self.base.buff, self.vt)
 
   # Builder methods
@@ -136,7 +129,9 @@ class Thunk:
   def load_from_cpu(data, dtype, shape):
     if not len(shape):
       assert isinstance(data, ConstType), 'scalar thunk requires a const argument'
-      return Thunk.loadop(LoadOps.CONST, shape, dtype, CPU(), arg=data)
+      thunk = Thunk.loadop(LoadOps.CONST, shape, dtype, CPU(), arg=data)
+      thunk.buff.allocate(with_data=data)
+      return thunk
     assert len(data) == prod(shape), f'data and size mismatch {len(data)} != {prod(shape)}'
     thunk = Thunk.loadop(LoadOps.EMPTY, shape, dtype, CPU())
     thunk.buff.allocate(with_data=data)
@@ -157,7 +152,10 @@ class Thunk:
 
   def const(self, val: ConstType, shape: Tuple[int,...]=None):
     shape = self.shape if shape is None else shape
-    return Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val).reshape((1,)*len(shape)).expand(shape)
+    assert isinstance(val, ConstType), 'const thunk requires a const argument'
+    thunk = Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val)
+    thunk.buff.allocate(with_data=val)
+    return thunk.reshape((1,)*len(shape)).expand(shape)
 
   def assign(self, rhs: Thunk) -> Thunk:
     assert self.numel == rhs.numel, f"assign size mismatch {self.numel} != {rhs.numel}"

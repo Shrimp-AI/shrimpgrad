@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 import functools
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-from shrimpgrad.device import ConstBuffer, MemBuffer
+from shrimpgrad.device import MemBuffer
 from shrimpgrad.dtype import ConstType, DType, dtypes
 from shrimpgrad.engine.scheduler import FusedKernel
 from shrimpgrad.runtime.ops import BinaryOps, LoadOps, ReduceOps, TernaryOps, UnaryOps
@@ -269,15 +269,6 @@ class LowerFusedKernel:
     self.accum_counter += 1
     return name
 
-  # Lower a constant input or output into a global non-pointer
-  def lower_const(self, cbuff: ConstBuffer, is_input: bool) -> LocalNode:
-    if cbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[cbuff]]
-    prefix, mutable = ("out", True) if not is_input else ("data", False)
-    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, mutable, self.arg_count - 1, False)
-    self.symbol_table[name] = g0
-    self.node_to_symbol[cbuff] = name
-    return g0
-
   # Lower a buffer input or output into a global
   def lower_buffer(self, mbuff: MemBuffer, is_input: bool) -> GlobalNode:
     if mbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[mbuff]]
@@ -287,9 +278,8 @@ class LowerFusedKernel:
     self.node_to_symbol[mbuff] = name
     return g0
 
-  def lower_io(self, io: MemBuffer|ConstBuffer, is_input:bool) -> GlobalNode|ConstNode:
-    if isinstance(io, MemBuffer): return self.lower_buffer(io, is_input)
-    return self.lower_const(io, is_input)
+  def lower_io(self, io: MemBuffer, is_input:bool) -> GlobalNode|ConstNode:
+    return self.lower_buffer(io, is_input)
 
   def lower_load(self, g: GlobalNode, addr: Optional[AddressNode|OffsetNode]=None) -> LoadNode:
     # If g is a pointer, load with an address, otw. just load the value
@@ -306,9 +296,9 @@ class LowerFusedKernel:
     return self.g.local_var(self.local_name(), dtype, self.g.const(dtype, val) if not isinstance(val, Node) else val)
 
   def lower_bop(self,
-                in0: Union[ConstBuffer, MemBuffer],
-                in1: Union[ConstBuffer, MemBuffer],
-                out0: Union[ConstBuffer, MemBuffer],
+                in0: MemBuffer,
+                in1: MemBuffer,
+                out0:MemBuffer,
                 idxs: List[LocalNode],
                 strides0: Tuple[int,...],
                 strides1: Tuple[int,...],
@@ -334,8 +324,8 @@ class LowerFusedKernel:
     self.lower_store(out, addr2, alu0)
 
   def lower_uop(self,
-                in0: Union[ConstBuffer, MemBuffer],
-                out0: Union[ConstBuffer, MemBuffer],
+                in0: MemBuffer,
+                out0: MemBuffer,
                 idxs: List[LocalNode],
                 strd0: Tuple[int,...],
                 strd1: Tuple[int,...],
@@ -358,13 +348,12 @@ class LowerFusedKernel:
 
   def lower_rop(self,
                 in0: MemBuffer,
-                out0: Union[MemBuffer, ConstBuffer],
+                out0: MemBuffer ,
                 axis: Tuple[int, ...],
                 rop: ReduceOps):
     in_shape = in0.vt.shape
-    out_shape = out0.vt.shape if isinstance(out0, MemBuffer) else ()
+    out_shape = out0.vt.shape
     out = self.lower_io(out0, False)
-    assert isinstance(in0, MemBuffer), "Reducing a constant is just the constant"
     # Define a global for the input
     g_in = self.lower_io(in0, True)
     if len(axis) == len(in_shape) and in0.vt.contiguous:
@@ -479,10 +468,7 @@ class LowerFusedKernel:
       if vt0.scalar and vt1.scalar:
         self.lower_assign(out, rhs, vt0, vt1, [])
         return
-      if inputs[0].__class__ == ConstBuffer:
-        loops, idxs = self.lower_start_loops(vt1.ndim, vt1.shape)
-      else:
-        loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
+      loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
       self.lower_assign(out, rhs, vt0, vt1, idxs)
       self.lower_end_loops(loops)
       return
@@ -494,7 +480,7 @@ class LowerFusedKernel:
 
       # Dimension and shapes should be the same
       # so use vt0 unless it's a const
-      if inputs[0].__class__ == ConstBuffer:
+      if inputs[0].vt.scalar:
         loops, idxs = self.lower_start_loops(vt1.ndim, vt1.shape)
       else:
         loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
