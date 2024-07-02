@@ -152,12 +152,13 @@ class ClangCodeGen:
           continue
         elif instr.op is LowIR.LOCAL:
           self.instr_to_src[instr] = instr.name
+          typ = 'float' if instr.dtype == dtypes.float32 else 'int'
           if instr.ancestors[0].op is LowIR.ALU:
             alu_node = instr.ancestors[0]
             rhs = self.instr_to_src[alu_node]
-            self.src.append(f"{self.spaces}int {instr.name} = {rhs};")
+            self.src.append(f"{self.spaces}{typ} {instr.name} = {rhs};")
           else: # const
-            self.src.append(f"{self.spaces}int {instr.name} = {instr.ancestors[0].val};")
+            self.src.append(f"{self.spaces}{typ} {instr.name} = {instr.ancestors[0].val};")
         elif instr.op is LowIR.GLOBAL:
           self.gs.append((instr.name, instr.ptr, instr.pos, instr.mutable, instr.dtype))
         elif instr.op is LowIR.BEGIN_LOOP:
@@ -175,14 +176,18 @@ class ClangCodeGen:
           # Ensure the global is defined. Since all LowIRGraph's share the same symbol table
           # sometimes a later IR won't define a global already defined in a previous IR.
           # Here we define it to ensure it ends up in the parameter list.
-          is_defined = any(g_[0] == g.name for g_ in self.gs)
-          if not is_defined: self.gs.append((g.name, g.ptr, g.pos, g.mutable, g.dtype))
-          addr = instr.ancestors[1]
-          if addr is not None:
-            idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
-            self.instr_to_src[instr] = f"{g.name}[{idx}]"
+          if g.__class__ is GlobalNode:
+            is_defined = any(g_[0] == g.name for g_ in self.gs)
+            if not is_defined: self.gs.append((g.name, g.ptr, g.pos, g.mutable, g.dtype))
+            addr = instr.ancestors[1]
+            if addr is not None:
+              idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
+              self.instr_to_src[instr] = f"{g.name}[{idx}]"
+            else:
+              self.instr_to_src[instr] = "(*"+g.name+")"
           else:
-            self.instr_to_src[instr] = "(*"+g.name+")"
+            self.instr_to_src[instr] = "("+g.name+")"
+
         elif instr.op is LowIR.ALU:
           self.exec_alu(instr)
         elif instr.op is LowIR.STORE: self.store(instr)
@@ -212,7 +217,7 @@ class ClangCodeGen:
       else:
         r = f"*{lhs.name} = {rhs}"
     else:
-      r = f"*{lhs.name} = {rhs}"
+      r = f"{lhs.name} = {rhs}"
     self.src.append(self.spaces + r + ";")
     return r
 
@@ -245,6 +250,7 @@ class ClangCodeGen:
 
 class ClangCompiler(Compiler):
   def compile(self, src: str) -> bytes:
+    print(src)
     with tempfile.NamedTemporaryFile(delete=True) as outfile:
       subprocess.check_output(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
                       '-o', str(outfile.name)], input=src.encode('utf-8'))

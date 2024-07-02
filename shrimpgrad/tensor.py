@@ -349,6 +349,17 @@ class Tensor:
   def numpy(self): return self.realize().data()
 
   # Object Representation
+  def analyze(self):
+    assert self.thunk.base.realized is not None, "Can't analyze unrealized tensor."
+    is_view = self.thunk.isview
+    op = self.thunk._op
+    buffer = self.thunk.base.buff
+    buffer_addr = f"0x{ctypes.addressof(buffer._pointer(ctypes.c_float)):X}"
+    grad_buffer = self.grad.thunk.base.buff
+    grad_buffer_addr = f"0x{ctypes.addressof(grad_buffer._pointer(ctypes.c_float)):X}" if hasattr(grad_buffer, '_buf') else "NONE"
+    print(f"{op = } {is_view = } alloc={buffer.allocated} {buffer_addr = } alloc={grad_buffer.allocated} {grad_buffer_addr = }")
+  
+
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"
   def __str__(self): return self.__repr__()
   def __hash__(self): return id(self)

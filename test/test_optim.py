@@ -26,7 +26,6 @@ class TestOptimizer(unittest.TestCase):
     assert sgd.weight_decay == 1e-7
     assert sgd.nesterov == True
 
-
   def test_sgd_step(self):
     x = Tensor.ones((2,2))
     y = Tensor.full((2,2), 3.0)

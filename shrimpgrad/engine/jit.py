@@ -17,8 +17,7 @@ def jit_capture_kernels(kernels: List[CompiledKernel], input_buffers: List[Buffe
 def _process_return_type(ret: ReturnType):
   if ret.__class__ in [List, tuple]:
     for r in ret: r.realize() if r.thunk.base.realized is None else ''
-  elif ret.thunk.realized is None: ret.realize()
-
+  elif ret.thunk.base.realized is None: ret.realize()
 
 ReturnType = TypeVar('ReturnType')
 class ShrimpJit(Generic[ReturnType]):

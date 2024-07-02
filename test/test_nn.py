@@ -1,6 +1,8 @@
 from typing import List, Callable
 from shrimpgrad import Tensor, nn
 import unittest
+from shrimpgrad.engine.jit import ShrimpJit
+from shrimpgrad.nn import get_parameters, optim
 import torch
 import numpy as np
 
@@ -107,6 +109,61 @@ class TestNN(unittest.TestCase):
     sloss.backward()
     tloss.backward()
     np.testing.assert_allclose(w0.grad.numpy(), torch_model.linear_relu_stack[0].weight.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
+
+  def test_basic_net_training(self):
+    X, y  = dataset()
+    y = y.reshape(100)
+    # Build the models, realize shrimp model to transfer the weights to the torch model
+    shrimp_model = ShrimpModel()
+    torch_model = TorchModel()
+    w0 = shrimp_model.layers[0].w
+    b0 = shrimp_model.layers[0].bias
+    w1 = shrimp_model.layers[2].w
+    b1 = shrimp_model.layers[2].bias
+
+    sloss = shrimp_model(Tensor.fromlist(X.shape, X.flatten().tolist())).reshape(100).binary_cross_entropy(Tensor.fromlist(y.shape, y.flatten().tolist()))
+    sloss.realize()
+
+    tw0 = torch.tensor(w0.data().copy(), dtype=torch.float32,requires_grad=True).reshape(*w0.shape)
+    tb0 = torch.tensor(b0.data().copy(), dtype=torch.float32, requires_grad=True).reshape(*b0.shape)
+    tw1 = torch.tensor(w1.data().copy(), dtype=torch.float32, requires_grad=True).reshape(*w1.shape)
+    tb1 = torch.tensor(b1.data().copy(), dtype=torch.float32,requires_grad=True).reshape(*b1.shape)
+
+    with torch.no_grad():
+      torch_model.inject_weights(tw0,tb0, tw1, tb1)
+    torch_model.set_requires_grad()
+
+    tout = torch_model(torch.tensor(X, dtype=torch.float32)).reshape(100)
+    tloss = torch.nn.functional.binary_cross_entropy(tout, torch.tensor(y, dtype=torch.float32))
+
+    np.testing.assert_allclose(sloss.data(), tloss.detach().numpy(), atol=1e-6, rtol=1e-2)
+
+    sgd = optim.SGD(get_parameters(shrimp_model))
+    sgd_ = torch.optim.SGD(torch_model.parameters())
+
+    @ShrimpJit
+    def train_step(X,y): 
+      sgd.zero_grad()
+      loss = shrimp_model(Tensor.fromlist(X.shape, X.flatten().tolist())).reshape(100).binary_cross_entropy(Tensor.fromlist(y.shape, y.flatten().tolist())).backward()
+      sgd.step()
+      return loss
+
+    def torch_train_step(X,y):
+      sgd_.zero_grad()
+      tout = torch_model(torch.tensor(X, dtype=torch.float32)).reshape(100)
+      tloss = torch.nn.functional.binary_cross_entropy(tout, torch.tensor(y, dtype=torch.float32))
+      tloss.backward()
+      sgd_.step()
+      return tloss
+    from shrimpgrad.util import dump_tensors 
+    for i in range(3):
+      sloss = train_step(X,y)
+      dump_tensors(sloss) 
+      tloss = torch_train_step(X,y)
+      print(f"epoch={i} torch_loss={tloss.detach().numpy()} shrimp_loss={sloss.data()}")
+      np.testing.assert_allclose(w0.grad.numpy(), torch_model.linear_relu_stack[0].weight.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
+      np.testing.assert_allclose(b0.grad.numpy(), torch_model.linear_relu_stack[0].bias.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
+      np.testing.assert_allclose(sloss.data(), tloss.detach().numpy(), atol=1e-6, rtol=1e-2)
 
   def test_basic_net_(self):
     weights_shrimp, weights_torch = prepare_tensors([(2,2),(2,2),(2,), (2,)])
