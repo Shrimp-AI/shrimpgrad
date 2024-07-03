@@ -16,8 +16,9 @@ def jit_capture_kernels(kernels: List[CompiledKernel], input_buffers: List[Buffe
 
 def _process_return_type(ret: ReturnType):
   if ret.__class__ in [List, tuple]:
-    for r in ret: r.realize() if r.thunk.base.realized is None else ''
-  elif ret.thunk.base.realized is None: ret.realize()
+    for r in ret: r.realize() 
+    return
+  ret.realize()
 
 ReturnType = TypeVar('ReturnType')
 class ShrimpJit(Generic[ReturnType]):
@@ -36,8 +37,8 @@ class ShrimpJit(Generic[ReturnType]):
 
   def __call__(self, *args, **kwargs) -> ReturnType:
     input_tensors: List[Tensor] = [(name, t) for name, t in enumerate(args) if t.__class__ is Tensor]
-    self.input_buffers = [t.thunk.base.buff for _, t in input_tensors]
     for _, t in input_tensors: t.realize()
+    self.input_buffers = [t.thunk.base.buff for _, t in input_tensors]
     if self.exec_cnt == 0:
       print("[JIT_IGNORE]")
       # jit ignore
@@ -57,7 +58,7 @@ class ShrimpJit(Generic[ReturnType]):
       #  jit exec
       print("[JIT_EXEC]")
       assert self.native_fxn is not None, 'Native function failed to compile!'
-      self.native_fxn(*[b._pointer(ctypes.c_float) if not b.__class__ is ConstBuffer else ctypes.byref(ctypes.c_float(b.value)) for b in self.input_buffers])
+      self.native_fxn(*[ctypes.byref(b._pointer(ctypes.c_float)) for b in self.input_buffers])
     self.exec_cnt += 1
     return self.ret
 

@@ -337,8 +337,8 @@ class Tensor:
       data = base.buff.pointer(ctypes.c_float)
       if not self.thunk.vt.contiguous:
         strides = tuple([s*4 for s in self.thunk.vt.strides])
-        arr = np.frombuffer(data, dtype=np.float32).reshape(self.shape)
-        arr = np.lib.stride_tricks.as_strided(arr, strides=strides)
+        arr = np.frombuffer(data, dtype=np.float32)
+        arr = np.lib.stride_tricks.as_strided(arr, shape=self.shape, strides=strides)
         return arr
       if base.shape == ():
         return np.frombuffer(data, dtype=np.float32).reshape(())
@@ -355,9 +355,16 @@ class Tensor:
     op = self.thunk._op
     buffer = self.thunk.base.buff
     buffer_addr = f"0x{ctypes.addressof(buffer._pointer(ctypes.c_float)):X}"
-    grad_buffer = self.grad.thunk.base.buff
-    grad_buffer_addr = f"0x{ctypes.addressof(grad_buffer._pointer(ctypes.c_float)):X}" if hasattr(grad_buffer, '_buf') else "NONE"
-    print(f"{op = } {is_view = } alloc={buffer.allocated} {buffer_addr = } alloc={grad_buffer.allocated} {grad_buffer_addr = }")
+    grad_data = []
+    grad_buffer_addr = None
+    grad_alloc = False
+    if self.grad is not None:
+      grad_buffer = self.grad.thunk.base.buff
+      grad_buffer_addr = f"0x{ctypes.addressof(grad_buffer._pointer(ctypes.c_float)):X}" if hasattr(grad_buffer, '_buf') else "NONE"
+      if hasattr(grad_buffer, '_buf'):
+        grad_data = self.grad.data().flatten()[0:5]
+      grad_alloc = grad_buffer.allocated
+    print(f"{op = } {is_view = } alloc={buffer.allocated} {buffer_addr = } alloc={grad_alloc} {grad_buffer_addr = } {grad_data =  }")
   
 
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"

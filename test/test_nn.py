@@ -155,10 +155,8 @@ class TestNN(unittest.TestCase):
       tloss.backward()
       sgd_.step()
       return tloss
-    from shrimpgrad.util import dump_tensors 
-    for i in range(3):
+    for i in range(5):
       sloss = train_step(X,y)
-      dump_tensors(sloss) 
       tloss = torch_train_step(X,y)
       print(f"epoch={i} torch_loss={tloss.detach().numpy()} shrimp_loss={sloss.data()}")
       np.testing.assert_allclose(w0.grad.numpy(), torch_model.linear_relu_stack[0].weight.grad.detach().numpy(), atol=1e-4, rtol=1e-3)

@@ -78,7 +78,6 @@ class ClangDevice(Accelerator, Jitable):
       native_src.append(f"  {prg.fname}({','.join(args)});\n")
     native_src.append("}\n")
     native_src_ = "".join(native_src)
-    print(native_src_)
     native_lib = self.compiler().cached_compile(native_src_)
     with tempfile.NamedTemporaryFile(delete=True) as cached_file_path:
       pathlib.Path(cached_file_path.name).write_bytes(native_lib)
@@ -250,7 +249,6 @@ class ClangCodeGen:
 
 class ClangCompiler(Compiler):
   def compile(self, src: str) -> bytes:
-    print(src)
     with tempfile.NamedTemporaryFile(delete=True) as outfile:
       subprocess.check_output(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
                       '-o', str(outfile.name)], input=src.encode('utf-8'))

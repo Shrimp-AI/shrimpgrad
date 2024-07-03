@@ -24,8 +24,6 @@ class SGD(Optimizer):
     b = None
     for i,t in enumerate(self.params):
       g = t.grad
-      # if g.thunk.base.realized is not None:
-      #   print(f"Gradient: 0x{ctypes.addressof(g.thunk.base.buff._pointer(ctypes.c_float)):X}")
       assert g is not None, 'gradient cannot be empty for parameter in SGD'
       if self.weight_decay != 0.0:
         g += self.weight_decay*t
@@ -38,14 +36,8 @@ class SGD(Optimizer):
           g += self.momentum*b
         else:
           g = b
-      # if t.thunk.base.realized is not None:
-      #   print(f"tensor before: {t.data()}")
       g = self.lr * g
       t.assign(t.detach() - g)
       t.realize()
-      # if g.thunk.base.realized is not None:
-      #   print(f"Gradient: 0x{ctypes.addressof(g.thunk.base.buff._pointer(ctypes.c_float)):X}")
-      #   print(g.data())
-      # print(f"tensor after: \n{t.data()}")
       if b is not None: b.realize()
 
