@@ -38,19 +38,15 @@ class Tensor:
     def build_topo(tensor: Tensor) -> List[Tensor]:
       if tensor not in visited:
         visited.add(tensor)
-        if not tensor.ctx:
-          topo.append(tensor)
-          return
-        for p in tensor.ctx.tensors:
-          build_topo(p)
+        if not tensor.ctx: return
+        for p in tensor.ctx.tensors: build_topo(p)
         topo.append(tensor)
     build_topo(self)
     for t in reversed(topo):
-      assert t.grad, f'{t} has no grad'
-      if not t.ctx: continue
+      assert t.grad, f'{t} has no gradient'
       grads = t.cls.backward(t.ctx, t.grad.thunk)
-      grads = [Tensor(g.shape, g, g.dtype, g.device, requires_grad=False)
-               for g in ([grads] if len(t.ctx.tensors) == 1 else grads)]
+      grads = [Tensor(g.shape, g, device=self.device, requires_grad=False) if g is not None else None
+        for g in ([grads] if len(t.ctx.tensors) == 1 else grads)]
       for t0, g in zip(t.ctx.tensors, grads):
         t0.grad = g if t0.grad is None else t0.grad + g
     return self

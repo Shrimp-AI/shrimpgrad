@@ -6,7 +6,10 @@ class Optimizer:
   def __init__(self, params: Iterable[Tensor], lr=1e-3):
     assert params, 'params are empty'
     assert not (lr < 0.0), 'lr must be positive'
-    self.params = params
+    for param in params: 
+      if param.requires_grad is None: param.requires_grad = True 
+    self.params = [x for x in params if x.requires_grad] 
+    assert len(self.params) > 0, "optimizer requires at least one parameter"
     self.lr = lr
 
   def step(self): raise NotImplementedError('implement step')

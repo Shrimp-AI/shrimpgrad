@@ -230,8 +230,8 @@ class TestAssign(unittest.TestCase):
   
   def test_assign_grad_update(self):
     from shrimpgrad.engine.graph import log_thunk
-    p1 = Tensor.randn(2,2)
-    p2 = Tensor.randn(2,2)
+    p1 = Tensor.randn(2,2, requires_grad=True)
+    p2 = Tensor.randn(2,2, requires_grad=True)
     @ShrimpJit
     def train():
       loss =  (p1*p2).sum()

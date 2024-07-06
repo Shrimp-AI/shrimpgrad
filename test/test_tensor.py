@@ -1,4 +1,3 @@
-from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.dtype import dtypes
 import unittest
@@ -37,5 +36,5 @@ class TestTensor(unittest.TestCase):
     Tensor.realize(out)
     Tensor.realize(out2)
 
-    log_thunk(out.thunk)
-    log_thunk(out2.thunk)
+    np.testing.assert_allclose(out.data(), np.array([1,0,0,1]).reshape(2,2))
+    np.testing.assert_allclose(out2.data(), np.array([1,0,0,1]).reshape(2,2))
