@@ -198,7 +198,6 @@ class TestAssign(unittest.TestCase):
   def test_permuted_assignment_correct(self):
     a = Tensor.arange(0,4 * 4).reshape(4, 4).realize()
     b = Tensor.arange(0,4 * 4).reshape(4, 4).realize()
-    # TODO: scheduler limitation, should NOT raise AssertionError from numpy.
     a = a.permute((1, 0))
     new_val = a + b
     a.assign(new_val)
@@ -223,7 +222,30 @@ class TestAssign(unittest.TestCase):
     for _ in range(5): f(x)
     assert x.data()[0] == 5
 
-    # TODO: Input doesn't match do something in JIT
+    # TODO: Input doesn't match
+    # Because you need to replace the input everywhere
     # y = Tensor((1,),[0])
     # for _ in range(4): f(y)
     # assert y.data()[0] == 4
+  
+  def test_assign_grad_update(self):
+    from shrimpgrad.engine.graph import log_thunk
+    p1 = Tensor.randn(2,2)
+    p2 = Tensor.randn(2,2)
+    @ShrimpJit
+    def train():
+      loss =  (p1*p2).sum()
+      loss.backward()
+      p1.assign(p1.detach() - p1.grad)
+      p2.assign(p2.detach() - p2.grad)
+      p1.realize()
+      p2.realize()
+      return loss.realize()
+
+    for _ in range(4):
+      loss = train()
+      print(loss.data())
+      
+    log_thunk(loss.thunk)
+
+
