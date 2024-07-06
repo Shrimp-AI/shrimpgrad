@@ -38,19 +38,15 @@ class Tensor:
     def build_topo(tensor: Tensor) -> List[Tensor]:
       if tensor not in visited:
         visited.add(tensor)
-        if not tensor.ctx:
-          topo.append(tensor)
-          return
-        for p in tensor.ctx.tensors:
-          build_topo(p)
+        if not tensor.ctx: return
+        for p in tensor.ctx.tensors: build_topo(p)
         topo.append(tensor)
     build_topo(self)
     for t in reversed(topo):
-      assert t.grad, f'{t} has no grad'
-      if not t.ctx: continue
+      assert t.grad, f'{t} has no gradient'
       grads = t.cls.backward(t.ctx, t.grad.thunk)
-      grads = [Tensor(g.shape, g, g.dtype, g.device, requires_grad=False)
-               for g in ([grads] if len(t.ctx.tensors) == 1 else grads)]
+      grads = [Tensor(g.shape, g, device=self.device, requires_grad=False) if g is not None else None
+        for g in ([grads] if len(t.ctx.tensors) == 1 else grads)]
       for t0, g in zip(t.ctx.tensors, grads):
         t0.grad = g if t0.grad is None else t0.grad + g
     return self
@@ -337,8 +333,8 @@ class Tensor:
       data = base.buff.pointer(ctypes.c_float)
       if not self.thunk.vt.contiguous:
         strides = tuple([s*4 for s in self.thunk.vt.strides])
-        arr = np.frombuffer(data, dtype=np.float32).reshape(self.shape)
-        arr = np.lib.stride_tricks.as_strided(arr, strides=strides)
+        arr = np.frombuffer(data, dtype=np.float32)
+        arr = np.lib.stride_tricks.as_strided(arr, shape=self.shape, strides=strides)
         return arr
       if base.shape == ():
         return np.frombuffer(data, dtype=np.float32).reshape(())
@@ -349,6 +345,24 @@ class Tensor:
   def numpy(self): return self.realize().data()
 
   # Object Representation
+  def analyze(self):
+    assert self.thunk.base.realized is not None, "Can't analyze unrealized tensor."
+    is_view = self.thunk.isview
+    op = self.thunk._op
+    buffer = self.thunk.base.buff
+    buffer_addr = f"0x{ctypes.addressof(buffer._pointer(ctypes.c_float)):X}"
+    grad_data = []
+    grad_buffer_addr = None
+    grad_alloc = False
+    if self.grad is not None:
+      grad_buffer = self.grad.thunk.base.buff
+      grad_buffer_addr = f"0x{ctypes.addressof(grad_buffer._pointer(ctypes.c_float)):X}" if hasattr(grad_buffer, '_buf') else "NONE"
+      if hasattr(grad_buffer, '_buf'):
+        grad_data = self.grad.data().flatten()[0:5]
+      grad_alloc = grad_buffer.allocated
+    print(f"{op = } {is_view = } alloc={buffer.allocated} {buffer_addr = } alloc={grad_alloc} {grad_buffer_addr = } {grad_data =  }")
+  
+
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"
   def __str__(self): return self.__repr__()
   def __hash__(self): return id(self)

@@ -9,7 +9,7 @@ def prepare_tensors(shapes, low=-1.5, high=1.5):
   np.random.seed(0)
   np_data = [np.random.uniform(low=low, high=high, size=shp).astype(np.float32) for shp in shapes]
   tts = [torch.tensor(data, requires_grad=True) for data in np_data]
-  sts = [Tensor(shp, data.flatten().tolist() if len(shp) else data.flatten().tolist()[0]) for shp, data in zip(shapes, np_data)]
+  sts = [Tensor(shp, data.flatten().tolist() if len(shp) else data.flatten().tolist()[0], requires_grad=True) for shp, data in zip(shapes, np_data)]
   return tts, sts
 
 class TestOps(unittest.TestCase):
@@ -69,8 +69,8 @@ class TestOps(unittest.TestCase):
                                   np.array([2.0]*1000).reshape(10,10,10)) #pylint: disable=too-many-function-args
 
   def test_add_backward(self):
-    x = Tensor.ones((2,2))
-    y = Tensor.ones((2,2))
+    x = Tensor.ones((2,2), requires_grad=True)
+    y = Tensor.ones((2,2), requires_grad=True)
     z = x + y
     z.realize()
     z.backward()
@@ -145,8 +145,8 @@ class TestOps(unittest.TestCase):
     np.testing.assert_array_equal((x>=y).realize().data(), np.array([True]*4).reshape(2,2))
 
   def test_scalar_ops_with_backprop(self):
-    a = Tensor((), -4.0)
-    b = Tensor((), 2.0)
+    a = Tensor((), -4.0, requires_grad=True)
+    b = Tensor((), 2.0, requires_grad=True)
     c = a + b
     c.realize()
     self.assertEqual(c.data(), -2.0)
@@ -250,7 +250,7 @@ class TestOps(unittest.TestCase):
     np.testing.assert_array_equal(y.data(), np.array([5]*(3*5*5)).reshape(1,3,5,5)) # pylint: disable=too-many-function-args
 
   def test_sum3(self):
-    x = Tensor((5,3,5,5), [1]*(5*3*5*5))
+    x = Tensor((5,3,5,5), [1]*(5*3*5*5), requires_grad=True)
     y = x.sum(axis=1, keepdim=True)
     self.assertEqual(y.shape, (5,1,5,5))
     y.realize()
@@ -319,7 +319,7 @@ class TestOps(unittest.TestCase):
     out.realize()
 
   def test_mse(self):
-    out = Tensor((5,), data=[1.0,0.0,1.0,1.0,2.0])
+    out = Tensor((5,), data=[1.0,0.0,1.0,1.0,2.0], requires_grad=True)
     target = Tensor(shape=(5,), data=[0,0,0,1,2])
     sout = out.mse(target)
     sout.realize()

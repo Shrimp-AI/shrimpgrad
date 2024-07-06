@@ -23,3 +23,18 @@ class TestTensor(unittest.TestCase):
     x.realize()
     np.testing.assert_array_equal(x.data(), np.array([1.0]).reshape(1,1))
     np.testing.assert_array_equal(Tensor.eye(3).realize().data(), np.array([1.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,1.0]).reshape(3,3))
+  
+  def test_detach(self):
+    x = Tensor.eye(2)
+    x0 = x.detach()
+
+    y = Tensor.ones((2,2))
+
+    out = x * y
+    out2 = x0 * y 
+
+    Tensor.realize(out)
+    Tensor.realize(out2)
+
+    np.testing.assert_allclose(out.data(), np.array([1,0,0,1]).reshape(2,2))
+    np.testing.assert_allclose(out2.data(), np.array([1,0,0,1]).reshape(2,2))

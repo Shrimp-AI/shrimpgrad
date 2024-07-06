@@ -289,7 +289,8 @@ class LowerFusedKernel:
     # TODO: Deal with dtype
     return self.g.alu(alu, self.dtype, *loads)
 
-  def lower_store(self, g: GlobalNode, addr: AddressNode|OffsetNode|None, value: Node) -> StoreNode:
+  def lower_store(self, g: GlobalNode|LocalNode, addr: AddressNode|OffsetNode|None, value: Node) -> StoreNode:
+    if g.__class__ is LocalNode: return self.g.store(g, None, value)
     return self.g.store(g, addr, value) if g.ptr else self.g.store(g, None, value)
 
   def lower_local(self, dtype: DType, val: ConstType|Node) -> LocalNode:
@@ -359,13 +360,14 @@ class LowerFusedKernel:
     if len(axis) == len(in_shape) and in0.vt.contiguous:
       zero = self.g.const(dtypes.int32, 0)
       out_off = self.g.offset(zero)
+      acc = self.lower_local(dtypes.float32, 0.0)
       loop, idx = self.lower_begin_for(0, prod(in0.vt.shape))
       in_off = self.g.offset(idx)
       rhs = self.lower_load(g_in, idx)
-      lhs = self.lower_load(out, out_off)
-      alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
-      self.lower_store(out, out_off, alu)
+      alu = self.lower_alu(BinaryOps.ADD, acc, rhs)
+      self.lower_store(acc, None, alu)
       self.lower_end_loops([loop])
+      self.lower_store(out, out_off, acc)
     else:
       # Move reduce axes to the end via creating a permutation order
       order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
@@ -373,10 +375,13 @@ class LowerFusedKernel:
       in_shape = in0_vt.shape
       # add an output offset
       off = self.lower_local(dtypes.int32, 0)
+      num_axis = len(axis)
+      acc = None
       # Create a loop for each dimension that's not the last dimension
       loops, idxs, dim_offs = [], [], []
       for i in range(len(in_shape) - 1):
         loop, idx = self.lower_begin_for(0, in_shape[i])
+        if i+1 == len(in_shape) - num_axis: acc = self.lower_local(dtypes.float32, 0.0)
         idxs.append(idx)
         loops.append(loop)
         # Compute the dimension offset l0*strides[i]
@@ -384,6 +389,8 @@ class LowerFusedKernel:
         # Set the dim off set to the alu value
         dim_off = self.lower_local(dtypes.int32, alu)
         dim_offs.append(dim_off)
+      if acc is None:
+        acc = self.lower_local(dtypes.float32, 0.0)
       # Create the inner loop
       loop, idx = self.lower_begin_for(0, in_shape[-1])
       idxs.append(idx)
@@ -398,14 +405,13 @@ class LowerFusedKernel:
       out_off = self.g.offset(off)
       in_off = self.g.offset(in_off)
       rhs = self.lower_load(g_in, in_off)
-      lhs = self.lower_load(out, out_off)
-      alu = self.lower_alu(BinaryOps.ADD, lhs, rhs)
-      self.lower_store(out, out_off, alu)
+      alu = self.lower_alu(BinaryOps.ADD, acc, rhs)
+      self.lower_store(acc, None, alu)
 
-      num_axis = len(axis)
       for i, loop in enumerate(loops):
         self.lower_end_loops([loop])
         if i + 1 == num_axis:
+          self.lower_store(out, out_off, acc)
           self.g.inc(off)
 
 

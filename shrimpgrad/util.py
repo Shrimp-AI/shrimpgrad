@@ -76,3 +76,23 @@ def calc_gain(a=0.01):
   # TODO: Only support leaky ReLU which is used for affine transformation
   # in torch
   return math.sqrt(2.0 / (1.0 + a ** 2.0))
+
+# A forward topological sort of the tensor
+# graph. Basically just a Post-DFS traversal.
+def deepwalk(x):
+  visited = set() 
+  def walk(x):
+    if x in visited:
+      return
+    visited.add(x)
+    if not x.ctx:
+      yield x 
+      return
+    for t in x.ctx.tensors:
+      yield from walk(t)
+    yield x 
+  yield from walk(x)
+
+def dump_tensors(x):
+  for t in deepwalk(x):
+    t.analyze()

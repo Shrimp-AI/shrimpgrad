@@ -34,7 +34,7 @@ class Function(FunctionContext):
     thunk = cls.forward(ctx, *[t.thunk for t in tensors], **kwargs)
     from shrimpgrad import Tensor
     ret = Tensor.__new__(Tensor)
-    ret.grad, ret.requires_grad, ret.cls, ret.ctx = None, ctx.requires_grad, cls, ctx
+    ret.grad, ret.requires_grad, ret.cls, ret.ctx = None, ctx.requires_grad, cls, ctx if ctx.requires_grad else None
     ret.thunk= thunk
     return ret
 
@@ -44,7 +44,7 @@ class Add(Function):
     return x.alu(BinaryOps.ADD, y)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
-    return (grad_out, grad_out)
+    return grad_out if ctx.needs_input_grad[0] else None, grad_out if ctx.needs_input_grad[1] else None
 
 class Sub(Function):
   @staticmethod
@@ -52,8 +52,8 @@ class Sub(Function):
     return x.alu(BinaryOps.SUB, y)
   @staticmethod
   def backward(ctx: FunctionContext, grad_output:Thunk) -> OptionalGradients:
-    return grad_output, \
-           grad_output.alu(UnaryOps.NEG)
+    return grad_output if ctx.needs_input_grad[0] else None, \
+           grad_output.alu(UnaryOps.NEG) if ctx.needs_input_grad[1] else None
 
 class Mul(Function):
   @staticmethod
@@ -63,7 +63,8 @@ class Mul(Function):
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
     x, y = ctx.x, ctx.y
-    return (y.alu(BinaryOps.MUL, grad_out), x.alu(BinaryOps.MUL, grad_out))
+    return y.alu(BinaryOps.MUL, grad_out) if ctx.needs_input_grad[0] else None, \
+      x.alu(BinaryOps.MUL, grad_out) if ctx.needs_input_grad[1] else None
 
 class Div(Function):
   @staticmethod
@@ -81,7 +82,7 @@ class Div(Function):
     numerator = numerator.alu(BinaryOps.MUL, grad_out)
     denominator = y.alu(BinaryOps.MUL, y)
     dzdy = numerator.alu(BinaryOps.DIV, denominator)
-    return grad_out.alu(BinaryOps.DIV, y), dzdy
+    return grad_out.alu(BinaryOps.DIV, y) if ctx.needs_input_grad[0] else None, dzdy if ctx.needs_input_grad[1] else None
 
 class Exp(Function):
   @staticmethod
@@ -187,8 +188,8 @@ class Where(Function):
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
     cond = ctx.cond
-    return cond.alu(TernaryOps.WHERE, grad_out, grad_out.const(0.0)), \
-      cond.alu(TernaryOps.WHERE, grad_out.const(0.0), grad_out)
+    return None, cond.alu(TernaryOps.WHERE, grad_out, grad_out.const(0.0)) if ctx.needs_input_grad[1] else None, \
+      cond.alu(TernaryOps.WHERE, grad_out.const(0.0), grad_out) if ctx.needs_input_grad[2] else None
 
 class Sigmoid(Function):
   @staticmethod
