@@ -269,9 +269,12 @@ class ClangRuntime(Runtime):
 
     for buff in buffs['output']:
       name = buff2name[buff]
+      if name not in name2pos: continue
       vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
+
     for buff in buffs['input']:
       name = buff2name[buff]
+      if name not in name2pos: continue
       vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
 
     self._exec(func_name, *vin)

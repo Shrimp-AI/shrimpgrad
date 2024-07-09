@@ -41,7 +41,11 @@ class FusedKernelBuilder:
           # This is crucial for backwards passes functioning properly.
           # Assign thunks can be realized in forward passes as their backing buffer
           # is realized. This is useful for optimizer updates to params.
-          if thunk.realized is not None and thunk._op is not LoadOps.ASSIGN: continue
+          is_realized = thunk.realized is not None
+          if is_realized and thunk._op is not LoadOps.ASSIGN: continue 
+          if thunk._op is LoadOps.ASSIGN and thunk._operands[1].realized is not None : 
+            assert  is_realized, 'assign target must be realized'
+            continue  
           ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
           kernels.append(FusedKernel(ir))
         else:
@@ -59,11 +63,13 @@ class FusedKernelBuilder:
           # don't make it to the scheduling phase. The only time we skip here is in backwards
           # graph scheduling.
           for thunk in fused:
-            if thunk.realized is not None and thunk._op is not LoadOps.ASSIGN:
-              continue
-            if thunk in visited:
-              continue
+            if thunk in visited: continue
             visited.add(thunk)
+            is_realized = thunk.realized is not None
+            if is_realized and thunk._op is not LoadOps.ASSIGN: continue
+            if thunk._op is LoadOps.ASSIGN and thunk._operands[1].realized is not None : 
+              assert  is_realized, 'assign target must be realized'
+              continue
             fused_unrealized.append(thunk)
           if not fused_unrealized: continue
           fused = fused_unrealized

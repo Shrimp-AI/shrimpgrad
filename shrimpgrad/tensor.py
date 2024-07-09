@@ -30,7 +30,7 @@ class Tensor:
     if self.thunk.device != device: self.thunk = self.thunk.copy_to_device(device)
 
   def backward(self) -> Tensor:
-    self.grad = Tensor.ones(self.shape, self.dtype)
+    self.grad = Tensor.ones(self.shape, self.dtype, requires_grad=False)
     visited = set()
     topo = []
     # TODO: Turn this into generator so we don't allocate memory for
@@ -103,7 +103,10 @@ class Tensor:
   def assign(self, x: Tensor) -> Tensor:
     assert x.shape == self.shape, f'shape mismatch on assign {self.shape} != {x.shape}'
     assert x.dtype == self.dtype, f'dtype mismatch on assign {self.dtype} != {x.dtype}'
-    return self.replace(x)
+    if self.thunk.base.realized is None: 
+      return self.replace(x)
+    self.thunk = self.thunk.assign(x.thunk)
+    return self
 
   def cast(self, dtype: DType) -> Tensor:
     from shrimpgrad.autograd.function import Cast
