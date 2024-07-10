@@ -1,7 +1,6 @@
 import unittest
 import numpy as np
 from shrimpgrad import Tensor
-from shrimpgrad.engine.graph import log_thunk
 from shrimpgrad.engine.jit import ShrimpJit
 
 
@@ -223,7 +222,6 @@ class TestAssign(unittest.TestCase):
 
     x = Tensor((1,),[0])
     for _ in range(5): f(x)
-    log_thunk(x.thunk)
     assert x.data()[0] == 5
 
   def test_assign_add_jit_other(self):
@@ -242,7 +240,6 @@ class TestAssign(unittest.TestCase):
     # assert y.data()[0] == 4
   
   def test_assign_grad_update(self):
-    from shrimpgrad.engine.graph import log_thunk
     p1 = Tensor.randn(2,2, requires_grad=True)
     p2 = Tensor.randn(2,2, requires_grad=True)
     @ShrimpJit
@@ -256,9 +253,7 @@ class TestAssign(unittest.TestCase):
       return loss.realize()
 
     for _ in range(4):
-      loss = train()
-      print(loss.data())
+      train()
       
-    log_thunk(loss.thunk)
 
 

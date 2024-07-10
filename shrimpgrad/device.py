@@ -37,17 +37,17 @@ class Allocator:
 class Renderer:
   def render(self): raise NotImplementedError('implement render')
 
-class Compiler:
+class Compiler(metaclass=Singleton):
   def __init__(self):
     self.cache = {}
   def compile(self): raise NotImplementedError('implement compile')
-  def cached_compile(self, src: str):
+  def cached_compile(self, src: str, **kwargs):
     if src in self.cache:
       return self.cache[src]
-    self.cache[src] = self.compile(src)
+    self.cache[src] = self.compile(src, **kwargs)
     return self.cache[src]
 
-class Runtime:
+class Runtime(metaclass=Singleton):
   def exec(self): raise NotImplementedError('implement exec')
 
 class Accelerator(Device):

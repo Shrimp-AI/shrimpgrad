@@ -1,7 +1,7 @@
 from __future__ import annotations
 import ctypes, pathlib, tempfile, subprocess
 from typing import DefaultDict, Dict, List
-from shrimpgrad.device import Accelerator, Compiler, ConstBuffer, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
+from shrimpgrad.device import Accelerator, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
 from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
@@ -32,10 +32,14 @@ class ClangDevice(Accelerator, Jitable):
     prgs: List[ClangProgram] = [ck.prg for ck in kernels]
     buffs = [ck.buffs for ck in kernels]
     buff2names = [ck.buff2name for ck in kernels]
+    func_sigs = set()
     # Add all imports
     native_src.append(prgs[0].preamble)
     # Add all the functions
     for prg in prgs:
+      if prg.fsig in func_sigs:
+        continue
+      func_sigs.add(prg.fsig)
       fsrc = f"{prg.fsig} {{\n{prg.fbdy}}}\n"
       native_src.append(fsrc)
     args = [f"float* arg{i}" for i in range(len(input_buffers))]
@@ -63,7 +67,6 @@ class ClangDevice(Accelerator, Jitable):
           else:
             in_names[buff2names[i][buff_]] = input_buffers.index(buff_)
 
-    # native_src.extend(body)
     for i,prg in enumerate(prgs):
       args = []
       for n, _ in prg.args2pos.items():
@@ -90,12 +93,13 @@ class ClangProgram:
     self.preamble, self.fsig, self.fbdy, self.fname, self.args2pos, self.src = preamble, fsig, fbdy, fname, args2pos, src
 
 class ClangRenderer(Renderer):
-  def render(self, ir_graph: LowIRGraph):
-    return ClangCodeGen([ir_graph]).gen().to_program()
+  def render(self, ir_graph: LowIRGraph, func_name=None):
+    return ClangCodeGen([ir_graph], func_name).gen().to_program()
 
 class ClangCodeGen:
-  def __init__(self, ir_graphs: List[LowIRGraph]):
+  def __init__(self, ir_graphs: List[LowIRGraph], func_name=None):
     self.preamble ='#include<stdio.h>\n#include<math.h>\n'
+    self.func_name = func_name
     self.gs = []
     self.irgs = ir_graphs
     self.src = []
@@ -113,20 +117,14 @@ class ClangCodeGen:
     param += ' ' + g[0]
     return param
 
-  def print(self):
-    print(self.preamble)
-    print(f"void f_shrimp({','.join([self.param2src(g) for g in self.gs])}) {{")
-    for src in self.src:
-      print("  " + src)
 
-  def func_name(self):
-    # TODO: Better naming algo
-    return f"f_{id(self.irgs[0])}"
+  def _name(self):
+    return f"f_{id(self.irgs[0])}" if self.func_name is None else self.func_name
 
   def to_program(self):
     params = ','.join([self.param2src(g) for g in self.gs])
     src_ = self.preamble
-    fname = self.func_name()
+    fname = self._name()
     fsig = f"void {fname}({params})"
     src_ += fsig + " { \n"
     body = ''
@@ -134,6 +132,8 @@ class ClangCodeGen:
       body += "  " + src + "\n"
     src_ += body + "}\n"
     return ClangProgram(src_, self.preamble, fsig, body, fname, {g[0]:i for i,g in enumerate(self.gs)})
+
+  def print(self): print(self.to_program().src)
 
   def gen(self):
     for irg in self.irgs:
@@ -260,8 +260,25 @@ class ClangRuntime(Runtime):
       pathlib.Path(cached_file_path.name).write_bytes(self.lib)
       self.fxn = ctypes.CDLL(str(cached_file_path.name))[func_name]
       self.fxn(*args)
+  
+  def batched_exec(self, lib: bytes, func_names, buffs, buff2name, name2pos):
+    with tempfile.NamedTemporaryFile(delete=True) as cached_file_path:
+      pathlib.Path(cached_file_path.name).write_bytes(lib)
+      slib = ctypes.CDLL(str(cached_file_path.name))
+      for i, func_name in enumerate(func_names):
+        vin = [None]*len(name2pos[i])
+        for buff in buffs[i]['output']:
+          name = buff2name[buff]
+          if name not in name2pos[i]: continue
+          vin[name2pos[i][name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
 
-  def exec(self, lib: bytes, func_name:str, buffs: DefaultDict[str, List[MemBuffer | ConstBuffer]], buff2name, name2pos):
+        for buff in buffs[i]['input']:
+          name = buff2name[buff]
+          if name not in name2pos[i]: continue
+          vin[name2pos[i][name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
+        slib[func_name](*vin)
+
+  def exec(self, lib: bytes, func_name:str, buffs: DefaultDict[str, List[MemBuffer]], buff2name, name2pos):
     self.lib = lib
     self.buffs = buffs
     self.buff2name = buff2name

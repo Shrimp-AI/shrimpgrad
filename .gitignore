@@ -9,6 +9,7 @@ notebooks
 *.so
 *.dylib
 *.txt
+*.prof
 build
 /dist
 *.egg-info
