@@ -15,7 +15,7 @@ OpType = Union[Type[UnaryOps], Type[BinaryOps], Type[ReduceOps], Type[LoadOps], 
 # Fusion for fuse_ops.py requires these types
 class AlgebraicOp(Enum): INJECTIVE = auto(); REDUCTION = auto(); NOOP = auto()
 
-def injective(op: Op) -> bool: return op in BinaryOps or op in UnaryOps or op in TernaryOps or op is LoadOps.ASSIGN
+def injective(op: Op) -> bool: return op in BinaryOps or op in UnaryOps or op in TernaryOps
 def reduction(op: Op) -> bool: return op in ReduceOps
 
 def algebraic_op(op: Union[UnaryOps, TernaryOps, BinaryOps, LoadOps, ReduceOps]) -> AlgebraicOp:

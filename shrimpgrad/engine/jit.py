@@ -75,7 +75,7 @@ class ShrimpJit(Generic[ReturnType]):
       new_buff = self.add_buffer(buff)
       b2n[new_buff] = name
       buffs['output'].append(new_buff)
-    self.jit_kernels.append(CompiledKernel(ck.ir, ck.dev, b2n, buffs))
+    self.jit_kernels.append(CompiledKernel(ck.ir, ck.dev, b2n, buffs, ck.name, ck.batched))
 
   def add_buffer(self, b: Union[MemBuffer|ConstBuffer]) -> Union[MemBuffer|ConstBuffer]:
     if found:=self.replace_buffer.get(b, None): return found

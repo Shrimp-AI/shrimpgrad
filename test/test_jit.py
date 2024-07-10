@@ -114,29 +114,3 @@ class TestJit(unittest.TestCase):
     for _ in range(5): f(x)
     _ = m(x).realize()
   
-  def test_wah(self):
-    x = Tensor.ones((2,2))
-    y = Tensor.full((2,2), 3.0)
-    class Model:
-      def __init__(self):
-        self.p1 = Tensor.full((2,2), 2.0, requires_grad=True)
-        self.p2 = Tensor.full((2,2), 3.0, requires_grad=True)
-      def __call__(self, x,y): 
-        return (y/self.p1).sum()
-    m = Model() 
-    sgd = SGD([m.p1],lr=0.0000001)
-    @ShrimpJit
-    def train_step(x,y):
-      sgd.zero_grad()
-      out = m(x,y)
-      out.backward()
-      sgd.step()
-      return out
-    from shrimpgrad.engine.graph import log_thunk
-    for _ in range(3):
-      out = train_step(x,y)
-      print(out.data()) 
-      print(m.p1.grad.data())
-      # print(m.p2.grad.data())
-      print("NEXT STEP")
-    log_thunk(out.thunk)
