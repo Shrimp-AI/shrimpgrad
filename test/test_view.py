@@ -29,6 +29,8 @@ class TestView(unittest.TestCase):
     assert vt.shape == (1,1,2,2)
     assert vt.strides == (0,0,1,2)
 
-
-
-
+  def test_pad(self):
+    vt = ViewTracker.from_shape((2,2))
+    vt = vt.pad(((1,1),(0,0)))
+    assert vt.shape == (4,2)
+    assert vt.view.mask == ((1,3),(0,2))

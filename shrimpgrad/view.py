@@ -47,6 +47,9 @@ class ViewTracker:
   def permute(self, order: Tuple[int,...]) -> ViewTracker:
     return ViewTracker.from_views(self.views[0:-1] + [self.view.permute(order)] )
 
+  def pad(self, pad_width: Tuple[Tuple[int,int], ...]) -> ViewTracker:
+    return ViewTracker.from_views(self.views[0:-1] + [self.view.pad(pad_width)])
+
   @staticmethod
   def from_views(views: List[View]) -> ViewTracker:
     return ViewTracker(views)
@@ -62,9 +65,10 @@ class ViewTracker:
 class View:
   """A description of how a thunk's data is interpreted
   """
-  def __init__(self, shape: Tuple[int,...]):
+  def __init__(self, shape: Tuple[int,...], mask=None):
     self.shape = shape
     self._strides = tuple(accumulate(self.shape[-1:0:-1], func=operator.mul, initial=(1 if len(self.shape)else None)))[::-1]
+    self.mask = mask
 
   @property
   def strides(self) -> Tuple[int,...]: return self._strides
@@ -146,6 +150,20 @@ class View:
     out.shape = shape
     out._strides = tuple(strd)
     return out
+
+  def pad(self, pad_width: Tuple[Tuple[int,int],...]):
+    assert all(s >= 0 and e >= 0 for s,e in pad_width), "pad_width must all be >= 0"
+    assert len(pad_width) == self.ndim, f'pad_width length must equal view ndim: {len(pad_width) != self.ndim}'
+
+    # No padding needed
+    if all(s == 0 and e == 0 for s,e in pad_width): return self
+    new_shape = list(self.shape)
+    mask = [None]*self.ndim
+    for i, ((pad_start, pad_end), shp) in enumerate(zip(pad_width, self.shape)):
+      new_shape[i] += pad_start + pad_end
+      # start index of non-padded values, end value of non-padded values
+      mask[i] = (pad_start, shp + pad_start)
+    return View(tuple(new_shape), tuple(mask))
 
   @staticmethod
   def from_view(view: View):
