@@ -185,14 +185,23 @@ class View:
   def shrink(self, arg: Tuple[Tuple[int, int]]) -> View:
     assert all(0<=start<=stop<=shape for ((start,stop), shape) in zip(arg, self.shape)), 'invalid shrink slices'
     new_shape = tuple([stop - start for start, stop in arg])
+    new_mask = None
     if self.mask is not None:
-      # mask[0] = pad_size_left, dim_size + pad_size_right
-      #
-      pass
-    return create_view(new_shape)
+      new_mask = [[None,None]]*len(self.mask)
+      for i, (start,stop) in enumerate(arg):
+        if start < self.mask[i][0]:
+          new_mask[i][0] = start
+        else:
+          new_mask[i][0] = 0
+        if stop < self.mask[i][1]:
+          new_mask[i][1] = stop
+        else:
+          new_mask[i][1] = new_mask[i][0] + self.mask[i][1] - self.mask[i][0]
+        new_mask[i] = tuple(new_mask[i])
+    return create_view(new_shape, mask=tuple(new_mask) if new_mask is not None else None)
 
 
   @staticmethod
   def from_view(view: View): return create_view(view.shape, view.strides, view.mask, view.offset)
 
-  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous}>'
+  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous} mask={self.mask}>'
