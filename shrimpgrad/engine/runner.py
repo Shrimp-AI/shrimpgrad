@@ -1,15 +1,17 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import DefaultDict, List, Tuple
-from shrimpgrad.device import Accelerator, MemBuffer
+from typing import Any, DefaultDict, Dict, List, Optional, Tuple
+from shrimpgrad.device import Device, MemBuffer
 from shrimpgrad.engine.lower import LowIRGraph, LowerFusedKernel
 from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.ops import LoadOps
 
-buff_to_name = None
+buff_to_name: Optional[Dict[Any, str]
+] = None
 
 def buff2name(buff) -> str:
+  assert buff_to_name is not None, "buff_to_name must be allocated"
   if buff in buff_to_name:
     return buff_to_name[buff]
   return str(buff)
@@ -29,7 +31,7 @@ def _lower(schedule: List[FusedKernel]) -> List[LowIRGraph]:
 shrimp_jit = []
 
 def realize(out: Thunk):
-  kernels: List[CompiledKernel|BufferCopy] = []
+  kernels: List[CompiledKernel] = []
   sched = _schedule(out)
   load_kerns, unkerned = _gen_load_kernels(sched)
   for load_kern in load_kerns:
@@ -115,7 +117,7 @@ class BatchedCompiledKernel:
       raise e
 
 class CompiledKernel:
-  def __init__(self, ir: LowIRGraph, dev: Accelerator, buff_to_name, buffs: DefaultDict[str, List[MemBuffer]], name=None, batched=False) -> None:
+  def __init__(self, ir: LowIRGraph, dev: Device, buff_to_name, buffs: DefaultDict[str, List[MemBuffer]], name=None, batched=False) -> None:
     self.ir, self.dev, self.buffs = ir, dev, buffs
     self.name = name 
     self.prg = self.dev.renderer().render(self.ir, self.name)

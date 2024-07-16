@@ -2,7 +2,8 @@ from __future__ import annotations
 import ctypes
 import functools
 import math
-from typing import Callable, List, Optional, TypeAlias, Union, Tuple
+from typing import Callable, List, Optional, Type, TypeAlias, Union, Tuple
+from shrimpgrad.device import Device
 from shrimpgrad.dtype import DType, dtypes, ConstType
 from random import uniform, gauss
 from shrimpgrad.engine.runner import realize
@@ -11,18 +12,18 @@ from shrimpgrad.runtime.clang import ClangDevice
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod
 import numpy as np
 
-Num: TypeAlias = Union[float, int, complex]
 Shape: TypeAlias = Tuple[int, ...]
 
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device=ClangDevice(), requires_grad:Optional[bool]=None) -> Tensor:
+  def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device:Device=ClangDevice(), requires_grad:Optional[bool]=None):
     self.requires_grad, self.index_view = requires_grad, None
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
+    self.cls = Optional[Type[Function]]
     if isinstance(data, Thunk): self.thunk = data
     else:
       if shape == () and not isinstance(data, ConstType) and len(data) == 1: data = data[0]
@@ -35,7 +36,7 @@ class Tensor:
     topo = []
     # TODO: Turn this into generator so we don't allocate memory for
     # a massive list
-    def build_topo(tensor: Tensor) -> List[Tensor]:
+    def build_topo(tensor: Tensor):
       if tensor not in visited:
         visited.add(tensor)
         if not tensor.ctx: return
@@ -62,11 +63,6 @@ class Tensor:
   @property
   def ndim(self): return self.thunk.ndim
 
-  # Indexing
-  def item(self) -> ConstType:
-    if len(self.shape): raise RuntimeError(f'a Tensor with {self.numel} elements cannot be converted to Scalar')
-    return self.thunk
-
   def __getitem__(self, key) -> Tensor:
     # TODO: Remove dimensions when indexing down from NDim to MDim (m < n)
     # i.e.) indexing x[0,0,0] x.shape=(2,2,2) should return a scalar view of x
@@ -83,7 +79,7 @@ class Tensor:
     x = self.reshape(*pad_s[0]) if pad_s[0] != self.shape else self
     return x.expand(*broadcast_shape)
 
-  def __broadcast(self, y: Union[Tensor, ConstType], reverse=False) -> Tuple[Tensor]:
+  def __broadcast(self, y: Union[Tensor, ConstType], reverse=False) -> Tuple[Tensor,...]:
     x = self
     if not isinstance(y, Tensor):
       assert isinstance(y, ConstType), f'type(y)={type(y)} is not a ConstType'
@@ -115,7 +111,7 @@ class Tensor:
   def clamp(self, min_val=0.0, max_val=1.0) -> Tensor:
     return self.where((self.detach() > min_val), min_val).where(self.detach() < max_val, max_val)
 
-  def where(self, condition: Tensor, y: Tensor ) -> Tensor:
+  def where(self, condition: Tensor, y: Tensor|ConstType ) -> Tensor:
     from shrimpgrad.autograd.function import Where
     cond, x = condition.__broadcast(self)
     cond, y_ = cond.__broadcast(y)
@@ -159,7 +155,7 @@ class Tensor:
     axis_ = self._canonicalize_axis(axis)
     return  self.sum(axis=axis) / prod([self.shape[i] for i in axis_])
 
-  def sum(self, axis:Union[int|Tuple[int,...]]=None, keepdim=False) -> Tensor:
+  def sum(self, axis:Optional[Union[int,Tuple[int,...]]]=None, keepdim=False) -> Tensor:
     from shrimpgrad.autograd.function import Sum
     axis = axis if axis != None else tuple(i for i in range(self.ndim))
     axis_ = self._canonicalize_axis(axis)
@@ -198,7 +194,7 @@ class Tensor:
   def __ge__(self, x) -> Tensor: return (self<x).logical_not()
   def __le__(self, x) -> Tensor: return (self>x).logical_not()
   def __ne__(self, x) -> Tensor: return (self==x).logical_not()
-  def __mul__(self, other: Tensor) -> Tensor: return self.mul(other)
+  def __mul__(self, other: Tensor|ConstType) -> Tensor: return self.mul(other)
   def __rmul__(self, other): return self.mul(other, reverse=True)
   def __add__(self, other: Tensor) -> Tensor: return self.add(other)
   def __radd__(self, other): return self.add(other, reverse=True)
@@ -246,7 +242,7 @@ class Tensor:
     ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
     order = [i for i in range(self.ndim)]
     order[ax0], order[ax1] = order[ax1], order[ax0]
-    return self.permute(order)
+    return self.permute(tuple(order))
 
   # Neural Network Layer Functions
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
@@ -266,15 +262,15 @@ class Tensor:
   def arange(start: int, stop:int, step:int=1, dtype:DType=dtypes.float32, **kwargs) -> Tensor: return Tensor(((stop - start) // step,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype, **kwargs)
 
   @staticmethod
-  def fromlist(shape: Shape, data:List[Num], dtype=dtypes.float32, **kwargs): return Tensor(shape, data=data, dtype=dtype, **kwargs)
+  def fromlist(shape: Shape, data:List[ConstType], dtype=dtypes.float32, **kwargs): return Tensor(shape, data=data, dtype=dtype, **kwargs)
 
   @staticmethod
-  def full(shape: Shape, fill_value: Num, dtype=dtypes.float32, **kwargs) -> Tensor:
+  def full(shape: Shape, fill_value: ConstType, dtype=dtypes.float32, **kwargs) -> Tensor:
     if not len(shape): return Tensor((), fill_value)
     return Tensor(shape, [float(fill_value) if dtype == dtypes.float32 else int(fill_value)]*prod(shape), **kwargs)
 
   @staticmethod
-  def full_like(t: Tensor, fill_value: Num, **kwargs) -> Tensor: return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype, **kwargs)
+  def full_like(t: Tensor, fill_value: ConstType, **kwargs) -> Tensor: return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype, **kwargs)
 
   @staticmethod
   def zeros_like(t: Tensor, **kwargs) -> Tensor: return Tensor.full_like(t, 0.0, **kwargs)
@@ -310,7 +306,7 @@ class Tensor:
     bound = math.sqrt(3.0) * calc_gain(a) / calc_fan_in_fan_out(shape)[0]
     return Tensor.uniform(*shape, low=-bound, high=bound, **kwargs)
 
-  def const(self, val:Num, **kwargs) -> Tensor: return Tensor.full_like(self, val, **kwargs)
+  def const(self, val:ConstType, **kwargs) -> Tensor: return Tensor.full_like(self, val, **kwargs)
 
   @staticmethod
   def scalar(x: ConstType) -> Tensor: return Tensor((), data=x)

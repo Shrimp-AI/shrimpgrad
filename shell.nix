@@ -1,5 +1,6 @@
 { pkgs ? import <nixpkgs> {} }:
-with pkgs.python3Packages;
+
+with pkgs.python312Packages;
 
 pkgs.mkShell {
   buildInputs = [
@@ -25,9 +26,12 @@ pkgs.mkShell {
     KERNEL_DISPLAY_NAME="ShrimpGrad Kernel"
 
     if [ ! -d "$VENV_DIR" ]; then
-      virtualenv $VENV_DIR
+      python3.12 -m venv $VENV_DIR
     fi
     source $VENV_DIR/bin/activate
+
+    # Ensure pip is using the correct Python version
+    pip install --upgrade pip setuptools wheel
 
     # Install the package
     pip install --upgrade --no-deps --force-reinstall -e .
@@ -37,6 +41,5 @@ pkgs.mkShell {
 
     echo "Virtual environment activated. Package installed in editable mode."
     echo "Jupyter kernel '$KERNEL_DISPLAY_NAME' created."
- '';
-
+  '';
 }

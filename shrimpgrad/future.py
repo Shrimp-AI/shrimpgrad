@@ -1,27 +1,18 @@
 from __future__ import annotations
 from collections import defaultdict, deque
 from functools import partial
-from typing import Any, Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, TypeAlias, Union
-from weakref import WeakValueDictionary, ref
+from typing import Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, TypeAlias, Union
 from shrimpgrad.device import CPU, Device, Buffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
 from shrimpgrad.util import prod
 from shrimpgrad.view import ViewTracker
 
-thunkcache: WeakValueDictionary[Any, Thunk] = WeakValueDictionary()
 def create_thunk(device: Device,
                  dtype: DType, vt: ViewTracker,
                  operands: Tuple[Thunk, ...]=(), op: Optional[Op]=None,
-                 data: Union[ConstType, List, bytes, memoryview]=None,
                  base: Optional[Thunk]=None, arg=None):
-  cache_key = (device, vt, dtype, op, arg, tuple(ref(x) for x in operands)) if base is None else (vt, ref(base))
-  if (thunk := thunkcache.get(cache_key, None)):
-    print("THUNK CACHE HIT: {thunk}")
-    return thunk
-  ret = Thunk(device, dtype, vt, operands, op, data, base, arg)
-  thunkcache[cache_key] = ret
-  return ret
+  return Thunk(device, dtype, vt, operands, op, base, arg)
 
 class Thunk:
   """A lazy evaluated buffer described by future computation or memory operation.
@@ -29,7 +20,7 @@ class Thunk:
   syntax tree where root thunks have allocated buffers (inputs usually from tensor factory methods)
   and child thunks are described by operations and their parent operands.
   """
-  def __init__(self, device: Device, dtype: DType, vt: ViewTracker, operands: Tuple[Thunk, ...]=(), op: Optional[Op]=None, data: Union[ConstType, List, bytes, memoryview]=None, base: Optional[Thunk]=None, arg=None):
+  def __init__(self, device: Device, dtype: DType, vt: ViewTracker, operands: Tuple[Thunk, ...]=(), op: Optional[Op]=None, base: Optional[Thunk]=None, arg=None):
     # initial buffer conditions
     self.vt , self.device, self.dtype, self.arg = vt, device, dtype, arg
     self._op, self._operands = op, operands
@@ -52,7 +43,7 @@ class Thunk:
   # Graph properties
   @property
   def parents(self) -> List[Thunk]:
-    if self.isroot: return ()
+    if self.isroot: return []  
     return [parent if not parent.isview else parent.base for parent in self._operands]
   @property
   def isroot(self) -> bool: return not hasattr(self, '_operands')
@@ -85,7 +76,7 @@ class Thunk:
     assert(self.isreduce), f"{self._op} don't have a reduce input shape"
     return self._operands[0].shape
 
-  def get_input_buffers(self) -> Sequence[Union[MemBuffer]]:
+  def get_input_buffers(self) -> Sequence[MemBuffer]:
     inputs = []
     if self.isroot: return inputs
     for operand in self._operands:
@@ -95,7 +86,7 @@ class Thunk:
       inputs.append(MemBuffer(base.buff, new_view))
     return inputs
 
-  def get_output_buffer(self) -> Union[MemBuffer]:
+  def get_output_buffer(self) -> MemBuffer:
     return MemBuffer(self.base.buff, self.vt)
 
   # Builder methods
@@ -106,7 +97,7 @@ class Thunk:
     if op in TernaryOps: assert len(operands) > 2, f'ternary ops require three operands, {len(operands)} given'
     return create_thunk(device, dtype, vt, tuple(operands), op)
 
-  def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_thunks: Tuple[Thunk,...]) -> Thunk:
+  def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_thunks: Thunk) -> Thunk:
     return Thunk.from_compute(op, (self, *in_thunks), ViewTracker.from_shape(self.vt.shape), self.device, self.dtype)
 
   def reduce(self, op: ReduceOps, axis: Tuple[int,...]) -> Thunk:
@@ -150,7 +141,7 @@ class Thunk:
     # It may have been reshaped etc so ensure we copy from the base
     return create_thunk(device, self.dtype, self.vt, (self.base, ), LoadOps.COPY, arg=self.base.buff.nbytes)
 
-  def const(self, val: ConstType, shape: Tuple[int,...]=None):
+  def const(self, val: ConstType, shape: Optional[Tuple[int,...]]=None):
     shape = self.shape if shape is None else shape
     assert isinstance(val, ConstType), 'const thunk requires a const argument'
     thunk = Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val)
@@ -192,7 +183,7 @@ class IndexedForwardGraph:
     def dfs(visited: Set[Thunk], thunk: Thunk):
       if thunk in visited: return
       visited.add(thunk.base) if thunk.isview else visited.add(thunk)
-      self.traversal_fn(partial(dfs, visited), thunk)
+      self.traversal_fn(partial(dfs, visited), thunk) # type: ignore
     dfs(set(), self.out)
 
   def post_order(self, search: SearchStrategy, node: Thunk):

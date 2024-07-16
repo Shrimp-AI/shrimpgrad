@@ -1,70 +1,58 @@
 # ShrimpGrad - Yet Another Tensor Library
 
-# Architecture
-tensor.py (Key object Tensor)
-- A front-end that behaves like pytorch allowing easy model creation and optimization.
-```python
-from shrimpgrad import Tensor
+## Philosophy
 
-x = Tensor.ones((2,2))
-y = Tensor.zeros((2,2))
-z = x.dot(y)
-z.backward()
-```
-function.py
-- Generates the Thunk AST of all the operations on tensors preserving important information but not executing them
-  - forward and backward passes are codified here
+> "Vigorous writing is concise. A sentence should contain no unnecessary words, a paragraph no unnecessary sentences, for the same reason that a drawing should have no unnecessary lines and a machine no unnecessary parts. This requires not that the writer make all sentences short or avoid all detail and treat subjects only in outline, but that every word tell." - William Strunk Jr.
 
-future.py
-- Defines the Thunk (a Haskell concept of computations that are not evaluated until they are needed).
-- Thunks store their operands (other thunks), their base (if they are a result of a movement op), and their views
-- Maintain a buffer if they are base thunks (buffers are used by the engine to actually store the data for consumption by accelerators
-- IndexedForwardGraph - extract as much in from the Thunk AST and store it for optimization passes
+> "You can do big things with small teams, but it’s hard to do small things with big teams. And small is often plenty. That’s the power of small — you do what needs to be done rather than overdoing it." - 37Signals
 
-schedule.py
-- Figure out what needs to be scheduled first. Most likely LoadOp Thunk to make sure the data is in the buffer before we execute any code on the acceleartor.
-- Call into the fusion engine to reduce the graph
-- Generate a mid-level intermediate representation for the lowering engine (MLIR -> LLIR) and define which inputs and outputs correspond to a MLIR AST
+## What  is ShrimpGrad?
 
-fuse_ops.py
-- Given an IndexedForwardGraph compute a immediate post dominator tree and fuse operations that can be fused according to fuse conditions
-- Injective operators can fuse with child Injective operators
-- There can only be one Reduction operator per fused kernel and it must be the last operator
-  - i.e.) you can fuse many injectives in a row followed by a single reduction
-- Checks if a node can fuse with its immediate post dominator (the node for which all outputs of this node must pass through)
-  - if it can fuse with the ipdom then it traverses the path between the src and the immediate post dominator sink and checks
-    that fuse conditions are not violated
-  - if successfull all nodes including source and sink are grouped via union find
-
-postdomtree.py
-- Given an IndexedForwardGraph compute all immediate post dominators and group accordingly
-- Since ASTs are DAGs we compute the LCA of all output nodes to determine the ipdom
-
-
-## Goals
-- [x] Generate Fused Kernels using LCA and IndexedForwardGraphs to compute immediate post dominators
-- [x] Lower the scheduled kernels to the linearized IR
-- [ ] Generate C code from the linearized IR
-- [ ] Execute this code
-- [ ] Add other accelerators
-- [ ] Optimization 
-
-## What?
-
-A python library to create tensor operations in python and automatically compile and execute them on an accelerator. Use the backward pass to compute gradients, and an optimizer to train your model.
+A simple, minimalist, lazily evaluated, JIT-able tensor library for modern deep learning.
 
 ```python
-from shrimpgrad import Tensor
+from shrimpgrad import Tensor, nn
+from shrimpgrad.engine.jit import ShrimpJit
+from sklearn.datasets import make_moons
 
-x = Tensor.ones((2,2))
-y = Tensor.zeros((2,2))
-z = x.dot(y)
-z.backward()
+X, y = make_moons(n_samples=100, noise=0.1)
+X = X.astype(float)
+y = y.astype(float)
+
+class ShallowNet:
+  def __init__(self):
+    self.layers: List[Callable[[Tensor], Tensor]] = [
+      nn.Linear(2, 50), Tensor.relu,
+      nn.Linear(50, 1), Tensor.sigmoid,
+    ]
+  def __call__(self, x: Tensor):
+    return x.sequential(self.layers)
+
+@ShrimpJit
+def train(X,y):
+  sgd.zero_grad()
+  out = model().reshape(100)
+  loss = out.binary_cross_entropy()
+  loss.backward()
+  sgd.step()
+  return out, loss
+
+X = Tensor.fromlist(X.shape, X.flatten().tolist())
+y = Tensor.fromlist(y.shape, y.flatten().tolist())
+for epoch in range(50): train(X,y)
 ```
+## RISC Inspired
+A reduced set of "instructions" is needed to define everything from matrix multiplication to 2D convolutions
 
-## Why YATL?
+1. Binary - ADD, MUL, DIV, MAX, MOD, CMPLT, COMPEQ, XOR
+2. Unary - EXP2, LOG2, CAST, SIN, SQRT, NEG
+3. Ternary - WHERE
+4. Reduce - SUM, MAX
+5. Movement - RESHAPE, PERMUTE, EXPAND, PAD, SHRINK
+6. Load - EMPTY, COPY, CONST, ASSIGN
 
-With so many tensor libraries already in mainstream use, what is the point of yet another tensor library? Build something better than what exists. Make custom accelerator chips.
+## Easy JIT Compilation
+Go full native with ease. JIT lowers execution from python to the accelerator including forward/backward passes and optimizer steps.
 
 ## Install
 The easiest way to get going is to install [nix](https://nixos.org/download/).

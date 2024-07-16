@@ -1,7 +1,7 @@
 from __future__ import annotations
 import ctypes, pathlib, tempfile, subprocess
 from typing import DefaultDict, Dict, List
-from shrimpgrad.device import Accelerator, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
+from shrimpgrad.device import Device, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
 from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
@@ -18,7 +18,7 @@ c_alu = {
   BinaryOps.DIV: lambda x,y: f'{x}/{y}',
   TernaryOps.WHERE: lambda x,y,z: f'{x} ? {y} : {z}'}
 
-class ClangDevice(Accelerator, Jitable):
+class ClangDevice(Device, Jitable):
   def __init__(self) -> None:
     super().__init__("CLANG", MallocAllocator, ClangRenderer, ClangCompiler, ClangRuntime)
     self.compiler_ = self._compiler()
@@ -93,8 +93,8 @@ class ClangProgram:
     self.preamble, self.fsig, self.fbdy, self.fname, self.args2pos, self.src = preamble, fsig, fbdy, fname, args2pos, src
 
 class ClangRenderer(Renderer):
-  def render(self, ir_graph: LowIRGraph, func_name=None):
-    return ClangCodeGen([ir_graph], func_name).gen().to_program()
+  def render(self, ir: LowIRGraph, name=None):
+    return ClangCodeGen([ir], name).gen().to_program()
 
 class ClangCodeGen:
   def __init__(self, ir_graphs: List[LowIRGraph], func_name=None):
