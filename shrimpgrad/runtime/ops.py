@@ -1,6 +1,6 @@
 
 from enum import Enum, auto
-from typing import Type, Union
+from typing import Optional, Type, Union
 
 class UnaryOps(Enum): EXP2 = auto(); LOG2 = auto(); CAST = auto(); SIN = auto(); SQRT = auto(); NEG = auto()
 class BinaryOps(Enum): ADD = auto(); SUB = auto(); MUL = auto(); DIV = auto(); MAX = auto(); MOD = auto(); CMPLT = auto(); CMPEQ = auto(); XOR = auto()
@@ -18,7 +18,7 @@ class AlgebraicOp(Enum): INJECTIVE = auto(); REDUCTION = auto(); NOOP = auto()
 def injective(op: Op) -> bool: return op in BinaryOps or op in UnaryOps or op in TernaryOps
 def reduction(op: Op) -> bool: return op in ReduceOps
 
-def algebraic_op(op: Union[UnaryOps, TernaryOps, BinaryOps, LoadOps, ReduceOps]) -> AlgebraicOp:
+def algebraic_op(op: Optional[Op]) -> AlgebraicOp:
   if op is None: return AlgebraicOp.NOOP
   if injective(op): return AlgebraicOp.INJECTIVE
   if reduction(op): return AlgebraicOp.REDUCTION

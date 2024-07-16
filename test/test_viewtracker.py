@@ -12,7 +12,7 @@ class ViewTrackerTest(unittest.TestCase):
     vt2 = vt.reshape((2,2,1))
     self.assertEqual(1, len(vt2.views))
     self.assertEqual((2,2,1), vt2.view.shape)
-    self.assertEqual((2,1,1), vt2.view.strides)
+    self.assertEqual((2,1,0), vt2.view.strides)
 
     vt3 = vt2.permute((2,1,0))
     self.assertEqual(1, len(vt3.views))

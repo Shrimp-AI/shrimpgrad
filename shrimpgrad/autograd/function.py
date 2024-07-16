@@ -1,8 +1,10 @@
+from __future__ import annotations
 import math
-from typing import Any, Optional, Tuple, TypeAlias
+from typing import Any, Optional, Tuple, Type, TypeAlias
 import shrimpgrad as shrimp
 from shrimpgrad.device import Device
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps, ReduceOps
+from shrimpgrad.tensor import Tensor
 from shrimpgrad.util import argsort
 from shrimpgrad.future import Thunk
 
@@ -29,7 +31,7 @@ class Function(FunctionContext):
     )
 
   @classmethod
-  def apply(cls, *tensors, **kwargs) -> Thunk:
+  def apply(cls: Type[Function], *tensors, **kwargs) -> Tensor:
     ctx = cls(tensors[0].device, *tensors)
     thunk = cls.forward(ctx, *[t.thunk for t in tensors], **kwargs)
     from shrimpgrad import Tensor

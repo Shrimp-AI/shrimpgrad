@@ -3,7 +3,7 @@ import base64
 import ctypes
 import pickle
 from typing import DefaultDict, List
-from shrimpgrad.device import Accelerator, Allocator, Compiler, ConstBuffer, MemBuffer, Runtime
+from shrimpgrad.device import Device, Allocator, Compiler, ConstBuffer, MemBuffer, Runtime
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 
@@ -19,7 +19,7 @@ pyalu2src = {
   TernaryOps.WHERE: lambda x,y,z: f"{y} if {x} else {z}"
 }
 
-class PythonDevice(Accelerator):
+class PythonDevice(Device):
   def __init__(self):
     super().__init__("PYTHON", PythonAllocator, PythonRenderer, PythonCompiler, PythonRuntime)
   def compiler(self) -> PythonCompiler: return self._compiler()
