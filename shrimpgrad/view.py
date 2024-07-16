@@ -1,6 +1,5 @@
 from __future__ import annotations
 import functools
-from itertools import accumulate
 import itertools
 import operator
 from typing import List, Optional, Tuple
@@ -21,7 +20,7 @@ def strides_for_shape(shape:Tuple[int, ...]) -> Tuple[int, ...]:
   if not shape: return ()
   strides = tuple(itertools.accumulate(reversed(shape[1:]), operator.mul, initial=1))[::-1]
   return normalize_strides(shape, strides)
-  
+
 class ViewTracker:
   def __init__(self, views: List[View]):
     self.views: List[View] = views
@@ -78,8 +77,20 @@ def create_view(shape: Tuple[int,...],
   if 0 in shape: return View(shape, (0,)*len(shape))
   return View(shape, normalize_strides(shape, strides) if strides is not None else strides)
 
+def create_view(shape: Tuple[int,...],
+                strides: Optional[Tuple[int,...]]=None,
+                mask: Optional[Tuple[Tuple[int,int],...]]=None,
+                offset:int=0):
+
+  # standardize 0 in shape
+  if 0 in shape: return View(shape, (0,)*len(shape))
+  # standardize empty mask to None
+  if mask is not None and all((s==0 and e == dim_size for ((s,e), dim_size) in zip(mask, shape))): mask = None
+
+  return View(shape, normalize_strides(shape, strides) if strides is not None else strides, mask, offset)
+
 class View:
-  """A description of how a thunk's data is interpreted
+  """The layout for the thunk
   """
   def __init__(self, shape: Tuple[int,...],
                strides: Optional[Tuple[int,...]]=None):
@@ -174,4 +185,4 @@ class View:
   @staticmethod
   def from_view(view: View): return create_view(view.shape, view.strides)
 
-  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous}>'
+  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous} mask={self.mask}>'

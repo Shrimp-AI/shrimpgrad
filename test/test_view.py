@@ -7,7 +7,20 @@ class TestView(unittest.TestCase):
     v = View(())
     self.assertTrue(v.scalar)
 
-  def test_reshape_permute_reshape_expand(self):
+  def test_reshape(self):
+    vt = ViewTracker.from_shape((10,4))
+    self.assertEqual((10,4), vt.shape)
+    vt = vt.reshape((40,1))
+    self.assertEqual((40,1), vt.shape)
+
+  def test_reshape_like_permute(self):
+    vt = ViewTracker.from_shape((2,4))
+    self.assertEqual((2,4), vt.shape)
+    vt = vt.reshape((4,2))
+    self.assertEqual((4,2), vt.shape)
+    self.assertTrue(vt.contiguous)
+
+  def test_reshape_permute_reshape(self):
     vt = ViewTracker.from_shape((2,2))
     assert vt.shape == (2,2)
     assert vt.strides == (2,1)
@@ -40,6 +53,7 @@ class TestView(unittest.TestCase):
     assert vt.shape == (5, 10, 10)
     assert vt.numel == 5*10*10
     assert vt.strides == (100,10,1)
+
     assert vt.ndim == 3
     assert len(vt.views) == 1
 
@@ -55,14 +69,12 @@ class TestView(unittest.TestCase):
   def test_shrink(self):
     view = View((2,2,2))
     view = view.shrink(((0,1), (0,1), (0,0)))
-
     assert view.shape == (1,1,0)
     assert view.strides == (0,0,0)
 
   def test_shrink1(self):
     vt = ViewTracker.from_shape((2,4,2))
     vt = vt.shrink(((0,1),(1,3),(0,2)))
-
     assert vt.view.shape == (1,2,2)
     assert vt.view.strides == (0,2,1)
 
@@ -73,12 +85,14 @@ class TestView(unittest.TestCase):
     vt = vt.shrink(((2,6), (0,7), (1,5)))
     self.assertEqual((4,7,4), vt.shape)
 
+
   def test_pad_then_shrink_a_bit(self):
     vt = ViewTracker.from_shape((4,))
     vt = vt.pad(((2,2),))
     self.assertEqual((8,), vt.shape)
     vt = vt.shrink(((1,8),))
     self.assertEqual((7,), vt.shape)
+
 
   def test_pad_then_shrink_into_outer_pad(self):
     vt = ViewTracker.from_shape((4,))
@@ -94,12 +108,14 @@ class TestView(unittest.TestCase):
     vt = vt.pad(((1,1),))
     self.assertEqual((4,),vt.shape)
 
+
   def test_pad_reshape_adjusts_mask(self):
     vt = ViewTracker.from_shape((2,2))
     vt = vt.pad(((1,1),(1,1)))
     self.assertEqual((4,4), vt.shape)
     vt = vt.reshape((1,4,4))
     self.assertEqual((1,4,4), vt.shape)
+
 
   def test_pad_reshape_adjust_mask2(self):
     vt = ViewTracker.from_shape((8,2))
