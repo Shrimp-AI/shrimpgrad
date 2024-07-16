@@ -2,8 +2,8 @@ from __future__ import annotations
 import base64
 import ctypes
 import pickle
-from typing import DefaultDict, List
-from shrimpgrad.device import Device, Allocator, Compiler, ConstBuffer, MemBuffer, Runtime
+from typing import DefaultDict, List, Tuple
+from shrimpgrad.device import Device, Allocator, Compiler, ConstBuffer, MemBuffer, Renderer, Runtime
 from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 
@@ -22,10 +22,10 @@ pyalu2src = {
 class PythonDevice(Device):
   def __init__(self):
     super().__init__("PYTHON", PythonAllocator, PythonRenderer, PythonCompiler, PythonRuntime)
-  def compiler(self) -> PythonCompiler: return self._compiler()
-  def allocator(self) -> PythonAllocator: return self._allocator()
-  def runtime(self) -> PythonRuntime: return self._runtime()
-  def renderer(self) -> PythonRenderer: return self._renderer()
+  def compiler(self) -> Compiler : return self._compiler()
+  def allocator(self) -> Allocator: return self._allocator()
+  def runtime(self) -> Runtime: return self._runtime()
+  def renderer(self) -> Renderer: return self._renderer()
   def __repr__(self) -> str:
     return "<PythonDevice>"
 
@@ -35,8 +35,8 @@ class PythonAllocator(Allocator):
   def copyout(self, dst:memoryview, src): dst[:] = src[:]
   def free(self): return
 
-class PythonRenderer:
-  def render(self, ir_graph: LowIRGraph) -> str:
+class PythonRenderer(Renderer):
+  def render(self, ir_graph: LowIRGraph) -> Tuple[bytes, List]:
     src, num2pos = PyCodeGen([ir_graph]).gen().tostring()
     return base64.b64encode(pickle.dumps(src)), num2pos
 
@@ -78,7 +78,7 @@ class PyCodeGen:
     for src in self.src:
       print("  " + src)
 
-  def tostring(self):
+  def tostring(self) -> Tuple[str, List]:
     params = ','.join([g[0] for g in self.gs])
     out = f"{self.preamble}"
     out += f"def f_{id(self)}({params}):\n"

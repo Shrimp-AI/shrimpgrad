@@ -42,23 +42,19 @@ class ViewTracker:
 
   def reshape(self, new_shape: Tuple[int,...]) -> ViewTracker:
     new_view = self.view.reshape(new_shape)
-    if self.view.contiguous:
-      # if the most recent view is not permuted
-      # we can just merge the views
-      return ViewTracker.from_views(self.views[0:-1] + [new_view])
     return ViewTracker.from_views(self.views + [new_view])
 
   def expand(self, new_shape: Tuple[int,...]) -> ViewTracker:
-    return ViewTracker.from_views(self.views[0:-1] + [self.view.expand(new_shape)])
+    return ViewTracker.from_views(self.views + [self.view.expand(new_shape)])
 
   def permute(self, order: Tuple[int,...]) -> ViewTracker:
-    return ViewTracker.from_views(self.views[0:-1] + [self.view.permute(order)] )
+    return ViewTracker.from_views(self.views + [self.view.permute(order)] )
 
   def pad(self, pad_width: Tuple[Tuple[int,int], ...]) -> ViewTracker:
-    return ViewTracker.from_views(self.views[0:-1] + [self.view.pad(pad_width)])
+    return ViewTracker.from_views(self.views + [self.view.pad(pad_width)])
 
   def shrink(self, arg: Tuple[Tuple[int,int], ...]) -> ViewTracker:
-    return ViewTracker.from_views(self.views[0:-1] + [self.view.shrink(arg)])
+    return ViewTracker.from_views(self.views + [self.view.shrink(arg)])
 
   @staticmethod
   def from_views(views: List[View]) -> ViewTracker:
@@ -76,18 +72,6 @@ def create_view(shape: Tuple[int,...],
   # standardize 0 in shape
   if 0 in shape: return View(shape, (0,)*len(shape))
   return View(shape, normalize_strides(shape, strides) if strides is not None else strides)
-
-def create_view(shape: Tuple[int,...],
-                strides: Optional[Tuple[int,...]]=None,
-                mask: Optional[Tuple[Tuple[int,int],...]]=None,
-                offset:int=0):
-
-  # standardize 0 in shape
-  if 0 in shape: return View(shape, (0,)*len(shape))
-  # standardize empty mask to None
-  if mask is not None and all((s==0 and e == dim_size for ((s,e), dim_size) in zip(mask, shape))): mask = None
-
-  return View(shape, normalize_strides(shape, strides) if strides is not None else strides, mask, offset)
 
 class View:
   """The layout for the thunk
@@ -173,7 +157,7 @@ class View:
     # No padding needed
     if all(s == 0 and e == 0 for s,e in pad_width): return self
     new_shape = list(self.shape)
-    for i, ((pad_start, pad_end), shp) in enumerate(zip(pad_width, self.shape)):
+    for i, (pad_start, pad_end) in enumerate(pad_width):
       new_shape[i] += pad_start + pad_end
     return create_view(tuple(new_shape))
 
@@ -185,4 +169,4 @@ class View:
   @staticmethod
   def from_view(view: View): return create_view(view.shape, view.strides)
 
-  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous} mask={self.mask}>'
+  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous}>'

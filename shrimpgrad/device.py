@@ -65,13 +65,13 @@ class Runtime(metaclass=Singleton):
 class Jitable:
   def jitify(self): raise NotImplementedError('implement jitify')
 
-class HostDevice(Device): pass
-
-class CPU(HostDevice):
+class CPU(Device):
   def __init__(self):
-    self.name = "CPU"
-    self._allocator = CPUAllocator
+    super().__init__("CPU", CPUAllocator, Renderer, Compiler, Runtime)
   def allocator(self): return self._allocator()
+  def compiler(self): return self.compiler()
+  def runtime(self): return self._runtime()
+  def renderer(self): return self._renderer()
 
 class CPUAllocator(Allocator):
   def alloc(self): return

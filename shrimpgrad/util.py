@@ -1,5 +1,5 @@
 from functools import reduce
-from typing import Iterable, Optional, Tuple, Union
+from typing import Iterable, Tuple
 import operator
 import math
 

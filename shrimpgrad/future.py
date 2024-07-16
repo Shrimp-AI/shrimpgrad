@@ -1,8 +1,7 @@
 from __future__ import annotations
 from collections import defaultdict, deque
 from functools import partial
-from typing import Any, Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, TypeAlias, Union
-from weakref import WeakValueDictionary, ref
+from typing import Sequence, Callable, DefaultDict, List, Optional, Set, Tuple, TypeAlias, Union
 from shrimpgrad.device import CPU, Device, Buffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op

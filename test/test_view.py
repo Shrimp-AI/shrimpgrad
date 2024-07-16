@@ -29,16 +29,16 @@ class TestView(unittest.TestCase):
     vt = vt.reshape((1,2,2))
     assert vt.shape == (1,2,2)
     assert vt.strides == (0,2,1)
-    assert len(vt.views) == 1
+    assert len(vt.views) == 2 
     assert vt.contiguous
     vt = vt.permute((0,2,1))
     assert not vt.contiguous
-    assert len(vt.views) == 1
+    assert len(vt.views) == 3 
     assert vt.shape == (1,2,2)
     assert vt.strides == (0,1,2)
     vt = vt.reshape((1,1,2,2))
     assert not vt.contiguous
-    assert len(vt.views) == 2
+    assert len(vt.views) == 4 
     assert vt.shape == (1,1,2,2)
     assert vt.strides == (0,0,1,2)
 
@@ -55,7 +55,7 @@ class TestView(unittest.TestCase):
     assert vt.strides == (100,10,1)
 
     assert vt.ndim == 3
-    assert len(vt.views) == 1
+    assert len(vt.views) == 2 
 
   def test_permute_pad(self):
     vt = ViewTracker.from_shape((2,2,2))
@@ -64,7 +64,7 @@ class TestView(unittest.TestCase):
     vt = vt.pad(((1,1),(0,0),(1,1)))
     assert vt.shape == (4,2,4)
     assert vt.strides == (8,4,1)
-    assert len(vt.views) == 1
+    assert len(vt.views) == 3 
 
   def test_shrink(self):
     view = View((2,2,2))
