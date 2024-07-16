@@ -1,7 +1,8 @@
 from __future__ import annotations
-from itertools import accumulate
+import functools
+import itertools
 import operator
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 from shrimpgrad.util import prod
 
 def can_merge_axes(shape: Tuple[int,...], strides: Tuple[int,...], start:int, stop:int):
@@ -9,9 +10,16 @@ def can_merge_axes(shape: Tuple[int,...], strides: Tuple[int,...], start:int, st
     if strides[axis] != strides[axis+1]*shape[axis+1]: return False
   return True
 
+@functools.lru_cache(maxsize=None)
 def normalize_strides(shape: Tuple[int, ...], strides: Tuple[int, ...]):
   # replace the stride value for dimensions of 1 with 0
   return tuple([0 if s == 1 else st for s,st in zip(shape, strides)])
+
+@functools.lru_cache(maxsize=None)
+def strides_for_shape(shape:Tuple[int, ...]) -> Tuple[int, ...]:
+  if not shape: return ()
+  strides = tuple(itertools.accumulate(reversed(shape[1:]), operator.mul, initial=1))[::-1]
+  return normalize_strides(shape, strides)
 
 class ViewTracker:
   def __init__(self, views: List[View]):
@@ -47,6 +55,13 @@ class ViewTracker:
   def permute(self, order: Tuple[int,...]) -> ViewTracker:
     return ViewTracker.from_views(self.views[0:-1] + [self.view.permute(order)] )
 
+  def pad(self, pad_width: Tuple[Tuple[int,int], ...]) -> ViewTracker:
+    return ViewTracker.from_views(self.views[0:-1] + [self.view.pad(pad_width)])
+
+  def shrink(self, arg: Tuple[Tuple[int,int], ...]) -> ViewTracker:
+    return ViewTracker.from_views(self.views[0:-1] + [self.view.shrink(arg)])
+
+
   @staticmethod
   def from_views(views: List[View]) -> ViewTracker:
     return ViewTracker(views)
@@ -59,21 +74,33 @@ class ViewTracker:
     return f"<VT views={self.views}>"
 
 
-class View:
-  """A description of how a thunk's data is interpreted
-  """
-  def __init__(self, shape: Tuple[int,...]):
-    self.shape = shape
-    self._strides = tuple(accumulate(self.shape[-1:0:-1], func=operator.mul, initial=(1 if len(self.shape)else None)))[::-1]
+def create_view(shape: Tuple[int,...],
+                strides: Optional[Tuple[int,...]]=None,
+                mask: Optional[Tuple[Tuple[int,int],...]]=None,
+                offset:int=0):
 
-  @property
-  def strides(self) -> Tuple[int,...]: return self._strides
+  # standardize 0 in shape
+  if 0 in shape: return View(shape, (0,)*len(shape))
+  # standardize empty mask to None
+  if mask is not None and all((s==0 and e == dim_size for ((s,e), dim_size) in zip(mask, shape))): mask = None
+
+  return View(shape, normalize_strides(shape, strides) if strides is not None else strides, mask, offset)
+
+class View:
+  """The layout for the thunk
+  """
+  def __init__(self, shape: Tuple[int,...],
+               strides: Optional[Tuple[int,...]]=None,
+               mask: Optional[Tuple[Tuple[int,int],...]]=None,
+               offset:int=0):
+
+    self.shape, self.strides, self.mask, self.offset = shape, strides, mask, offset
+    self.strides = strides if strides is not None else strides_for_shape(shape)
+
 
   @property
   def contiguous(self) -> bool:
-    if not self.shape: return True
-    if not self._strides: return True
-    return all(self._strides[i] == self.shape[i+1]*self._strides[i+1] for i in range(0, self.ndim-1))
+    return self.offset == 0 and self.mask is None and self.strides == strides_for_shape(self.shape)
 
   @property
   def scalar(self): return self.ndim == 0
@@ -86,13 +113,11 @@ class View:
     if len(self.shape):
       assert prod(new_shape) == self.numel, f'shape \'{new_shape}\' is invalid for input of size {self.numel} of shape {self.shape}'
       # Fast path (new strides are easy to compute)
-      if self.contiguous: return View(new_shape)
+      if self.contiguous: return create_view(new_shape, mask=self.mask, offset=self.offset)
       # Slow path (reconstruct the new strides without copying)
-      newstrides = self._attempt_no_copy_reshape(new_shape)
-      view = View(new_shape)
-      view._strides = normalize_strides(new_shape, tuple(newstrides))
-      return view
-    return View(new_shape)
+      new_strides = tuple(self._attempt_no_copy_reshape(new_shape))
+      return create_view(new_shape, new_strides, self.mask, self.offset)
+    return create_view(new_shape, mask=self.mask, offset=self.offset)
 
   def _attempt_no_copy_reshape(self, new_shape):
     # Remove ones from the old shape
@@ -134,21 +159,49 @@ class View:
   def permute(self, order: Tuple[int,...]) -> View:
     new_shape = tuple([self.shape[i] for i in order])
     new_strides = tuple([self.strides[i] for i in order])
-    v = View(new_shape)
-    v._strides = new_strides
-    return v
+    return create_view(new_shape, new_strides)
 
   def expand(self, shape: Tuple[int,...]) -> View:
-    out = View.from_view(self)
+    assert all(((s0 == s1) or (s0 == 1) for s0,s1 in zip(self.shape, shape))), f'invalid expand from {self.shape} to {shape}'
     strd = list(self.strides)
     for i, (si, so) in enumerate(zip(self.shape, shape)):
       if si != so: strd[i] = 0
-    out.shape = shape
-    out._strides = tuple(strd)
-    return out
+    return create_view(shape, tuple(strd))
+
+  def pad(self, pad_width: Tuple[Tuple[int,int],...]) -> View:
+    assert all(s >= 0 and e >= 0 for s,e in pad_width), "pad_width must all be >= 0"
+    assert len(pad_width) == self.ndim, f'pad_width length must equal view ndim: {len(pad_width) != self.ndim}'
+
+    # No padding needed
+    if all(s == 0 and e == 0 for s,e in pad_width): return self
+    new_shape = list(self.shape)
+    mask = [None]*self.ndim
+    for i, ((pad_start, pad_end), shp) in enumerate(zip(pad_width, self.shape)):
+      new_shape[i] += pad_start + pad_end
+      # start index of non-padded values, end value of non-padded values
+      mask[i] = (pad_start, shp + pad_start)
+    return create_view(tuple(new_shape), self.strides, tuple(mask))
+
+  def shrink(self, arg: Tuple[Tuple[int, int]]) -> View:
+    assert all(0<=start<=stop<=shape for ((start,stop), shape) in zip(arg, self.shape)), 'invalid shrink slices'
+    new_shape = tuple([stop - start for start, stop in arg])
+    new_mask = None
+    if self.mask is not None:
+      new_mask = [[None,None]]*len(self.mask)
+      for i, (start,stop) in enumerate(arg):
+        if start < self.mask[i][0]:
+          new_mask[i][0] = start
+        else:
+          new_mask[i][0] = 0
+        if stop < self.mask[i][1]:
+          new_mask[i][1] = stop
+        else:
+          new_mask[i][1] = new_mask[i][0] + self.mask[i][1] - self.mask[i][0]
+        new_mask[i] = tuple(new_mask[i])
+    return create_view(new_shape, mask=tuple(new_mask) if new_mask is not None else None)
+
 
   @staticmethod
-  def from_view(view: View):
-    return View(view.shape)
+  def from_view(view: View): return create_view(view.shape, view.strides, view.mask, view.offset)
 
-  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous}>'
+  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous} mask={self.mask}>'
