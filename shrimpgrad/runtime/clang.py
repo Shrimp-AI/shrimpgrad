@@ -93,8 +93,8 @@ class ClangProgram:
     self.preamble, self.fsig, self.fbdy, self.fname, self.args2pos, self.src = preamble, fsig, fbdy, fname, args2pos, src
 
 class ClangRenderer(Renderer):
-  def render(self, ir_graph: LowIRGraph, func_name=None):
-    return ClangCodeGen([ir_graph], func_name).gen().to_program()
+  def render(self, ir: LowIRGraph, name=None):
+    return ClangCodeGen([ir], name).gen().to_program()
 
 class ClangCodeGen:
   def __init__(self, ir_graphs: List[LowIRGraph], func_name=None):

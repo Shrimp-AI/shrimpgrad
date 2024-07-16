@@ -59,6 +59,8 @@ class PythonRuntime(Runtime):
         vin[buff2name[buff]] = buff
     print(src)
     exec(src, vin) # pylint: disable=exec-used
+  def batched_exec(self, *args, **kwargs):
+    raise NotImplementedError('no batched_exec for python')
 
 class PyCodeGen:
   def __init__(self, ir_graphs: List[LowIRGraph]):
