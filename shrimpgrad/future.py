@@ -112,6 +112,9 @@ class Thunk:
 
   def expand(self, shape: Tuple[int,...]) -> Thunk:
     return create_thunk(self.device, self.dtype, self.vt.expand(shape), (), base=self.base)
+  
+  def pad(self, pad_width: Tuple[Tuple[int, int],...], value: ConstType=1.0):
+    return create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), base=self.base, arg=value)
 
   def cast(self, dtype: DType) -> Thunk:
     return create_thunk(self.device, dtype, self.vt, (self,))

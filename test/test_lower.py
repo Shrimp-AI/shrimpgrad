@@ -2,9 +2,12 @@ import unittest
 from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import LowIR, LowIRGraph, LowerFusedKernel
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
-from shrimpgrad.runtime.ops import BinaryOps
+from shrimpgrad.future import create_thunk
+from shrimpgrad.runtime.clang import ClangDevice
+from shrimpgrad.runtime.ops import BinaryOps, LoadOps
 from shrimpgrad.tensor import Tensor
 import numpy as np
+from shrimpgrad.view import ViewTracker
 
 class TestLower(unittest.TestCase):
   def ae(self, a, b): self.assertEqual(a,b)
@@ -146,7 +149,6 @@ class TestLower(unittest.TestCase):
     lfk = LowerFusedKernel(schedule)
     ir_graphs = lfk.lower()
     for i, ir_graph in enumerate(ir_graphs):
-      print(f"GRAPH {i}")
       ir_graph.print()
 
   def test_lower_full_axis_reduce(self):
@@ -157,8 +159,15 @@ class TestLower(unittest.TestCase):
     lfk = LowerFusedKernel(schedule)
     ir_graphs = lfk.lower()
     for i, ir_graph in enumerate(ir_graphs):
-      print(f"GRAPH {i}")
       ir_graph.print()
     y.realize()
-    print(y.data())
     np.testing.assert_array_equal(y.data(), 2.0)
+
+  def test_pad(self):
+    t = Tensor.full((2,2,2), 3.0)
+    t1 = t.thunk.pad(((1,1),(1,1),(1,1)), 0.0)
+    self.assertEqual((4,4,4), t1.shape)
+    fkb = FusedKernelBuilder(t1)
+    schedule = fkb.schedule() 
+    lfk = LowerFusedKernel(schedule)
+    lfk.lower()

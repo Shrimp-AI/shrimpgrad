@@ -215,6 +215,7 @@ class Tensor:
   def relu(self) -> Tensor:
     from shrimpgrad.autograd.function import ReLU
     return ReLU.apply(self)
+
   def sigmoid(self) -> Tensor:
     from shrimpgrad.autograd.function import Sigmoid
     return Sigmoid.apply(self)
@@ -338,7 +339,7 @@ class Tensor:
       if base.shape == ():
         return np.frombuffer(data, dtype=np.float32).reshape(())
     else:
-      raise TypeError("self is not realized wheres the bufff")
+      raise TypeError("self is not realized where is the buff")
     return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
 
   def numpy(self): return self.realize().data()

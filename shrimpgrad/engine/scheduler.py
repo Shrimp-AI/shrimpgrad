@@ -21,7 +21,6 @@ class FusedKernel:
 class FusedKernelBuilder:
   def __init__(self, out: Thunk):
     self.g = IndexedForwardGraph(out)
-
     fusion_engine = FusionEngine(self.g)
     self.fused_ops = fusion_engine.fuse()
     self.groups = fusion_engine.groups

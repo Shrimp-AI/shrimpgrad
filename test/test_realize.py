@@ -9,16 +9,10 @@ from shrimpgrad.nn import Linear, get_parameters
 
 class TestRealize(unittest.TestCase):
   def test_basic_realize(self):
-
     x = Tensor.ones((2,2))
     y = Tensor.ones((2,2))
-
-
     z = x + y
-
-
     z.realize()
-
     assert x.thunk.realized
     assert y.thunk.realized
     assert z.thunk.realized

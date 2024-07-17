@@ -1,7 +1,11 @@
 import unittest
 from shrimpgrad import Tensor
 from shrimpgrad.device import CPU
+from shrimpgrad.dtype import dtypes
+from shrimpgrad.future import create_thunk
+from shrimpgrad.runtime.clang import ClangDevice
 from shrimpgrad.runtime.ops import LoadOps
+from shrimpgrad.view import ViewTracker
 
 class TestThunk(unittest.TestCase):
   def test_load_empty(self):
@@ -33,3 +37,8 @@ class TestThunk(unittest.TestCase):
     self.assertEqual(src.realized, src.buff)
     self.assertEqual(src.device, CPU())
 
+  def test_pad(self):
+    t = create_thunk(ClangDevice(), dtypes.float32, ViewTracker.from_shape((2,2,2)), (), LoadOps.EMPTY) 
+    t1 = t.pad(((1,1),(1,1),(1,1)), 0.0)
+    self.assertEqual((4,4,4), t1.shape)
+    self.assertEqual(0.0, t1.arg)
