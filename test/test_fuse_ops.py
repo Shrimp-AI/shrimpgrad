@@ -72,5 +72,14 @@ class TestFuseOps(unittest.TestCase):
     fused_ops = fusion.fuse()
     self.assertEqual(1, len(fused_ops))
 
+  def test_load_const(self):
+    x = Tensor.full((2,2,2), 3.0)
+    g = IndexedForwardGraph(x.thunk)      
+    fusion = FusionEngine(g)
+    fused_ops = fusion.fuse()
+    # We don't fuse loads (yet)
+    self.assertEqual(0, len(fused_ops))
+
+
 
     

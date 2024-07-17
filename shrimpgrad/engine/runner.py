@@ -30,36 +30,19 @@ def _lower(schedule: List[FusedKernel]) -> List[LowIRGraph]:
 # to add the kernel to the JIT engine.
 shrimp_jit = []
 
-def realize(out: Thunk):
+def realize(out: Thunk, batched=True):
   kernels: List[CompiledKernel] = []
   sched = _schedule(out)
-  load_kerns, unkerned = _gen_load_kernels(sched)
-  for load_kern in load_kerns:
-    load_kern()
-  buffers: List[DefaultDict[str, List[MemBuffer]]] = []
-  func_names = set() 
-  names = []
-  for i, s in enumerate(unkerned):
-    buffs = defaultdict(list)
-    for inp in s.computation.ins:
-      for buf in inp:
-        buffs['input'].append(buf)
-    for obuf in s.computation.out:
-      buffs['output'].append(obuf)
-    buffers.append(buffs)
-    name = [op.name.lower() for op in s.computation.ops] 
-    in_shape = s.computation.ins[0][0].vt.shape 
-    out_shape = s.computation.out[-1].vt.shape
-    name.append('_'.join([str(d) for d in (in_shape if in_shape else [0])]))
-    name.append('_'.join([str(d) for d in (out_shape if out_shape else [0])]))
-    func_name = '_'.join(name + [str(i)])
-    assert func_name not in func_names, f'naming collision for {func_name}' 
-    func_names.add(func_name)
-    names.append(func_name)
+
+  buff_copies, unkerned = _gen_load_kernels(sched)
+
+  for buffcpy in buff_copies: buffcpy()
   
+  buffers = map_buffers_to_kernel(unkerned)
+  func_names = name_kernels(unkerned)
   ir_graphs = _lower(unkerned)
+  
   # Delay compilation to batch compile the kernels
-  batched = True
   for irg, buffs, name in zip(ir_graphs, buffers, func_names):
     kernels.append(CompiledKernel(irg, out.device, buff_to_name, buffs, name=name, batched=batched))
 
@@ -69,30 +52,58 @@ def realize(out: Thunk):
     batched_kernel = BatchedCompiledKernel(kernels)
     batched_kernel()
     return
-
   for kernel in kernels:
     if shrimp_jit: shrimp_jit[0].jit_capture(kernel)
     kernel()
+
+def map_buffers_to_kernel(kernels: List[FusedKernel]):
+  buffers: List[DefaultDict[str, List[MemBuffer]]] = []
+  for i, s in enumerate(kernels):
+    buffs = defaultdict(list)
+    for inp in s.computation.ins:
+      for buf in inp:
+        buffs['input'].append(buf)
+    for obuf in s.computation.out:
+      buffs['output'].append(obuf)
+    buffers.append(buffs)
+  return buffers
+
+def name_kernels(kernels: List[FusedKernel]):
+  func_names = set() 
+  names = []
+  for i, s in enumerate(kernels):
+    name = [op.name.lower() for op in s.computation.ops] 
+    if s.computation.ops[0] is LoadOps.CONST:
+      in_shape = ()
+    else:
+      in_shape = s.computation.ins[0][0].vt.shape 
+    out_shape = s.computation.out[-1].vt.shape
+    name.append('_'.join([str(d) for d in (in_shape if in_shape else [0])]))
+    name.append('_'.join([str(d) for d in (out_shape if out_shape else [0])]))
+    func_name = '_'.join(name + [str(i)])
+    assert func_name not in func_names, f'naming collision for {func_name}' 
+    func_names.add(func_name)
+    names.append(func_name)
+  return names
 
 def _gen_load_kernels(schedule: List[FusedKernel]) ->  Tuple[List[BufferCopy], List[FusedKernel]]:
   load_kernels = []
   un_kerneled = []
   for fk in schedule:
-    if fk.computation.ops[0] == LoadOps.CONST: continue
-    if len(fk.computation.ins) == 1 and fk.computation.ops[0] == LoadOps.COPY:
+    if fk.computation.ops[0] == LoadOps.CONST: 
+      mbuff = fk.computation.out[0]
+      if mbuff.buff.allocated: continue
+    if len(fk.computation.ins) == 1 and fk.computation.ops[0] == LoadOps.COPY :
       src = fk.computation.ins[0][0]
       dst = fk.computation.out[0]
       size = fk.computation.args[0]
-
       assert isinstance(src, MemBuffer)
       assert isinstance(dst, MemBuffer)
       load_kernels.append(BufferCopy(dst, src, size))
     else: un_kerneled.append(fk)
     # Allocate output buffers
     for buff in fk.computation.out:
-      if isinstance(buff, MemBuffer):
-        if not buff.buff.allocated:
-          buff.buff.allocate()
+      if not buff.buff.allocated: buff.buff.allocate()
   return load_kernels, un_kerneled
 
 class BatchedCompiledKernel:

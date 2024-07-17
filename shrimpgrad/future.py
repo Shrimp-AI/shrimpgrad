@@ -118,6 +118,11 @@ class Thunk:
 
   def cast(self, dtype: DType) -> Thunk:
     return create_thunk(self.device, dtype, self.vt, (self,))
+  
+  @staticmethod
+  def load_const(val: ConstType, shape: Tuple[int,...], dtype: DType, device: Device):
+    assert isinstance(val, ConstType), f'load_const expects const val, got {val}'
+    return Thunk.loadop(LoadOps.CONST, shape, dtype, device, arg=val) 
 
   @staticmethod
   def load_from_cpu(data, dtype, shape):
@@ -146,8 +151,7 @@ class Thunk:
 
   def const(self, val: ConstType, shape: Optional[Tuple[int,...]]=None):
     shape = self.shape if shape is None else shape
-    assert isinstance(val, ConstType), 'const thunk requires a const argument'
-    thunk = Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val)
+    thunk = Thunk.load_const(val, (), self.dtype, self.device)
     thunk.buff.allocate(with_data=val)
     return thunk.reshape((1,)*len(shape)).expand(shape)
 

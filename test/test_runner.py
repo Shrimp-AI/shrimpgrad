@@ -3,7 +3,7 @@ from typing import Callable, List
 import unittest
 
 from shrimpgrad.device import MemBuffer
-from shrimpgrad.engine.runner import BufferCopy
+from shrimpgrad.engine.runner import BufferCopy, _gen_load_kernels
 from shrimpgrad import Tensor, nn
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
 from shrimpgrad.runtime.ops import LoadOps
@@ -76,4 +76,13 @@ class TestRunner(unittest.TestCase):
     y = Tensor.ones((2,2))
     z = x+y
     z.realize()
-    print(z.thunk.buff.pointer(ctypes.c_float)[0:4])
+    print(z.numpy())  
+    
+  def test_load_const(self):
+    x = Tensor.full((2,2,2), 3.0)
+    fkb = FusedKernelBuilder(x.thunk)
+    schedule = fkb.schedule()
+    buff_copy, kernels = _gen_load_kernels(schedule)
+    self.assertEqual([], buff_copy)
+    self.assertEqual(1, len(kernels))
+    self.assertTrue(kernels[0].computation.out[0].buff.allocated)

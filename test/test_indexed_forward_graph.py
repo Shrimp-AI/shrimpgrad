@@ -33,3 +33,10 @@ class TestIndexedForwardGraph(unittest.TestCase):
     e = d.mean()
     log_thunk(e.thunk)
     IndexedForwardGraph(e.thunk)
+  
+  def test_load_const_nd(self):
+    x = Tensor.full((2,2,2), 3.0)
+    g = IndexedForwardGraph(x.thunk)
+    self.assertEqual(1, len(g.ordering))
+    self.assertEqual(x.thunk, g.ordering[0])
+    self.assertEqual(0, g.node_to_num[x.thunk])

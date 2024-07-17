@@ -171,3 +171,12 @@ class TestLower(unittest.TestCase):
     schedule = fkb.schedule() 
     lfk = LowerFusedKernel(schedule)
     lfk.lower()
+  
+  def test_load_const(self):
+    t = Tensor.full((2,2,2), 3.0)
+    fkb = FusedKernelBuilder(t.thunk)
+    schedule = fkb.schedule() 
+    lfk = LowerFusedKernel(schedule)
+    ir_graphs = lfk.lower()
+    for ir_graph in ir_graphs:
+      ir_graph.print()

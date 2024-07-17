@@ -52,8 +52,7 @@ class Compiler(metaclass=Singleton):
     self.cache = {}
   def compile(self, src: str): raise NotImplementedError('implement compile')
   def cached_compile(self, src: str, **kwargs):
-    if src in self.cache:
-      return self.cache[src]
+    if src in self.cache: return self.cache[src]
     self.cache[src] = self.compile(src, **kwargs)
     return self.cache[src]
 

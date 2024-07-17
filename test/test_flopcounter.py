@@ -61,4 +61,4 @@ class TestFlopCounter(unittest.TestCase):
     out0 = x + y
     s = FusedKernelBuilder(out0.thunk).schedule()
     mem = memory_estimator(s)
-    assert mem == 112
+    assert mem == 80 

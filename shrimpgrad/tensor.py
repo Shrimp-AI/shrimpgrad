@@ -19,12 +19,13 @@ def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([ma
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device:Device=ClangDevice(), requires_grad:Optional[bool]=None):
-    self.requires_grad, self.index_view = requires_grad, None
+    self.requires_grad = requires_grad
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
     self.cls = Optional[Type[Function]]
     if isinstance(data, Thunk): self.thunk = data
+    elif isinstance(data, ConstType): self.thunk = Thunk.load_const(data, shape, dtype, device)
     else:
       if shape == () and not isinstance(data, ConstType) and len(data) == 1: data = data[0]
       self.thunk = Thunk.load_from_cpu(data, dtype, shape)
@@ -62,6 +63,8 @@ class Tensor:
   def device(self): return self.thunk.device
   @property
   def ndim(self): return self.thunk.ndim
+
+  def nbytes(self): return self.thunk.base.buff.nbytes
 
   def __getitem__(self, key) -> Tensor:
     # TODO: Remove dimensions when indexing down from NDim to MDim (m < n)
@@ -268,7 +271,7 @@ class Tensor:
   @staticmethod
   def full(shape: Shape, fill_value: ConstType, dtype=dtypes.float32, **kwargs) -> Tensor:
     if not len(shape): return Tensor((), fill_value)
-    return Tensor(shape, [float(fill_value) if dtype == dtypes.float32 else int(fill_value)]*prod(shape), **kwargs)
+    return Tensor(shape, fill_value, **kwargs)
 
   @staticmethod
   def full_like(t: Tensor, fill_value: ConstType, **kwargs) -> Tensor: return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype, **kwargs)
