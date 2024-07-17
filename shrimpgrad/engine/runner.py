@@ -1,7 +1,7 @@
 from __future__ import annotations
 from collections import defaultdict
-from typing import Any, DefaultDict, Dict, List, Optional, Tuple
-from shrimpgrad.device import Device, MemBuffer
+from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple
+from shrimpgrad.device import MemBuffer
 from shrimpgrad.engine.lower import LowIRGraph, LowerFusedKernel
 from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder
 from shrimpgrad.future import Thunk
@@ -31,122 +31,86 @@ def _lower(schedule: List[FusedKernel]) -> List[LowIRGraph]:
 shrimp_jit = []
 
 def realize(out: Thunk, batched=True):
-  kernels: List[CompiledKernel] = []
   sched = _schedule(out)
-
   buff_copies, unkerned = _gen_load_kernels(sched)
-
-  for buffcpy in buff_copies: buffcpy()
-  
+  [buffcpy() for buffcpy in buff_copies]
   buffers = map_buffers_to_kernel(unkerned)
   func_names = name_kernels(unkerned)
   ir_graphs = _lower(unkerned)
-  
-  # Delay compilation to batch compile the kernels
-  for irg, buffs, name in zip(ir_graphs, buffers, func_names):
-    kernels.append(CompiledKernel(irg, out.device, buff_to_name, buffs, name=name, batched=batched))
-
-  if batched and kernels:
-    for kernel in kernels:
-      if shrimp_jit: shrimp_jit[0].jit_capture(kernel)
-    batched_kernel = BatchedCompiledKernel(kernels)
-    batched_kernel()
+  k = [CompiledKernel(irg, out.device, buff_to_name, buffs, name=name, 
+    batched=batched) for irg, buffs, name in zip(ir_graphs, buffers, 
+    func_names)]
+  if batched and k:
+    [shrimp_jit[0].jit_capture(kernel) for kernel in k if shrimp_jit]
+    BatchedCompiledKernel(k)()
     return
-  for kernel in kernels:
-    if shrimp_jit: shrimp_jit[0].jit_capture(kernel)
-    kernel()
+  [shrimp_jit[0].jit_capture(kernel) for kernel in k if shrimp_jit]
+  [kernel() for kernel in k]
 
-def map_buffers_to_kernel(kernels: List[FusedKernel]):
-  buffers: List[DefaultDict[str, List[MemBuffer]]] = []
-  for i, s in enumerate(kernels):
-    buffs = defaultdict(list)
-    for inp in s.computation.ins:
-      for buf in inp:
-        buffs['input'].append(buf)
-    for obuf in s.computation.out:
-      buffs['output'].append(obuf)
-    buffers.append(buffs)
-  return buffers
+def map_buffers_to_kernel(kernels: List[FusedKernel]) -> List[DefaultDict[str, List[MemBuffer]]]:
+    return [defaultdict(list, {
+        'input': [buf for inp in s.computation.ins for buf in inp],
+        'output': [obuf for obuf in s.computation.out]
+    }) for s in kernels]
 
-def name_kernels(kernels: List[FusedKernel]):
-  func_names = set() 
-  names = []
-  for i, s in enumerate(kernels):
-    name = [op.name.lower() for op in s.computation.ops] 
-    if s.computation.ops[0] is LoadOps.CONST:
-      in_shape = ()
-    else:
-      in_shape = s.computation.ins[0][0].vt.shape 
-    out_shape = s.computation.out[-1].vt.shape
-    name.append('_'.join([str(d) for d in (in_shape if in_shape else [0])]))
-    name.append('_'.join([str(d) for d in (out_shape if out_shape else [0])]))
-    func_name = '_'.join(name + [str(i)])
-    assert func_name not in func_names, f'naming collision for {func_name}' 
-    func_names.add(func_name)
-    names.append(func_name)
-  return names
+def name_kernels(kernels: List[FusedKernel]) -> List[str]:
+  func_names: Set[str] = set()
+  return [
+    func_name for func_name in (
+      '_'.join(
+        [op.name.lower() for op in s.computation.ops] +
+        ['0' if s.computation.ops[0] is LoadOps.CONST else '_'.join(
+          map(str, s.computation.ins[0][0].vt.shape))] +
+        ['_'.join(map(str, s.computation.out[-1].vt.shape))] +
+        [str(i)]
+      ) for i, s in enumerate(kernels)
+    ) if func_name not in func_names and not func_names.add(func_name)]
 
-def _gen_load_kernels(schedule: List[FusedKernel]) ->  Tuple[List[BufferCopy], List[FusedKernel]]:
-  load_kernels = []
-  un_kerneled = []
-  for fk in schedule:
-    if fk.computation.ops[0] == LoadOps.CONST: 
-      mbuff = fk.computation.out[0]
-      if mbuff.buff.allocated: continue
-    if len(fk.computation.ins) == 1 and fk.computation.ops[0] == LoadOps.COPY :
-      src = fk.computation.ins[0][0]
-      dst = fk.computation.out[0]
-      size = fk.computation.args[0]
-      assert isinstance(src, MemBuffer)
-      assert isinstance(dst, MemBuffer)
-      load_kernels.append(BufferCopy(dst, src, size))
-    else: un_kerneled.append(fk)
-    # Allocate output buffers
-    for buff in fk.computation.out:
-      if not buff.buff.allocated: buff.buff.allocate()
-  return load_kernels, un_kerneled
+def _gen_load_kernels(schedule: List[FusedKernel]) -> Tuple[List[BufferCopy], List[FusedKernel]]:
+    l, u = [], []
+    for fk in schedule:
+      c = fk.computation
+      if c.ops[0] == LoadOps.CONST and c.out[0].buff.allocated: continue
+      if len(c.ins) == 1 and c.ops[0] == LoadOps.COPY:
+        l.append(BufferCopy(c.out[0], c.ins[0][0], c.args[0]))
+      else: u.append(fk)
+      [buff.buff.allocate() for buff in c.out if not buff.buff.allocated]
+    return l, u
 
-class BatchedCompiledKernel:
-  def __init__(self, cks: List[CompiledKernel]):
-    self.dev = cks[0].dev 
-    self.buff2name = cks[0].buff2name 
-    self.buffs = [ck.buffs for ck in cks] 
-    self.names = [ck.name for ck in cks] 
-    self.prgs = [ck.prg for ck in cks]
-    self.src = '\n'.join([ck.prg.src for ck in cks]) 
+class BaseKernel:
+  def __init__(self, dev, buffs, name=None):
+    self.dev, self.buffs, self.name = dev, buffs, name
+  def __repr__(self) -> str: return f"<{self.__class__.__name__} id={id(self)}>"
+  def compile(self, src):
     try:
-      self.lib = self.dev.compiler().cached_compile(self.src)
+      return self.dev.compiler().cached_compile(src)
     except Exception as e:
-      print(self.src)
-      raise e
-  def __repr__(self) -> str: return f"<BatchedCompiledKernel id={id(self)}>"
-  def __call__(self):
-    try:
-      self.dev.runtime().batched_exec(self.lib, self.names, self.buffs, self.buff2name, [prg.args2pos for prg in self.prgs])
-    except Exception as e:
-      print(self.src)
+      print(src)
       raise e
 
-class CompiledKernel:
-  def __init__(self, ir: LowIRGraph, dev: Device, buff_to_name, buffs: DefaultDict[str, List[MemBuffer]], name=None, batched=False) -> None:
-    self.ir, self.dev, self.buffs = ir, dev, buffs
-    self.name = name 
-    self.prg = self.dev.renderer().render(self.ir, self.name)
-    self.batched = batched
-    if not self.batched:
-      # Delay compilation
-      try:
-        self.lib = self.dev.compiler().cached_compile(self.prg.src)
-      except Exception as e:
-        print(self.prg.src)
-        raise e
+class CompiledKernel(BaseKernel):
+  def __init__(self, ir, dev, buff_to_name, buffs, name=None, batched=False):
+    super().__init__(dev, buffs, name)
+    self.ir, self.prg, self.batched = ir, dev.renderer().render(ir, name), batched
     self.buff2name = buff_to_name
-  def __repr__(self) -> str: return f"<CompiledKernel id={id(self)}>"
+    if not batched: self.lib = self.compile(self.prg.src)
   def __call__(self):
     try:
       self.rt = self.dev.runtime().exec(self.lib, self.prg.fname if self.name is None else self.name, self.buffs, self.buff2name, self.prg.args2pos)
-    except Exception as e:
+    except Exception as e: 
       print(self.prg.src)
+      raise e
+
+class BatchedCompiledKernel(BaseKernel):
+  def __init__(self, cks: List[CompiledKernel]):
+    super().__init__(cks[0].dev, [ck.buffs for ck in cks])
+    self.buff2name, self.names, self.prgs = cks[0].buff2name, [ck.name for ck in cks], [ck.prg for ck in cks]
+    self.src, self.lib = '\n'.join([ck.prg.src for ck in cks]), self.compile('\n'.join([ck.prg.src for ck in cks]))
+  def __call__(self):
+    try:
+      self.dev.runtime().batched_exec(self.lib, self.names, self.buffs, self.buff2name, [prg.args2pos for prg in self.prgs])
+    except Exception as e: 
+      print(self.src)
       raise e
 
 class BufferCopy:

@@ -1,12 +1,13 @@
 import contextlib
 from functools import reduce
 import time
-from typing import Iterable, Tuple
+from typing import Any, Iterable, Tuple
 import operator
 import math
 
 def argsort(x): return type(x)(sorted(range(len(x)), key=x.__getitem__)) # https://stackoverflow.com/questions/3382352/equivalent-of-numpy-argsort-in-basic-python
 def prod(x: Iterable[int]) -> int: return reduce(operator.mul, x, 1)
+def dedup(x: Iterable[Any]) -> Iterable[Any]: return list(set(x))  
 
 ## Used for Kaiming init
 def calc_fan_in_fan_out(shape:Tuple[int,...]):
