@@ -23,6 +23,7 @@ class Group:
     # Update the parents to point to the new root
     p = self
     while p != root:
+      assert p is not None, 'parent cannot be none in find_root' 
       parent = p.parent
       p.parent = root
       p = parent

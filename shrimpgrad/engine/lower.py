@@ -10,7 +10,7 @@ from shrimpgrad.engine.scheduler import FusedKernel
 from shrimpgrad.runtime.ops import BinaryOps, LoadOps, ReduceOps, TernaryOps, UnaryOps
 from shrimpgrad.util import prod
 
-def alu2str(op: Union[BinaryOps, UnaryOps]) -> str:
+def alu2str(op:BinaryOps|UnaryOps) -> str:
   assert op in BinaryOps or op in UnaryOps, f"{op} is not a binary/unary alu op"
   if op is BinaryOps.ADD: return '+'
   if op is BinaryOps.CMPEQ: return '=='
@@ -178,11 +178,11 @@ class LowIRGraph:
     self.G.append(node:=ConstNode(LowIR.CONST, (), dtype, val))
     return node
 
-  def define_global(self, name:str, dtype: DType, mutable: bool, pos: int, ptr: bool=True) -> Node:
+  def define_global(self, name:str, dtype: DType, mutable: bool, pos: int, ptr: bool=True) -> GlobalNode:
     self.G.append(node:=GlobalNode(LowIR.GLOBAL, (), name, dtype, ptr, pos, mutable))
     return node
 
-  def local_var(self, name: str, dtype: DType, val: ConstNode|ALUNode) -> Node:
+  def local_var(self, name: str, dtype: DType, val: ConstNode|ALUNode) -> LocalNode:
     self.G.append(node:=LocalNode(LowIR.LOCAL, (val, ), name, dtype))
     return node
 
@@ -278,7 +278,7 @@ class LowerFusedKernel:
     self.node_to_symbol[mbuff] = name
     return g0
 
-  def lower_io(self, io: MemBuffer, is_input:bool) -> GlobalNode|ConstNode:
+  def lower_io(self, io: MemBuffer, is_input:bool) -> GlobalNode:
     return self.lower_buffer(io, is_input)
 
   def lower_load(self, g: GlobalNode, addr: Optional[AddressNode|OffsetNode]=None) -> LoadNode:
@@ -462,6 +462,14 @@ class LowerFusedKernel:
     output = fused_kernel.computation.out[0]
     op = fused_kernel.computation.ops[0]
     arg = fused_kernel.computation.args[0]
+    if op is LoadOps.CONST:
+      gout = self.lower_io(output, is_input=False)
+      loops, idxs = self.lower_start_loops(output.vt.ndim, output.vt.shape)
+      val = self.g.const(output.buff.dtype, arg)
+      addr0 = self.g.address(idxs, output.vt.strides, 1)
+      self.lower_store(gout, addr0, val) 
+      self.lower_end_loops(loops)
+      return
     if op in LoadOps and op is not LoadOps.ASSIGN:
       self.lower_io(output, is_input=True)
       return

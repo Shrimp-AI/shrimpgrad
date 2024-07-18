@@ -1,7 +1,7 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any, List, Union, Sequence
+from typing import Any, List, Sequence
 from shrimpgrad.device import ConstBuffer, MemBuffer
 from shrimpgrad.future import IndexedForwardGraph, Thunk
 from shrimpgrad.engine.fuse_ops import FusionEngine
@@ -10,8 +10,8 @@ from shrimpgrad.runtime.ops import LoadOps, Op
 @dataclass
 class MidIR:
   ops: Sequence[Op]
-  ins: Sequence[Sequence[Union[MemBuffer, ConstBuffer]]]
-  out: Sequence[Union[MemBuffer, ConstBuffer]]
+  ins: Sequence[Sequence[MemBuffer]]
+  out: Sequence[MemBuffer]
   args: List[Any]
 
 @dataclass
@@ -21,7 +21,6 @@ class FusedKernel:
 class FusedKernelBuilder:
   def __init__(self, out: Thunk):
     self.g = IndexedForwardGraph(out)
-
     fusion_engine = FusionEngine(self.g)
     self.fused_ops = fusion_engine.fuse()
     self.groups = fusion_engine.groups
@@ -46,6 +45,7 @@ class FusedKernelBuilder:
           if thunk._op is LoadOps.ASSIGN and thunk._operands[1].realized is not None : 
             assert  is_realized, 'assign target must be realized'
             continue  
+          assert thunk._op is not None, 'no views should be here'
           ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
           kernels.append(FusedKernel(ir))
         else:

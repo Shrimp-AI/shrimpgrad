@@ -52,8 +52,7 @@ class Compiler(metaclass=Singleton):
     self.cache = {}
   def compile(self, src: str): raise NotImplementedError('implement compile')
   def cached_compile(self, src: str, **kwargs):
-    if src in self.cache:
-      return self.cache[src]
+    if src in self.cache: return self.cache[src]
     self.cache[src] = self.compile(src, **kwargs)
     return self.cache[src]
 
@@ -63,7 +62,7 @@ class Runtime(metaclass=Singleton):
 
 # A mixin for devices that want the capability of executing native only.
 class Jitable:
-  def jitify(self): raise NotImplementedError('implement jitify')
+  def jitify(self, kernels, input_buffers): raise NotImplementedError('implement jitify')
 
 class CPU(Device):
   def __init__(self):

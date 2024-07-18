@@ -19,12 +19,13 @@ def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([ma
 
 class Tensor:
   def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device:Device=ClangDevice(), requires_grad:Optional[bool]=None):
-    self.requires_grad, self.index_view = requires_grad, None
+    self.requires_grad = requires_grad
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
-    self.cls = Optional[Type[Function]]
+    self.cls: Optional[Type[Function]] = None
     if isinstance(data, Thunk): self.thunk = data
+    elif isinstance(data, ConstType): self.thunk = Thunk.load_const(data, shape, dtype, device)
     else:
       if shape == () and not isinstance(data, ConstType) and len(data) == 1: data = data[0]
       self.thunk = Thunk.load_from_cpu(data, dtype, shape)
@@ -62,6 +63,8 @@ class Tensor:
   def device(self): return self.thunk.device
   @property
   def ndim(self): return self.thunk.ndim
+
+  def nbytes(self): return self.thunk.base.buff.nbytes
 
   def __getitem__(self, key) -> Tensor:
     # TODO: Remove dimensions when indexing down from NDim to MDim (m < n)
@@ -196,7 +199,7 @@ class Tensor:
   def __ne__(self, x) -> Tensor: return (self==x).logical_not()
   def __mul__(self, other: Tensor|ConstType) -> Tensor: return self.mul(other)
   def __rmul__(self, other): return self.mul(other, reverse=True)
-  def __add__(self, other: Tensor) -> Tensor: return self.add(other)
+  def __add__(self, other: Tensor|ConstType) -> Tensor: return self.add(other)
   def __radd__(self, other): return self.add(other, reverse=True)
   def __neg__(self): return self.mul(-1)
   def __sub__(self, other): return self.sub(other)
@@ -215,6 +218,7 @@ class Tensor:
   def relu(self) -> Tensor:
     from shrimpgrad.autograd.function import ReLU
     return ReLU.apply(self)
+
   def sigmoid(self) -> Tensor:
     from shrimpgrad.autograd.function import Sigmoid
     return Sigmoid.apply(self)
@@ -237,6 +241,14 @@ class Tensor:
   def permute(self, order: Tuple[int,...]) -> Tensor:
     from shrimpgrad.autograd.function import Permute
     return Permute.apply(self, order=order)
+  
+  def pad(self, pad_width: Tuple[Tuple[int,int],...], value:ConstType=0.0) -> Tensor:
+    from shrimpgrad.autograd.function import Pad 
+    return Pad.apply(self, pad_width=pad_width, value=value)
+    
+  def shrink(self, shrink_width: Tuple[Tuple[int,int],...]) -> Tensor:
+    from shrimpgrad.autograd.function import Shrink 
+    return Shrink.apply(self, shrink_width=shrink_width)
 
   def transpose(self, ax0=1, ax1=0):
     ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
@@ -267,7 +279,7 @@ class Tensor:
   @staticmethod
   def full(shape: Shape, fill_value: ConstType, dtype=dtypes.float32, **kwargs) -> Tensor:
     if not len(shape): return Tensor((), fill_value)
-    return Tensor(shape, [float(fill_value) if dtype == dtypes.float32 else int(fill_value)]*prod(shape), **kwargs)
+    return Tensor(shape, fill_value, **kwargs)
 
   @staticmethod
   def full_like(t: Tensor, fill_value: ConstType, **kwargs) -> Tensor: return Tensor.full(t.shape, fill_value=fill_value, dtype=t.dtype, **kwargs)
@@ -338,7 +350,7 @@ class Tensor:
       if base.shape == ():
         return np.frombuffer(data, dtype=np.float32).reshape(())
     else:
-      raise TypeError("self is not realized wheres the bufff")
+      raise TypeError("self is not realized where is the buff")
     return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
 
   def numpy(self): return self.realize().data()

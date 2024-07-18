@@ -145,8 +145,7 @@ class TestLower(unittest.TestCase):
     schedule = fkb.schedule()
     lfk = LowerFusedKernel(schedule)
     ir_graphs = lfk.lower()
-    for i, ir_graph in enumerate(ir_graphs):
-      print(f"GRAPH {i}")
+    for _, ir_graph in enumerate(ir_graphs):
       ir_graph.print()
 
   def test_lower_full_axis_reduce(self):
@@ -156,9 +155,25 @@ class TestLower(unittest.TestCase):
     schedule = fkb.schedule()
     lfk = LowerFusedKernel(schedule)
     ir_graphs = lfk.lower()
-    for i, ir_graph in enumerate(ir_graphs):
-      print(f"GRAPH {i}")
+    for _, ir_graph in enumerate(ir_graphs):
       ir_graph.print()
     y.realize()
-    print(y.data())
     np.testing.assert_array_equal(y.data(), 2.0)
+
+  def test_pad(self):
+    t = Tensor.full((2,2,2), 3.0)
+    t1 = t.thunk.pad(((1,1),(1,1),(1,1)), 0.0)
+    self.assertEqual((4,4,4), t1.shape)
+    fkb = FusedKernelBuilder(t1)
+    schedule = fkb.schedule() 
+    lfk = LowerFusedKernel(schedule)
+    lfk.lower()
+  
+  def test_load_const(self):
+    t = Tensor.full((2,2,2), 3.0)
+    fkb = FusedKernelBuilder(t.thunk)
+    schedule = fkb.schedule() 
+    lfk = LowerFusedKernel(schedule)
+    ir_graphs = lfk.lower()
+    for ir_graph in ir_graphs:
+      ir_graph.print()

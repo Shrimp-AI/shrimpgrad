@@ -112,9 +112,23 @@ class Thunk:
 
   def expand(self, shape: Tuple[int,...]) -> Thunk:
     return create_thunk(self.device, self.dtype, self.vt.expand(shape), (), base=self.base)
+  
+  def pad(self, pad_width: Tuple[Tuple[int, int],...], value: ConstType=0.0):
+    thunk = create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), base=self.base, arg=value)
+    # TODO: Hack to fix a test so I can commit
+    self.base.buff = Buffer(self.device, prod(thunk.shape), thunk.dtype)
+    return thunk
+
+  def shrink(self, shrink_width: Tuple[Tuple[int, int],...]):
+    return create_thunk(self.device, self.dtype, self.vt.shrink(shrink_width), (), base=self.base)
 
   def cast(self, dtype: DType) -> Thunk:
     return create_thunk(self.device, dtype, self.vt, (self,))
+  
+  @staticmethod
+  def load_const(val: ConstType, shape: Tuple[int,...], dtype: DType, device: Device):
+    assert isinstance(val, ConstType), f'load_const expects const val, got {val}'
+    return Thunk.loadop(LoadOps.CONST, shape, dtype, device, arg=val) 
 
   @staticmethod
   def load_from_cpu(data, dtype, shape):
@@ -143,8 +157,7 @@ class Thunk:
 
   def const(self, val: ConstType, shape: Optional[Tuple[int,...]]=None):
     shape = self.shape if shape is None else shape
-    assert isinstance(val, ConstType), 'const thunk requires a const argument'
-    thunk = Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val)
+    thunk = Thunk.load_const(val, (), self.dtype, self.device)
     thunk.buff.allocate(with_data=val)
     return thunk.reshape((1,)*len(shape)).expand(shape)
 

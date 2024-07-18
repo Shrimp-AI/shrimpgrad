@@ -148,6 +148,10 @@ class ClangCodeGen:
           continue
         if instr.op is LowIR.CONST:
           i += 1
+          assert isinstance(instr, ConstNode), f'invalid const instruction {instr}'
+          if isinstance(instr.val, bool):
+            self.instr_to_src[instr] = 1.0 if instr.val else 0.0
+          else: self.instr_to_src[instr] = instr.val
           continue
         elif instr.op is LowIR.LOCAL:
           self.instr_to_src[instr] = instr.name
@@ -250,8 +254,10 @@ class ClangCodeGen:
 class ClangCompiler(Compiler):
   def compile(self, src: str) -> bytes:
     with tempfile.NamedTemporaryFile(delete=True) as outfile:
-      subprocess.check_output(['clang', '-include', 'tgmath.h', '-shared', '-march=native', '-O2', '-Wall', '-Werror', '-x', 'c', '-fPIC', '-',
-                      '-o', str(outfile.name)], input=src.encode('utf-8'))
+      subprocess.check_output(['clang', '-include', 'tgmath.h', '-shared',
+                               '-march=native', '-O2', '-Wall', '-Werror',
+                               '-ftree-vectorize', '-x', 'c',
+                               '-fPIC', '-', '-o', outfile.name], input=src.encode('utf-8'))
       return pathlib.Path(outfile.name).read_bytes()
 
 class ClangRuntime(Runtime):
