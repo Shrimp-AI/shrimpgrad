@@ -23,7 +23,7 @@ class Tensor:
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function
     self.ctx: Optional[Function] = None
-    self.cls = Optional[Type[Function]]
+    self.cls: Optional[Type[Function]] = None
     if isinstance(data, Thunk): self.thunk = data
     elif isinstance(data, ConstType): self.thunk = Thunk.load_const(data, shape, dtype, device)
     else:
@@ -199,7 +199,7 @@ class Tensor:
   def __ne__(self, x) -> Tensor: return (self==x).logical_not()
   def __mul__(self, other: Tensor|ConstType) -> Tensor: return self.mul(other)
   def __rmul__(self, other): return self.mul(other, reverse=True)
-  def __add__(self, other: Tensor) -> Tensor: return self.add(other)
+  def __add__(self, other: Tensor|ConstType) -> Tensor: return self.add(other)
   def __radd__(self, other): return self.add(other, reverse=True)
   def __neg__(self): return self.mul(-1)
   def __sub__(self, other): return self.sub(other)
@@ -241,6 +241,14 @@ class Tensor:
   def permute(self, order: Tuple[int,...]) -> Tensor:
     from shrimpgrad.autograd.function import Permute
     return Permute.apply(self, order=order)
+  
+  def pad(self, pad_width: Tuple[Tuple[int,int],...], value:ConstType=0.0) -> Tensor:
+    from shrimpgrad.autograd.function import Pad 
+    return Pad.apply(self, pad_width=pad_width, value=value)
+    
+  def shrink(self, shrink_width: Tuple[Tuple[int,int],...]) -> Tensor:
+    from shrimpgrad.autograd.function import Shrink 
+    return Shrink.apply(self, shrink_width=shrink_width)
 
   def transpose(self, ax0=1, ax1=0):
     ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)

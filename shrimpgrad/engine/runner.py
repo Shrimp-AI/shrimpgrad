@@ -3,12 +3,11 @@ from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple
 from shrimpgrad.device import MemBuffer
 from shrimpgrad.engine.lower import LowIRGraph, LowerFusedKernel
-from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder
+from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder, print_schedule
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.ops import LoadOps
 
-buff_to_name: Optional[Dict[Any, str]
-] = None
+buff_to_name: Optional[Dict[Any, str]] = None
 
 def buff2name(buff) -> str:
   assert buff_to_name is not None, "buff_to_name must be allocated"
@@ -32,6 +31,7 @@ shrimp_jit = []
 
 def realize(out: Thunk, batched=True):
   sched = _schedule(out)
+  print_schedule(sched)
   buff_copies, unkerned = _gen_load_kernels(sched)
   [buffcpy() for buffcpy in buff_copies]
   buffers = map_buffers_to_kernel(unkerned)
@@ -48,10 +48,10 @@ def realize(out: Thunk, batched=True):
   [kernel() for kernel in k]
 
 def map_buffers_to_kernel(kernels: List[FusedKernel]) -> List[DefaultDict[str, List[MemBuffer]]]:
-    return [defaultdict(list, {
-        'input': [buf for inp in s.computation.ins for buf in inp],
-        'output': [obuf for obuf in s.computation.out]
-    }) for s in kernels]
+  return [defaultdict(list, {
+    'input': [buf for inp in s.computation.ins for buf in inp],
+    'output': [obuf for obuf in s.computation.out]
+  }) for s in kernels]
 
 def name_kernels(kernels: List[FusedKernel]) -> List[str]:
   func_names: Set[str] = set()
@@ -67,23 +67,22 @@ def name_kernels(kernels: List[FusedKernel]) -> List[str]:
     ) if func_name not in func_names and not func_names.add(func_name)]
 
 def _gen_load_kernels(schedule: List[FusedKernel]) -> Tuple[List[BufferCopy], List[FusedKernel]]:
-    l, u = [], []
-    for fk in schedule:
-      c = fk.computation
-      if c.ops[0] == LoadOps.CONST and c.out[0].buff.allocated: continue
-      if len(c.ins) == 1 and c.ops[0] == LoadOps.COPY:
-        l.append(BufferCopy(c.out[0], c.ins[0][0], c.args[0]))
-      else: u.append(fk)
-      [buff.buff.allocate() for buff in c.out if not buff.buff.allocated]
-    return l, u
+  l, u = [], []
+  for fk in schedule:
+    c = fk.computation
+    if c.ops[0] == LoadOps.CONST and c.out[0].buff.allocated: continue
+    if len(c.ins) == 1 and c.ops[0] == LoadOps.COPY:
+      l.append(BufferCopy(c.out[0], c.ins[0][0], c.args[0]))
+    else: u.append(fk)
+    [buff.buff.allocate() for buff in c.out if not buff.buff.allocated]
+  return l, u
 
 class BaseKernel:
   def __init__(self, dev, buffs, name=None):
     self.dev, self.buffs, self.name = dev, buffs, name
   def __repr__(self) -> str: return f"<{self.__class__.__name__} id={id(self)}>"
   def compile(self, src):
-    try:
-      return self.dev.compiler().cached_compile(src)
+    try: return self.dev.compiler().cached_compile(src)
     except Exception as e:
       print(src)
       raise e
@@ -95,8 +94,7 @@ class CompiledKernel(BaseKernel):
     self.buff2name = buff_to_name
     if not batched: self.lib = self.compile(self.prg.src)
   def __call__(self):
-    try:
-      self.rt = self.dev.runtime().exec(self.lib, self.prg.fname if self.name is None else self.name, self.buffs, self.buff2name, self.prg.args2pos)
+    try: self.rt = self.dev.runtime().exec(self.lib, self.prg.fname if self.name is None else self.name, self.buffs, self.buff2name, self.prg.args2pos)
     except Exception as e: 
       print(self.prg.src)
       raise e
@@ -107,8 +105,7 @@ class BatchedCompiledKernel(BaseKernel):
     self.buff2name, self.names, self.prgs = cks[0].buff2name, [ck.name for ck in cks], [ck.prg for ck in cks]
     self.src, self.lib = '\n'.join([ck.prg.src for ck in cks]), self.compile('\n'.join([ck.prg.src for ck in cks]))
   def __call__(self):
-    try:
-      self.dev.runtime().batched_exec(self.lib, self.names, self.buffs, self.buff2name, [prg.args2pos for prg in self.prgs])
+    try: self.dev.runtime().batched_exec(self.lib, self.names, self.buffs, self.buff2name, [prg.args2pos for prg in self.prgs])
     except Exception as e: 
       print(self.src)
       raise e

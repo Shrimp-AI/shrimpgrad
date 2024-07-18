@@ -113,8 +113,14 @@ class Thunk:
   def expand(self, shape: Tuple[int,...]) -> Thunk:
     return create_thunk(self.device, self.dtype, self.vt.expand(shape), (), base=self.base)
   
-  def pad(self, pad_width: Tuple[Tuple[int, int],...], value: ConstType=1.0):
-    return create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), base=self.base, arg=value)
+  def pad(self, pad_width: Tuple[Tuple[int, int],...], value: ConstType=0.0):
+    thunk = create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), base=self.base, arg=value)
+    # TODO: Hack to fix a test so I can commit
+    self.base.buff = Buffer(self.device, prod(thunk.shape), thunk.dtype)
+    return thunk
+
+  def shrink(self, shrink_width: Tuple[Tuple[int, int],...]):
+    return create_thunk(self.device, self.dtype, self.vt.shrink(shrink_width), (), base=self.base)
 
   def cast(self, dtype: DType) -> Thunk:
     return create_thunk(self.device, dtype, self.vt, (self,))

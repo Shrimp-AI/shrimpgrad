@@ -62,7 +62,7 @@ class Runtime(metaclass=Singleton):
 
 # A mixin for devices that want the capability of executing native only.
 class Jitable:
-  def jitify(self): raise NotImplementedError('implement jitify')
+  def jitify(self, kernels, input_buffers): raise NotImplementedError('implement jitify')
 
 class CPU(Device):
   def __init__(self):

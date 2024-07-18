@@ -43,10 +43,10 @@ class TestTensor(unittest.TestCase):
     np.testing.assert_allclose(out2.data(), np.array([1,0,0,1]).reshape(2,2))
 
 def measure_speed(func, *args, **kwargs):
-    start_time = time.time()
-    result = func(*args, **kwargs)
-    end_time = time.time()
-    return end_time, start_time, result
+  start_time = time.time()
+  result = func(*args, **kwargs)
+  end_time = time.time()
+  return end_time, start_time, result
 
 N = 16384 
 class TestCreationSpeed(unittest.TestCase):
@@ -80,3 +80,9 @@ class TestCreationSpeed(unittest.TestCase):
       with Timing("sync:  ", on_exit=lambda ns: f" @ {t.nbytes()/ns:.2f} GB/s"):
         t = Tensor.full((N, N), 3.0)
         t.realize()
+
+class TestPadAndShrink(unittest.TestCase):
+  def test_pad(self):
+    t = Tensor.full((2,2), 3.0)
+    t = t.pad(((1, 1), (1, 1))) 
+    print(t.numpy())

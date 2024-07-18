@@ -1,12 +1,13 @@
 from __future__ import annotations
 from collections import defaultdict
 import ctypes
-from typing import Callable, Generic, List, TypeVar, Union
+from typing import Callable, Generic, Iterable, List, TypeVar, Union, cast
 from shrimpgrad import Tensor
-from shrimpgrad.device import Buffer, ConstBuffer, Jitable, MemBuffer
+from shrimpgrad.device import Buffer, Device, Jitable, MemBuffer
 from shrimpgrad.engine.runner import CompiledKernel, shrimp_jit
+from shrimpgrad.util import SupportsGetItem
 
-def jit_capture_kernels(kernels: List[CompiledKernel], input_buffers: List[Buffer], device: Jitable):
+def jit_capture_kernels(kernels: List[CompiledKernel], input_buffers: List[Buffer], device: Union[Device,Jitable]):
   assert isinstance(device, Jitable), f"device {device} is not jittable"
   assert kernels, "no kernels to capture"
   print(f"[JIT_CAPTURE_KERNELS] capturing {len(kernels)} kernels for {device} with {len(input_buffers)} changing inputs")
@@ -14,10 +15,11 @@ def jit_capture_kernels(kernels: List[CompiledKernel], input_buffers: List[Buffe
   print("[DONE JIT_CAPTURE_KERNELS]")
   return native_fxn
 
-def _process_return_type(ret: ReturnType):
-  if ret.__class__ in [List, tuple]:
+def _process_return_type(ret: object):
+  if isinstance(ret, Iterable):
     for r in ret: r.realize() 
     return
+  assert isinstance(ret, Tensor), 'return type must be a tensor at this point'
   ret.realize()
 
 ReturnType = TypeVar('ReturnType')
@@ -36,9 +38,9 @@ class ShrimpJit(Generic[ReturnType]):
     self.replace_buffer = {}
 
   def __call__(self, *args, **kwargs) -> ReturnType:
-    input_tensors: List[Tensor] = [(name, t) for name, t in enumerate(args) if t.__class__ is Tensor]
-    for _, t in input_tensors: t.realize()
-    self.input_buffers = [t.thunk.base.buff for _, t in input_tensors]
+    input_tensors: List[Tensor] = [t  for t in args if t.__class__ is Tensor]
+    for t in input_tensors: t.realize()
+    self.input_buffers = [t.thunk.base.buff for t in input_tensors]
     if self.exec_cnt == 0:
       print("[JIT_IGNORE]")
       # jit ignore
@@ -51,7 +53,7 @@ class ShrimpJit(Generic[ReturnType]):
       self.ret = self.fn(*args, **kwargs)
       _process_return_type(self.ret)
       shrimp_jit.clear()
-      device = self.ret.device if self.ret.__class__ is Tensor else self.ret[0].device
+      device = self.ret.device if isinstance(self.ret, Tensor) else cast(SupportsGetItem[int, Tensor],self.ret)[0].device
       self.native_fxn = jit_capture_kernels(self.jit_kernels, self.input_buffers, device)
       del self.replace_buffer
     else:
@@ -77,12 +79,11 @@ class ShrimpJit(Generic[ReturnType]):
       buffs['output'].append(new_buff)
     self.jit_kernels.append(CompiledKernel(ck.ir, ck.dev, b2n, buffs, ck.name, ck.batched))
 
-  def add_buffer(self, b: Union[MemBuffer|ConstBuffer]) -> Union[MemBuffer|ConstBuffer]:
+  def add_buffer(self, b: MemBuffer) -> MemBuffer:
     if found:=self.replace_buffer.get(b, None): return found
     if b.__class__ is MemBuffer:
       if b.buff.allocated: return b
       self.replace_buffer[b] = ret = MemBuffer(Buffer(b.buff.device, b.buff.size, b.buff.dtype), b.vt)
-    else:
-      return b
+    else: return b
     return ret
 

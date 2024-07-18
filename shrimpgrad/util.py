@@ -1,9 +1,10 @@
 import contextlib
 from functools import reduce
 import time
-from typing import Any, Iterable, Tuple
+from typing import Any, Iterable, Tuple, TypeVar
 import operator
 import math
+from typing_extensions import Protocol
 
 def argsort(x): return type(x)(sorted(range(len(x)), key=x.__getitem__)) # https://stackoverflow.com/questions/3382352/equivalent-of-numpy-argsort-in-basic-python
 def prod(x: Iterable[int]) -> int: return reduce(operator.mul, x, 1)
@@ -48,3 +49,9 @@ class Timing(contextlib.ContextDecorator):
   def __exit__(self, *exc):
     self.et = time.perf_counter_ns() - self.st
     if self.enabled: print(f"{self.prefix}{self.et*1e-6:6.2f} ms"+(self.on_exit(self.et) if self.on_exit else ""))
+
+# Typing helper for ensuring an object accepts __get_item__
+K = TypeVar('K', contravariant=True)
+V = TypeVar('V', covariant=True)
+class SupportsGetItem(Protocol[K, V]):
+  def __getitem__(self, __key: K) -> V: ...
