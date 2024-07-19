@@ -74,7 +74,20 @@ def create_view(shape: Tuple[int,...],
   return View(shape, normalize_strides(shape, strides) if strides is not None else strides)
 
 class View:
-  """The layout for the thunk
+  """
+  The view of a thunk's underlying data buffer.
+  
+  TODO:
+  Something that defines slices within the buffer that have actual backing data
+    - After pad and shrink we have virtual expansion/contraction of the dimension and we want
+      to keep things zero copy i.e.) on pad don't copy the buffer to a new location and fill in zeros where
+      they are needed allocating a bunch of memory for the padding that's unecessary.
+      - Instead pretend we have been padded, and at realize codegen if values fall out of the valid range use the padded value
+      - In this way we keep the original size but don't have to actually store all the padded intermediate tensors  
+    - An offset used for computing loop indices, where values that fall outside of the valid range are defaulted to the pad value
+  Symbolic Views for variable length tensors i.e. GPT2
+  - A way to define shapes that have variable dimensions i.e. Can range from 0 to 100 shape = (Variable('x', 0, 100))
+  
   """
   def __init__(self, shape: Tuple[int,...],
                strides: Optional[Tuple[int,...]]=None):
@@ -83,7 +96,6 @@ class View:
 
   @property
   def contiguous(self) -> bool: return self.strides == strides_for_shape(self.shape)
-
   @property
   def scalar(self): return self.ndim == 0
   @property
