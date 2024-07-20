@@ -3,7 +3,7 @@ from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple
 from shrimpgrad.device import MemBuffer
 from shrimpgrad.engine.lower import LowIRGraph, LowerFusedKernel
-from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder, print_schedule
+from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.ops import LoadOps
 
@@ -31,7 +31,6 @@ shrimp_jit = []
 
 def realize(out: Thunk, batched=True):
   sched = _schedule(out)
-  print_schedule(sched)
   buff_copies, unkerned = _gen_load_kernels(sched)
   [buffcpy() for buffcpy in buff_copies]
   buffers = map_buffers_to_kernel(unkerned)
@@ -59,7 +58,7 @@ def name_kernels(kernels: List[FusedKernel]) -> List[str]:
     func_name for func_name in (
       '_'.join(
         [op.name.lower() for op in s.computation.ops] +
-        ['0' if s.computation.ops[0] is LoadOps.CONST else '_'.join(
+        ['0' if s.computation.ops[0] in [LoadOps.CONST,LoadOps.CONTIGUOUS] else '_'.join(
           map(str, s.computation.ins[0][0].vt.shape))] +
         ['_'.join(map(str, s.computation.out[-1].vt.shape))] +
         [str(i)]

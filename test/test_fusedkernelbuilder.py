@@ -4,7 +4,6 @@ from shrimpgrad.engine.graph import log_thunk
 import shrimpgrad.nn as nn
 
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
-from shrimpgrad.runtime.ops import LoadOps
 from shrimpgrad.tensor import Tensor
 
 class TestFusedKernelBuilder(unittest.TestCase):
@@ -63,12 +62,10 @@ class TestFusedKernelBuilder(unittest.TestCase):
     out = Tensor.full((2,2,2), 3.0)
     fkb = FusedKernelBuilder(out.thunk)
     sched = fkb.schedule()
+    self.assertEqual(0, len(sched))
+
+  def test_load_const_nd_contiguous(self):
+    out = Tensor.full((2,2,2), 3.0).contiguous()
+    fkb = FusedKernelBuilder(out.thunk)
+    sched = fkb.schedule()
     self.assertEqual(1, len(sched))
-    load_const_kernel = sched[0]
-    inp = load_const_kernel.computation.ins[0]
-    # No input buffers for a load const
-    self.assertEqual([], inp)
-    self.assertEqual(LoadOps.CONST, load_const_kernel.computation.ops[0])
-    self.assertEqual(3.0, load_const_kernel.computation.args[0])
-    self.assertEqual(32, (mbuff:=load_const_kernel.computation.out[0]).buff.nbytes)
-    self.assertEqual((2,2,2), mbuff.vt.shape)

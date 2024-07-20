@@ -106,6 +106,10 @@ class Tensor:
       return self.replace(x)
     self.thunk = self.thunk.assign(x.thunk)
     return self
+  
+  def contiguous(self):
+    from shrimpgrad.autograd.function import Contiguous 
+    return Contiguous.apply(self)
 
   def cast(self, dtype: DType) -> Tensor:
     from shrimpgrad.autograd.function import Cast

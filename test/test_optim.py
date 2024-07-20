@@ -29,8 +29,8 @@ class TestOptimizer(unittest.TestCase):
   def test_sgd_step(self):
     x = Tensor.ones((2,2))
     y = Tensor.full((2,2), 3.0)
-    p1 = Tensor.full((2,2), 2.0, requires_grad=True)
-    p2 = Tensor.full((2,2), 3.0, requires_grad=True)
+    p1 = Tensor.full((2,2), 2.0, requires_grad=True).contiguous()
+    p2 = Tensor.full((2,2), 3.0, requires_grad=True).contiguous()
     _ = x.matmul(y).matmul(p1).relu().matmul(p2).relu().sub(Tensor.full((2,2), 17.1)).square().mean().backward()
     sgd = optim.SGD([p1,p2])
     sgd.step()

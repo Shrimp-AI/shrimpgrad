@@ -226,3 +226,10 @@ class Sigmoid(Function):
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
     ret = ctx.load('ret')
     return ret.alu(BinaryOps.MUL, ret.const(1).alu(BinaryOps.SUB, ret)).alu(BinaryOps.MUL, grad_out)
+
+class Contiguous(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x:Thunk) -> Thunk:
+    return x.contiguous()
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out:Thunk) -> Thunk: return grad_out 
