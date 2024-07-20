@@ -59,7 +59,7 @@ def name_kernels(kernels: List[FusedKernel]) -> List[str]:
     func_name for func_name in (
       '_'.join(
         [op.name.lower() for op in s.computation.ops] +
-        ['0' if s.computation.ops[0] is LoadOps.CONST else '_'.join(
+        ['0' if s.computation.ops[0] in [LoadOps.CONST,LoadOps.CONTIGUOUS] else '_'.join(
           map(str, s.computation.ins[0][0].vt.shape))] +
         ['_'.join(map(str, s.computation.out[-1].vt.shape))] +
         [str(i)]

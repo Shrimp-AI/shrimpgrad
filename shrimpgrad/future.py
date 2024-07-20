@@ -6,7 +6,7 @@ from shrimpgrad.device import CPU, Device, Buffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
 from shrimpgrad.util import prod
-from shrimpgrad.view import ViewTracker
+from shrimpgrad.view import View, ViewTracker
 
 def create_thunk(device: Device,
                  dtype: DType, vt: ViewTracker,
@@ -66,7 +66,7 @@ class Thunk:
   @property
   def base(self): return self._base if self._base is not None else self
   @property
-  def realized(self) -> Optional[Buffer]: return self.buff if hasattr(self, 'buff') and self.buff.allocated else None
+  def realized(self) -> Optional[Buffer]: return self.base.buff if hasattr(self.base, 'buff') and self.base.buff.allocated else None
   @property
   def strides(self): return self.vt.strides
   @property
@@ -128,7 +128,9 @@ class Thunk:
   @staticmethod
   def load_const(val: ConstType, shape: Tuple[int,...], dtype: DType, device: Device):
     assert isinstance(val, ConstType), f'load_const expects const val, got {val}'
-    return Thunk.loadop(LoadOps.CONST, shape, dtype, device, arg=val) 
+    thunk =  Thunk.loadop(LoadOps.CONST, (), dtype, device, arg=val) 
+    thunk.buff.allocate(with_data=val)
+    return thunk.reshape((1,)*len(shape)).expand(shape)
 
   @staticmethod
   def load_from_cpu(data, dtype, shape):
@@ -157,13 +159,19 @@ class Thunk:
 
   def const(self, val: ConstType, shape: Optional[Tuple[int,...]]=None):
     shape = self.shape if shape is None else shape
-    thunk = Thunk.load_const(val, (), self.dtype, self.device)
+    thunk =  Thunk.loadop(LoadOps.CONST, (), self.dtype, self.device, arg=val) 
     thunk.buff.allocate(with_data=val)
     return thunk.reshape((1,)*len(shape)).expand(shape)
 
   def assign(self, rhs: Thunk) -> Thunk:
     assert self.numel == rhs.numel, f"assign size mismatch {self.numel} != {rhs.numel}"
-    return Thunk.loadop(LoadOps.ASSIGN, rhs.shape, rhs.dtype, rhs.device, (rhs.vt, ), (self.base, rhs))
+    return Thunk.loadop(LoadOps.ASSIGN, self.shape, self.dtype, self.device, () if rhs.vt.contiguous else (rhs.vt,), (self.base, rhs))
+
+  def contiguous(self) -> Thunk:
+    if not self.vt.contiguous or (self.base._op is LoadOps.CONST and self.base.realized is None):
+      ret = Thunk.loadop(LoadOps.CONTIGUOUS, self.shape, self.dtype, self.device, self.base.arg)
+      return ret
+    return self
 
   def __str__(self) -> str: return f"<THUNK id={id(self)} {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"
   def __repr__(self) -> str: return f"<THUNK {self._op} id={id(self)}>"

@@ -52,14 +52,15 @@ N = 16384
 class TestCreationSpeed(unittest.TestCase):
 
   def test_full(self):
-    e, s,  x_shrimp = measure_speed(lambda : Tensor.full((10000,10000), 3.0).realize())
-    gbps = x_shrimp.thunk.base.buff.nbytes*1e-9/(e-s)
+    e, s,  x_shrimp = measure_speed(lambda : Tensor.full((10_000,10_000), 3.0).realize())
+    virtual_nbytes =  10_000**2 * 4
+    gbps = virtual_nbytes*1e-9/(e-s)
     print(f"shrimp load speed {gbps:.2f} GB/s")
-    self.assertGreater(gbps, 0.1)  # more than 600 GB/s
+    self.assertGreater(gbps, 600)  # more than 600 GB/s
 
     shrimp_time = e-s
 
-    e, s, x_torch = measure_speed(torch.full, (10000,10000), 3.0)
+    e, s, x_torch = measure_speed(torch.full, (10_000,10_000), 3.0)
     gbps = x_torch.nbytes*1e-9/(e-s)
     print(f"torch load speed {gbps:.2f} GB/s")
     torch_time = e-s
@@ -85,4 +86,5 @@ class TestPadAndShrink(unittest.TestCase):
   def test_pad(self):
     t = Tensor.full((2,2), 3.0)
     t = t.pad(((1, 1), (1, 1))) 
+    # TODO: Replace with assert once we have padding working
     print(t.numpy())

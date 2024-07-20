@@ -177,3 +177,12 @@ class TestLower(unittest.TestCase):
     ir_graphs = lfk.lower()
     for ir_graph in ir_graphs:
       ir_graph.print()
+
+  def test_load_const_contiguous(self):
+    t = Tensor.full((2,2,2), 3.0).contiguous()
+    fkb = FusedKernelBuilder(t.thunk)
+    schedule = fkb.schedule() 
+    lfk = LowerFusedKernel(schedule)
+    ir_graphs = lfk.lower()
+    for ir_graph in ir_graphs:
+      ir_graph.print()

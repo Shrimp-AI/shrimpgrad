@@ -171,7 +171,7 @@ class View:
     new_shape = list(self.shape)
     for i, (pad_start, pad_end) in enumerate(pad_width):
       new_shape[i] += pad_start + pad_end
-    return create_view(tuple(new_shape))
+    return create_view(tuple(new_shape), self.strides)
 
   def shrink(self, arg: Tuple[Tuple[int, int],...]) -> View:
     assert all(0<=start<=stop<=shape for ((start,stop), shape) in zip(arg, self.shape)), 'invalid shrink slices'

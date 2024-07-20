@@ -399,7 +399,12 @@ class LowerFusedKernel:
       # Multiply the inner loop idx with the final stride
       alu1 = self.lower_alu(BinaryOps.MUL, idx, self.g.const(dtypes.int32, in0_vt.strides[-1]))
       # Sum all the offsets to get the true input offset
-      alu2 = self.lower_alu(BinaryOps.ADD, *dim_offs, alu1)
+      # Non contiguous full axis reduces with one dimension will not havre
+      # dim offs
+      if not dim_offs:
+        alu2 = alu1
+      else:
+        alu2 = self.lower_alu(BinaryOps.ADD, *dim_offs, alu1)
       in_off = self.lower_local(dtypes.int32, alu2)
       # Accumlate in out
       out_off = self.g.offset(off)
@@ -462,7 +467,7 @@ class LowerFusedKernel:
     output = fused_kernel.computation.out[0]
     op = fused_kernel.computation.ops[0]
     arg = fused_kernel.computation.args[0]
-    if op is LoadOps.CONST:
+    if op is LoadOps.CONST or op is LoadOps.CONTIGUOUS:
       gout = self.lower_io(output, is_input=False)
       loops, idxs = self.lower_start_loops(output.vt.ndim, output.vt.shape)
       val = self.g.const(output.buff.dtype, arg)

@@ -84,5 +84,4 @@ class TestRunner(unittest.TestCase):
     schedule = fkb.schedule()
     buff_copy, kernels = _gen_load_kernels(schedule)
     self.assertEqual([], buff_copy)
-    self.assertEqual(1, len(kernels))
-    self.assertTrue(kernels[0].computation.out[0].buff.allocated)
+    self.assertEqual(0, len(kernels))

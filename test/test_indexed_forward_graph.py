@@ -38,5 +38,12 @@ class TestIndexedForwardGraph(unittest.TestCase):
     x = Tensor.full((2,2,2), 3.0)
     g = IndexedForwardGraph(x.thunk)
     self.assertEqual(1, len(g.ordering))
+    self.assertEqual(x.thunk.base, g.ordering[0])
+    self.assertEqual(0, g.node_to_num[x.thunk.base])
+  
+  def test_load_const_nd_contiguous(self):
+    x = Tensor.full((2,2,2), 3.0).contiguous()
+    g = IndexedForwardGraph(x.thunk)
+    self.assertEqual(1, len(g.ordering))
     self.assertEqual(x.thunk, g.ordering[0])
     self.assertEqual(0, g.node_to_num[x.thunk])

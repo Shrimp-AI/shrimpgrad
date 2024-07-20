@@ -253,6 +253,7 @@ class ClangCodeGen:
 
 class ClangCompiler(Compiler):
   def compile(self, src: str) -> bytes:
+    print(src)
     with tempfile.NamedTemporaryFile(delete=True) as outfile:
       subprocess.check_output(['clang', '-include', 'tgmath.h', '-shared',
                                '-march=native', '-O2', '-Wall', '-Werror',

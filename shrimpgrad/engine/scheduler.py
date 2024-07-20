@@ -44,7 +44,7 @@ class FusedKernelBuilder:
           if is_realized and thunk._op is not LoadOps.ASSIGN: continue 
           if thunk._op is LoadOps.ASSIGN and thunk._operands[1].realized is not None : 
             assert  is_realized, 'assign target must be realized'
-            continue  
+            continue
           assert thunk._op is not None, 'no views should be here'
           ir = MidIR([thunk._op], [inputs], [output], [thunk.arg])
           kernels.append(FusedKernel(ir))
