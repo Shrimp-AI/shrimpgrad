@@ -6,7 +6,7 @@ from shrimpgrad.device import CPU, Device, Buffer, MemBuffer
 from shrimpgrad.dtype import ConstType, DType
 from shrimpgrad.runtime.ops import AlgebraicOp, BinaryOps, LoadOps, Op, ReduceOps, TernaryOps, UnaryOps, algebraic_op
 from shrimpgrad.util import prod
-from shrimpgrad.view import View, ViewTracker
+from shrimpgrad.view import ViewTracker
 
 def create_thunk(device: Device,
                  dtype: DType, vt: ViewTracker,
@@ -168,7 +168,7 @@ class Thunk:
     return Thunk.loadop(LoadOps.ASSIGN, self.shape, self.dtype, self.device, () if rhs.vt.contiguous else (rhs.vt,), (self.base, rhs))
 
   def contiguous(self) -> Thunk:
-    if not self.vt.contiguous or (self.base._op is LoadOps.CONST and self.base.realized is None):
+    if not self.vt.contiguous or self.base._op is LoadOps.CONST:
       ret = Thunk.loadop(LoadOps.CONTIGUOUS, self.shape, self.dtype, self.device, self.base.arg)
       return ret
     return self

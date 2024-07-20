@@ -107,23 +107,21 @@ class TestAssign(unittest.TestCase):
     np.testing.assert_allclose(new.numpy(), 4)
 
   def test_assign_diamond_alt(self):
-    a = Tensor.ones((4,)).realize()
-    a.assign(Tensor.full((4,), 2.))
+    a = Tensor.ones((4,)).contiguous().realize()
+    a.assign(Tensor.full((4,), 2.).contiguous())
     times_a = a*3
     new = a + times_a
     np.testing.assert_allclose(new.numpy(), 8)
 
   def test_double_assign(self):
-    a = Tensor.ones((4,)).realize()
-    print(a.thunk)
+    a = Tensor.ones((4,)).contiguous().realize()
     a += 1
-    print(a.thunk)
     a += 1
     np.testing.assert_allclose(a.numpy(),3)
 
   def test_crossover_assign(self):
-    a = Tensor.full((4,), 2).realize()
-    b = Tensor.full((4,), 3).realize()
+    a = Tensor.full((4,), 2).contiguous().realize()
+    b = Tensor.full((4,), 3).contiguous().realize()
     a += b
     b += a
     a.realize()
@@ -132,23 +130,22 @@ class TestAssign(unittest.TestCase):
     np.testing.assert_allclose(b.data(), 8)
 
   def test_assign_double_diamond(self):
-    # TODO: Issue 7 - Double realize causes sub graph to execute twice (fix)
-    a = Tensor.full((4,), 2).realize()
-    b = Tensor.full((4,), 3).realize()
+    a = Tensor.full((4,), 2).contiguous().realize()
+    b = Tensor.full((4,), 3).contiguous().realize()
     a_prev = a*4
     b_prev = b+3
     b_prev.realize()
-    b += a_prev
-    a += b_prev
+    b += a_prev.contiguous()
+    a += b_prev.contiguous()
     np.testing.assert_equal(b.numpy(), 11)
     np.testing.assert_equal(a.numpy(), 8)
 
   def test_assign_double_diamond_reduce(self):
     # TODO: Issue 7 - Double diamond causes certain sub-expression to be evaluated twice
-    a0 = Tensor.full((16, 16), 10).realize()
-    a1 = Tensor.full((16, 16), 20).realize()
-    b0 = Tensor.full((16, ), 1).realize()
-    b1 = Tensor.full((16, ), 2).realize()
+    a0 = Tensor.full((16, 16), 10).contiguous().realize()
+    a1 = Tensor.full((16, 16), 20).contiguous().realize()
+    b0 = Tensor.full((16, ), 1).contiguous().realize()
+    b1 = Tensor.full((16, ), 2).contiguous().realize()
     r0 = (a0 - b1).sum(1)
     r0.realize()
     r1 = (a1 - b0).sum(1)
@@ -159,8 +156,8 @@ class TestAssign(unittest.TestCase):
     np.testing.assert_equal(b1.numpy(), 608)
 
   def test_crossunder_assign(self):
-    a = Tensor.full((4,), 2).realize()
-    b = Tensor.full((4,), 3).realize()
+    a = Tensor.full((4,), 2).contiguous().realize()
+    b = Tensor.full((4,), 3).contiguous().realize()
     c = a+9
     c.realize()
     # Referentially Opaque:
@@ -179,8 +176,8 @@ class TestAssign(unittest.TestCase):
     np.testing.assert_allclose(b.numpy(), 3+2+9)
 
   def test_crossunder_assign_merge(self):
-    a = Tensor.full((4,), 2).realize()
-    b = Tensor.full((4,), 3).realize()
+    a = Tensor.full((4,), 2).contiguous().realize()
+    b = Tensor.full((4,), 3).contiguous().realize()
     c = a+9
     c.realize()
     a += b
@@ -192,9 +189,9 @@ class TestAssign(unittest.TestCase):
 
   def test_simple_assignment_multioutput(self):
     a = Tensor.randn(32, 32).realize()
-    b = Tensor.full((32, ), 1.).realize()
-    c = Tensor.full((32, ), 2.).realize()
-    d = Tensor.full((32, ), 3.).realize()
+    b = Tensor.full((32, ), 1.).contiguous().realize()
+    c = Tensor.full((32, ), 2.).contiguous().realize()
+    d = Tensor.full((32, ), 3.).contiguous().realize()
 
     r = a.sum(axis=1)
     b.assign(r + b)

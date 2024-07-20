@@ -4,7 +4,6 @@ from shrimpgrad.engine.graph import log_thunk
 import shrimpgrad.nn as nn
 
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
-from shrimpgrad.runtime.ops import LoadOps
 from shrimpgrad.tensor import Tensor
 
 class TestFusedKernelBuilder(unittest.TestCase):

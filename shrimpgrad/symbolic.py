@@ -9,24 +9,24 @@ class Interval:
   end: sint
 
 class ArithOp(Enum):
-  MUL=auto(); DIV=auto(); MOD=auto(); NEG=auto();
-  PLUS=auto(); SUB=auto(); 
-  AND=auto(); OR=auto();
+  MUL=auto(); DIV=auto(); MOD=auto(); NEG=auto()
+  PLUS=auto(); SUB=auto() 
+  AND=auto(); OR=auto()
   LT=auto(); GT=auto(); LTE=auto(); GTE=auto(); EQ=auto()
   def show(self):
     if self == self.PLUS: return "+"
-    elif self == self.MUL: return "*"
-    elif self == self.SUB: return "-"
-    elif self == self.DIV: return  "/"
-    elif self == self.MOD: return "%"
-    elif self == self.LT: return "<"
-    elif self == self.GT: return ">"
-    elif self == self.LTE: return "<="
-    elif self == self.GTE: return ">="
-    elif self == self.EQ: return "="
-    elif self == self.AND: return "&&"
-    elif self == self.NEG: return "-"
-    else: return "||"
+    if self == self.MUL: return "*"
+    if self == self.SUB: return "-"
+    if self == self.DIV: return  "/"
+    if self == self.MOD: return "%"
+    if self == self.LT: return "<"
+    if self == self.GT: return ">"
+    if self == self.LTE: return "<="
+    if self == self.GTE: return ">="
+    if self == self.EQ: return "="
+    if self == self.AND: return "&&"
+    if self == self.NEG: return "-"
+    return "||"
 
 precedence = {
   ArithOp.MUL: 4, ArithOp.DIV: 4, ArithOp.MOD: 4,
