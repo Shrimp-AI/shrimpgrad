@@ -90,9 +90,13 @@ class View:
   
   """
   def __init__(self, shape: Tuple[int,...],
-               strides: Optional[Tuple[int,...]]=None):
+               strides: Optional[Tuple[int,...]]=None,
+               mask: Optional[Tuple[Tuple[int, int], ...]]=None,
+               offset: int=0):
     self.shape = shape
-    self.strides:Tuple[int,...] = strides if strides is not None else strides_for_shape(shape)
+    self.mask: Optional[Tuple[Tuple[int, int], ...]] = mask 
+    self.offset: int = offset 
+    self.strides: Tuple[int,...] = strides if strides is not None else strides_for_shape(shape)
 
   @property
   def contiguous(self) -> bool: return self.strides == strides_for_shape(self.shape)

@@ -41,9 +41,19 @@ class TestView(unittest.TestCase):
     assert len(vt.views) == 4 
     assert vt.shape == (1,1,2,2)
     assert vt.strides == (0,0,1,2)
+  
+  def test_masked_view(self):
+    v = View((4,4), mask=((2,4),(2,4))) 
+    self.assertEqual(((2,4),(2,4)), v.mask) 
+  
+  def test_view_with_offset(self):
+    v = View((4,4), offset=-7)
+    self.assertEqual(-7, v.offset)
 
   def test_pad(self):
     vt = ViewTracker.from_shape((2,2))
+    self.assertTrue(vt.view.mask is None)
+    self.assertEqual(0, vt.view.offset)
     vt = vt.pad(((1,1),(0,0)))
     assert vt.shape == (4,2)
 

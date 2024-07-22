@@ -30,6 +30,8 @@ pkgs.mkShell {
     fi
     source $VENV_DIR/bin/activate
 
+    export PYTHONPATH=$PYTHONPATH:/$(pwd)
+
     # Ensure pip is using the correct Python version
     pip install --upgrade pip setuptools wheel
 
@@ -41,5 +43,6 @@ pkgs.mkShell {
 
     echo "Virtual environment activated. Package installed in editable mode."
     echo "Jupyter kernel '$KERNEL_DISPLAY_NAME' created."
+    echo "Python Path: '$PYTHONPATH'"
   '';
 }
