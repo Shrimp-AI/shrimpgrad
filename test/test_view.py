@@ -130,12 +130,15 @@ class TestView(unittest.TestCase):
     vt = vt.pad(((1,1),(1,1)))
     self.assertEqual((4,4), vt.shape)
     vt = vt.reshape((1,4,4))
+    self.assertEqual(((0, 1), (1, 3), (1, 3)), vt.view.mask)
     self.assertEqual((1,4,4), vt.shape)
 
 
-  # def test_pad_reshape_adjust_mask2(self):
-  #   vt = ViewTracker.from_shape((8,2))
-  #   vt = vt.pad(((1,1),(1,1)))
-  #   self.assertEqual((10,4), vt.shape)
-  #   vt = vt.reshape((40,1))
-  #   self.assertEqual((40,1), vt.shape)
+  def test_pad_reshape_adjust_mask2(self):
+    vt = ViewTracker.from_shape((8,2))
+    vt = vt.pad(((1,1),(1,1)))
+    self.assertEqual((10,4), vt.shape)
+    vt = vt.reshape((40,1))
+    self.assertIsNone(vt.view.mask) 
+    self.assertEqual((40,1), vt.shape)
+    print(vt)
