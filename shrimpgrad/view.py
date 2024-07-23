@@ -68,10 +68,12 @@ class ViewTracker:
     return f"<VT views={self.views}>"
 
 def create_view(shape: Tuple[int,...],
-                strides: Optional[Tuple[int,...]]=None):
+                strides: Optional[Tuple[int,...]]=None,
+                mask: Optional[Tuple[Tuple[int,int],...]]=None,
+                offset: int=0):
   # standardize 0 in shape
   if 0 in shape: return View(shape, (0,)*len(shape))
-  return View(shape, normalize_strides(shape, strides) if strides is not None else strides)
+  return View(shape, normalize_strides(shape, strides) if strides is not None else strides, mask=mask, offset=offset)
 
 class View:
   """
@@ -172,15 +174,18 @@ class View:
     assert len(pad_width) == self.ndim, f'pad_width length must equal view ndim: {len(pad_width) != self.ndim}'
     # No padding needed
     if all(s == 0 and e == 0 for s,e in pad_width): return self
-    new_shape = list(self.shape)
-    for i, (pad_start, pad_end) in enumerate(pad_width):
-      new_shape[i] += pad_start + pad_end
-    return create_view(tuple(new_shape), self.strides)
+    offset = sum([-p[0]*st for p,st in zip(pad_width, self.strides)]) 
+    new_shape = tuple([s + ps + pe for s, (ps, pe) in zip(self.shape, pad_width)])
+    mask = tuple([(p,p+s) for ((p,_),s) in zip(pad_width, self.shape)])
+    return create_view(new_shape, self.strides, mask, offset)
 
   def shrink(self, arg: Tuple[Tuple[int, int],...]) -> View:
-    assert all(0<=start<=stop<=shape for ((start,stop), shape) in zip(arg, self.shape)), 'invalid shrink slices'
-    new_shape = tuple([stop - start for start, stop in arg])
-    return create_view(new_shape)
+    assert all(0<=s<=e<=sh for ((s,e),sh) in zip(arg, self.shape)), 'invalid shrink slices'
+    nmsk = tuple([(start := nms if nms < ms else 0,
+                  nme if nme < me else start+(me-ms)) 
+                for ((ms,me), (nms,nme)) in zip(self.mask, arg)]) \
+                  if self.mask is not None else None
+    return create_view(tuple([e-s for s,e in arg]), mask=nmsk)
 
   @staticmethod
   def from_view(view: View): return create_view(view.shape, view.strides)

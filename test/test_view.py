@@ -56,6 +56,8 @@ class TestView(unittest.TestCase):
     self.assertEqual(0, vt.view.offset)
     vt = vt.pad(((1,1),(0,0)))
     assert vt.shape == (4,2)
+    self.assertEqual(((1,3),(0,2)), vt.view.mask)
+    self.assertEqual(-2, vt.view.offset)
 
   def test_pad2(self):
     vt = ViewTracker.from_shape((2,2,2))
@@ -93,29 +95,33 @@ class TestView(unittest.TestCase):
     vt = vt.pad(((2,1),(0,0),(1,2)))
     self.assertEqual((7,7,7), vt.shape)
     vt = vt.shrink(((2,6), (0,7), (1,5)))
+    self.assertEqual(((0,4),(0,7),(0,4)), vt.view.mask)
     self.assertEqual((4,7,4), vt.shape)
-
 
   def test_pad_then_shrink_a_bit(self):
     vt = ViewTracker.from_shape((4,))
     vt = vt.pad(((2,2),))
     self.assertEqual((8,), vt.shape)
+    self.assertEqual(((2,6),), vt.view.mask)
     vt = vt.shrink(((1,8),))
+    self.assertEqual( ((1,5), ), vt.view.mask)
     self.assertEqual((7,), vt.shape)
-
 
   def test_pad_then_shrink_into_outer_pad(self):
     vt = ViewTracker.from_shape((4,))
     vt = vt.pad(((2,2),))
     self.assertEqual((8,), vt.shape)
+    self.assertEqual(((2,6),), vt.view.mask)
     vt = vt.shrink(((1,4),))
     self.assertEqual((3,), vt.shape)
+    self.assertEqual(((1,4),), vt.view.mask)
 
   def test_shrink_pad_back(self):
     vt = ViewTracker.from_shape((4,))
     vt = vt.shrink(((1,3),))
     self.assertEqual((2,), vt.shape)
     vt = vt.pad(((1,1),))
+    self.assertEqual(((1,3),), vt.view.mask)
     self.assertEqual((4,),vt.shape)
 
 
