@@ -88,3 +88,4 @@ class TestPadAndShrink(unittest.TestCase):
     t = t.pad(((1, 1), (1, 1))) 
     # TODO: Replace with assert once we have padding working
     print(t.numpy())
+    print(t.thunk.vt)

@@ -68,10 +68,12 @@ class ViewTracker:
     return f"<VT views={self.views}>"
 
 def create_view(shape: Tuple[int,...],
-                strides: Optional[Tuple[int,...]]=None):
+                strides: Optional[Tuple[int,...]]=None,
+                mask: Optional[Tuple[Tuple[int,int],...]]=None,
+                offset: int=0):
   # standardize 0 in shape
   if 0 in shape: return View(shape, (0,)*len(shape))
-  return View(shape, normalize_strides(shape, strides) if strides is not None else strides)
+  return View(shape, normalize_strides(shape, strides) if strides is not None else strides, mask=mask, offset=offset)
 
 class View:
   """
@@ -90,9 +92,13 @@ class View:
   
   """
   def __init__(self, shape: Tuple[int,...],
-               strides: Optional[Tuple[int,...]]=None):
+               strides: Optional[Tuple[int,...]]=None,
+               mask: Optional[Tuple[Tuple[int, int], ...]]=None,
+               offset: int=0):
     self.shape = shape
-    self.strides:Tuple[int,...] = strides if strides is not None else strides_for_shape(shape)
+    self.mask: Optional[Tuple[Tuple[int, int], ...]] = mask 
+    self.offset: int = offset 
+    self.strides: Tuple[int,...] = strides if strides is not None else strides_for_shape(shape)
 
   @property
   def contiguous(self) -> bool: return self.strides == strides_for_shape(self.shape)
@@ -104,15 +110,18 @@ class View:
   def ndim(self): return len(self.shape)
 
   def reshape(self, new_shape: Tuple[int,...]) -> View:
+    new_mask = None
+    if self.mask is not None:
+      new_mask = _reshape_mask(self.mask, self.shape, new_shape)
     if len(self.shape):
       assert prod(new_shape) == self.numel, f'shape \'{new_shape}\' is invalid for input of size {self.numel} of shape {self.shape}'
       # Fast path (new strides are easy to compute)
       if self.contiguous: return create_view(new_shape)
       # Slow path (reconstruct the new strides without copying)
       new_strides = self._attempt_no_copy_reshape(new_shape)
-      assert new_strides is not None, "failed to reshape"
-      return create_view(new_shape, tuple(new_strides))
-    return create_view(new_shape)
+      if new_strides is None: return create_view(new_shape, mask=new_mask)
+      return create_view(new_shape, tuple(new_strides), new_mask)
+    return create_view(new_shape, mask=new_mask)
 
   def _attempt_no_copy_reshape(self, new_shape):
     # Remove ones from the old shape
@@ -168,17 +177,66 @@ class View:
     assert len(pad_width) == self.ndim, f'pad_width length must equal view ndim: {len(pad_width) != self.ndim}'
     # No padding needed
     if all(s == 0 and e == 0 for s,e in pad_width): return self
-    new_shape = list(self.shape)
-    for i, (pad_start, pad_end) in enumerate(pad_width):
-      new_shape[i] += pad_start + pad_end
-    return create_view(tuple(new_shape), self.strides)
+    offset = sum([-p[0]*st for p,st in zip(pad_width, self.strides)]) 
+    new_shape = tuple([s + ps + pe for s, (ps, pe) in zip(self.shape, pad_width)])
+    mask = tuple([(p,p+s) for ((p,_),s) in zip(pad_width, self.shape)])
+    return create_view(new_shape, self.strides, mask, offset)
 
   def shrink(self, arg: Tuple[Tuple[int, int],...]) -> View:
-    assert all(0<=start<=stop<=shape for ((start,stop), shape) in zip(arg, self.shape)), 'invalid shrink slices'
-    new_shape = tuple([stop - start for start, stop in arg])
-    return create_view(new_shape)
+    assert all(0<=s<=e<=sh for ((s,e),sh) in zip(arg, self.shape)), 'invalid shrink slices'
+    nmsk = tuple([(start := nms if nms < ms else 0,
+                  nme if nme < me else start+(me-ms)) 
+                for ((ms,me), (nms,nme)) in zip(self.mask, arg)]) \
+                  if self.mask is not None else None
+    return create_view(tuple([e-s for s,e in arg]), mask=nmsk)
 
   @staticmethod
   def from_view(view: View): return create_view(view.shape, view.strides)
 
-  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous}>'
+  def __repr__(self): return f'<View shape={self.shape} strides={self.strides} contig={self.contiguous} mask={self.mask} offset={self.offset}>'
+
+# TODO: Figure this out more clearly so we can rewrite this (this is the tinygrad implementation)
+def _reshape_mask(_mask, old_shape, new_shape):
+  if _mask is None: return tuple((0, s) for s in new_shape)
+  if any(not isinstance(m[0], int) or not isinstance(m[1], int) for m in _mask): return None
+  if any(m[1] - m[0] < 1 for m in _mask): return ((0, 0),) * len(new_shape)  # zero mask
+
+  new_mask = []
+  # _mask is all int here
+  r_masks, r_shape, r_new_shape = reversed(_mask), reversed(old_shape), reversed(new_shape)
+  curr_stride, old_dim, new_dim, mask = 1, next(r_shape, 1), next(r_new_shape, 1), next(r_masks, (0,1))
+
+  while len(new_mask) < len(new_shape):
+    (l, r), next_stride = mask, new_dim * curr_stride
+    print(f"{l = } {r = }  {next_stride = } {old_dim = } {new_dim = } {mask = }")
+
+    if old_dim >= next_stride: # need to split mask.
+      print("Split mask")
+      if old_dim == next_stride: # simply copy the mask and get next batch for merging
+        print("Copy")
+        new_mask.append((l // curr_stride, (r - 1) // curr_stride + 1))
+        curr_stride, old_dim, new_dim, mask = 1, next(r_shape, 1), next(r_new_shape, 1), next(r_masks, (0,1))
+
+      else: # mask can only be splitted if reshape doesn't cut across the mask.
+        print("Check cut across")
+        print(f"{l % next_stride = } {r % next_stride = } {l // next_stride = }") 
+
+        if (((l % next_stride != 0 or r % next_stride != 0) and l // next_stride != (r - 1) // next_stride)
+            or old_dim % next_stride != 0): 
+          print("CUTTED")
+          return None
+        new_mask.append((l % next_stride // curr_stride, (r - 1) % next_stride // curr_stride + 1))
+        curr_stride, new_dim = next_stride,  next(r_new_shape, 1) # need to get mask for next dimension
+
+    else:
+      next_mask = next(r_masks, (0, 1))
+      print(f"No split needed {next_mask = }")
+      # combine if the mask can unfold continuously
+      if mask != (0, old_dim) and next_mask[1] - next_mask[0] != 1: return None
+      mask, old_dim = (next_mask[0] * old_dim + l, (next_mask[1] - 1) * old_dim + r), old_dim * next(r_shape, 1)
+    print(f"{new_mask = }")
+
+  for mask in r_masks: # if the old shape has leading 1s, need to make sure their mask is (0,1)
+    if mask != (0, 1): return ((0, 0),) * len(new_shape) # invalid mask
+
+  return tuple(reversed(new_mask))
