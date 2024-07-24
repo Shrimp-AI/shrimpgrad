@@ -37,6 +37,7 @@ precedence = {
 
 class Expr:
   def __add__(self, other: Expr): return Bin(ArithOp.PLUS, self, other)  
+  def __iadd__(self, other: Expr): return self + other
   def __radd__(self, other): return self + other 
   def __mul__(self, other: Expr): return Bin(ArithOp.MUL, self, other)
   def __rmul__(self, other: Expr): return self * other 
@@ -46,9 +47,9 @@ class Expr:
   def __mod__(self, other: Expr): return Bin(ArithOp.MOD, self, other)
   def __rmod__(self, other: Expr): return self % other 
   def __lt__(self, other: Expr): return Bin(ArithOp.LT, self, other)
-  def __lte__(self, other: Expr): return Bin(ArithOp.LTE, self, other)
+  def __le__(self, other: Expr): return Bin(ArithOp.LTE, self, other)
   def __gt__(self, other: Expr): return Bin(ArithOp.GT, self, other)
-  def __gte__(self, other: Expr): return Bin(ArithOp.GTE, self, other)
+  def __ge__(self, other: Expr): return Bin(ArithOp.GTE, self, other)
   def __eq__(self, other: Expr): return Bin(ArithOp.EQ, self, other)
   def __neg__(self): return Unary(ArithOp.NEG, self) 
   def ifelse(self, x, y): return IfElse(self, x , y)

@@ -142,3 +142,39 @@ class TestView(unittest.TestCase):
     self.assertIsNone(vt.view.mask) 
     self.assertEqual((40,1), vt.shape)
     print(vt)
+  
+  def test_unmasked_1D_symbolic_render(self):
+    vt = ViewTracker.from_shape((3,))
+    i, b = vt.render()
+    self.assertEqual("0 + (idx0 * 1)", i)
+    self.assertEqual("(idx0 < 3) && (idx0 >= 0)", b)
+  
+  def test_unmasked_2D_symbolic_render(self):
+    vt = ViewTracker.from_shape((3,3))
+    i, b = vt.render()
+    self.assertEqual("(0 + (idx0 * 3)) + (idx1 * 1)", i)
+    self.assertEqual("(((idx0 < 3) && (idx0 >= 0)) && (idx1 < 3)) && (idx1 >= 0)", b)
+  
+  def test_shrink_symbolic_render(self):
+    vt = ViewTracker.from_shape((3,3))
+    vt = vt.shrink(((1,3),(2,3)))
+    i, b = vt.render()
+    self.assertEqual("(0 + (idx0 * 1)) + (idx1 * 0)", i)
+    self.assertEqual("(((idx0 < 2) && (idx0 >= 0)) && (idx1 < 1)) && (idx1 >= 0)", b)
+  
+  def test_pad_symbolic_render(self):
+    vt = ViewTracker.from_shape((2,2))
+    vt = vt.pad(((1,1),(1,1)))
+    iexpr, vexpr = vt.render()
+    self.assertEqual("(-3 + (idx0 * 2)) + (idx1 * 1)", iexpr)
+    self.assertEqual("(((idx0 < 3) && (idx0 >= 1)) && (idx1 < 3)) && (idx1 >= 1)", vexpr) 
+
+  def test_pad_shrink_symbolic_render(self):
+    vt = ViewTracker.from_shape((2,2))
+    vt = vt.pad(((1,1),(1,1)))
+    vt = vt.shrink(((1,3),(2,3)))
+    i, b = vt.render()
+    print(vt.view)
+    # shape=(2,1) stride=(1,0) mask=((0,2), (0,2))
+    self.assertEqual("(0 + (idx0 * 1)) + (idx1 * 0)", i)
+    self.assertEqual("(((idx0 < 2) && (idx0 >= 0)) && (idx1 < 2)) && (idx1 >= 0)", b)

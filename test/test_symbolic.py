@@ -92,11 +92,11 @@ class TestSymbolic(unittest.TestCase):
     strides = [Lit(st) for st in stride]
     iexpr = idx0*strides[0]+off+idx1*strides[1]
     self.assertEqual("(idx0 * 2 + -3) + (idx1 * 1)", render(iexpr))
-    a = idx0*(Lit(-1)) > Lit(0) 
-    b = idx1*(Lit(-1)) > Lit(0)
+    a = idx0*(Lit(-1)) < Lit(0) 
+    b = idx1*(Lit(-1)) < Lit(0)
     c = idx0 < Lit(3)
     d = idx1 < Lit(3)
     vexpr = a.and_(b.and_(c).and_(d)) 
-    self.assertEqual("(idx0 * -1 > 0) && (((idx1 * -1 > 0) && (idx0 < 3)) && (idx1 < 3))", render(vexpr))
+    self.assertEqual("(idx0 * -1 < 0) && (((idx1 * -1 < 0) && (idx0 < 3)) && (idx1 < 3))", render(vexpr))
     
 
