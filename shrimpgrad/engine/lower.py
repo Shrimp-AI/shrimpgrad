@@ -471,6 +471,7 @@ class LowerFusedKernel:
       gout = self.lower_io(output, is_input=False)
       loops, idxs = self.lower_start_loops(output.vt.ndim, output.vt.shape)
       val = self.g.const(output.buff.dtype, arg)
+      print(output.vt.view.mask)
       addr0 = self.g.address(idxs, output.vt.strides, 1)
       self.lower_store(gout, addr0, val) 
       self.lower_end_loops(loops)
