@@ -6,7 +6,7 @@ from typing import Any, ClassVar, Dict,  NotRequired, TypedDict, Unpack
 from contextlib import ContextDecorator
 
 class KnobArgs(TypedDict):
-    DEBUG: NotRequired[int] 
+  DEBUG: NotRequired[int] 
 
 class Knobs(ContextDecorator):
   def __init__(self, **knobs: Unpack[KnobArgs]):

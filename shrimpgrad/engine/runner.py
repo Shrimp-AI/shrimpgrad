@@ -3,9 +3,10 @@ from collections import defaultdict
 from typing import Any, DefaultDict, Dict, List, Optional, Set, Tuple
 from shrimpgrad.device import MemBuffer
 from shrimpgrad.engine.lower import LowIRGraph, LowerFusedKernel
-from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder
+from shrimpgrad.engine.scheduler import FusedKernel, FusedKernelBuilder, print_schedule
 from shrimpgrad.future import Thunk
 from shrimpgrad.runtime.ops import LoadOps
+from shrimpgrad.knobs import DEBUG
 
 buff_to_name: Optional[Dict[Any, str]] = None
 
@@ -31,6 +32,7 @@ shrimp_jit = []
 
 def realize(out: Thunk, batched=True):
   sched = _schedule(out)
+  if DEBUG >= 4: print_schedule(sched)
   buff_copies, unkerned = _gen_load_kernels(sched)
   [buffcpy() for buffcpy in buff_copies]
   buffers = map_buffers_to_kernel(unkerned)
@@ -81,6 +83,7 @@ class BaseKernel:
     self.dev, self.buffs, self.name = dev, buffs, name
   def __repr__(self) -> str: return f"<{self.__class__.__name__} id={id(self)}>"
   def compile(self, src):
+    if DEBUG >= 4: print(src)
     try: return self.dev.compiler().cached_compile(src)
     except Exception as e:
       print(src)

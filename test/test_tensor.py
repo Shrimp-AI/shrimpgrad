@@ -1,3 +1,4 @@
+from shrimpgrad.knobs import Knobs
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.dtype import dtypes
 import unittest
@@ -86,6 +87,6 @@ class TestPadAndShrink(unittest.TestCase):
   def test_pad(self):
     t = Tensor.full((2,2), 3.0)
     t = t.pad(((1, 1), (1, 1))) 
-    # TODO: Replace with assert once we have padding working
-    print(t.numpy())
-    print(t.thunk.vt)
+    with Knobs(DEBUG=4): 
+      print(t.numpy())
+      print(t.thunk.vt)
