@@ -376,7 +376,6 @@ class Tensor:
         grad_data = self.grad.data().flatten()[0:5]
       grad_alloc = grad_buffer.allocated
     print(f"{op = } {is_view = } alloc={buffer.allocated} {buffer_addr = } alloc={grad_alloc} {grad_buffer_addr = } {grad_data =  }")
-  
 
   def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"
   def __str__(self): return self.__repr__()

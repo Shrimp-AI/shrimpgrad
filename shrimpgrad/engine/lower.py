@@ -9,8 +9,9 @@ from shrimpgrad.dtype import ConstType, DType, dtypes
 from shrimpgrad.engine.scheduler import FusedKernel
 from shrimpgrad.runtime.ops import BinaryOps, LoadOps, ReduceOps, TernaryOps, UnaryOps
 from shrimpgrad.util import prod
+from shrimpgrad.view import ViewTracker
 
-def alu2str(op:BinaryOps|UnaryOps) -> str:
+def alu2str(op:BinaryOps|UnaryOps|TernaryOps) -> str:
   assert op in BinaryOps or op in UnaryOps, f"{op} is not a binary/unary alu op"
   if op is BinaryOps.ADD: return '+'
   if op is BinaryOps.CMPEQ: return '=='
@@ -27,6 +28,7 @@ def alu2str(op:BinaryOps|UnaryOps) -> str:
   if op is UnaryOps.NEG: return '-'
   if op is UnaryOps.SIN: return 'sin'
   if op is UnaryOps.SQRT: return 'sqrt'
+  raise ValueError(f"{op} is not a valid alu op")
 
 class LowIR(Enum):
   GLOBAL = auto()
@@ -86,7 +88,10 @@ class AddressNode(Node):
   idx: Tuple[LocalNode|int,...]
   stride: Tuple[int,...]
   step: int
+  vt: Optional[ViewTracker]=None
   def __repr__(self) -> str:
+    if self.vt is not None:
+      return f"{'ADDRESS':<15}{self.vt.render()[0]:<10}"
     addr = ''
     for idx, stride in zip(self.idx, self.stride):
       val = idx.name if isinstance(idx, LocalNode) else idx
@@ -127,7 +132,7 @@ class StoreNode(Node):
 
 @dataclass(frozen=True, eq=True)
 class ALUNode(Node):
-  alu: Union[BinaryOps, UnaryOps]
+  alu: BinaryOps|UnaryOps|TernaryOps
   dtype: DType
   def __repr__(self) -> str:
     operands = f"{' ':<10}".join([f"{str(operand.op)}" for operand in self.ancestors])
@@ -174,7 +179,7 @@ class LowIRGraph:
   def __init__(self):
     self.G: List[Node] = []
 
-  def const(self, dtype: DType, val: ConstType) -> Node:
+  def const(self, dtype: DType, val: ConstType) -> ConstNode:
     self.G.append(node:=ConstNode(LowIR.CONST, (), dtype, val))
     return node
 
@@ -186,12 +191,15 @@ class LowIRGraph:
     self.G.append(node:=LocalNode(LowIR.LOCAL, (val, ), name, dtype))
     return node
 
-  def address(self, idxs: List[LocalNode|int], strides: Tuple[int,...], step: int):
+  def address(self, idxs: List[LocalNode] | List[int], strides: Tuple[int,...], step: int, vt: Optional[ViewTracker]=None) -> AddressNode:
+    if vt is not None:
+      self.G.append(node:=AddressNode(LowIR.ADDRESS, (), tuple(idxs), (), 0, vt))
+      return node
     self.G.append(node:=AddressNode(LowIR.ADDRESS, (), tuple(idxs), strides, step))
     return node
 
-  def load(self, node: Union[GlobalNode, LocalNode], location: Optional[AddressNode|OffsetNode]) -> Node:
-    self.G.append(node:=LoadNode(LowIR.LOAD, (node, location)))
+  def load(self, inp: GlobalNode|LocalNode, location: Optional[AddressNode|OffsetNode]) -> LoadNode:
+    self.G.append(node:=LoadNode(LowIR.LOAD, (inp, location)))
     return node
 
   def accumulator(self, alu: BinaryOps,
@@ -201,7 +209,7 @@ class LowIRGraph:
     return node
 
   def store(self, lhs: Union[GlobalNode, LocalNode],
-            address: AddressNode|OffsetNode|None,
+            address: AddressNode|OffsetNode|None|ViewTracker,
             rhs: Union[LoadNode, ConstNode, LocalNode]) -> Node:
     self.G.append(node:=StoreNode(LowIR.STORE, (lhs, address, rhs)))
     return node
@@ -289,7 +297,7 @@ class LowerFusedKernel:
     # TODO: Deal with dtype
     return self.g.alu(alu, self.dtype, *loads)
 
-  def lower_store(self, g: GlobalNode|LocalNode, addr: AddressNode|OffsetNode|None, value: Node) -> StoreNode:
+  def lower_store(self, g: GlobalNode|LocalNode, addr: AddressNode|OffsetNode|None|ViewTracker, value: Node) -> StoreNode:
     if g.__class__ is LocalNode: return self.g.store(g, None, value)
     return self.g.store(g, addr, value) if g.ptr else self.g.store(g, None, value)
 
@@ -419,7 +427,6 @@ class LowerFusedKernel:
           self.lower_store(out, out_off, acc)
           self.g.inc(off)
 
-
   def lower_begin_for(self, s: int, e: int) -> Tuple[BeginLoopNode, LocalNode]:
     c0 = self.g.const(dtypes.int32, s) # start
     c1 = self.g.const(dtypes.int32, e) # end
@@ -430,7 +437,7 @@ class LowerFusedKernel:
     return loop, idx
 
   # TODO: Loop unrolling (but not ncessary once we gen for GPU)
-  def lower_start_loops(self, ndim:int, shape: Tuple[int,...]):
+  def lower_start_loops(self, ndim:int, shape: Tuple[int,...]) -> Tuple[List[BeginLoopNode], List[LocalNode]]:
     loops, idxs = [], []
     for dim in range(ndim):
       # Create two constant values for the loop index
@@ -471,11 +478,17 @@ class LowerFusedKernel:
       gout = self.lower_io(output, is_input=False)
       loops, idxs = self.lower_start_loops(output.vt.ndim, output.vt.shape)
       val = self.g.const(output.buff.dtype, arg)
-      print(output.vt.view.mask)
       addr0 = self.g.address(idxs, output.vt.strides, 1)
       self.lower_store(gout, addr0, val) 
       self.lower_end_loops(loops)
       return
+    if op is LoadOps.PAD:
+      gout = self.lower_io(output, is_input=False)
+      loops, idxs = self.lower_start_loops(output.vt.ndim, output.vt.shape)
+      val = self.g.const(output.buff.dtype, arg)
+      addr = self.g.address(idxs, (), 0, output.vt)
+      self.lower_store(gout, addr, val) 
+      self.lower_end_loops(loops)
     if op in LoadOps and op is not LoadOps.ASSIGN:
       self.lower_io(output, is_input=True)
       return

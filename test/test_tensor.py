@@ -86,7 +86,7 @@ class TestCreationSpeed(unittest.TestCase):
 class TestPadAndShrink(unittest.TestCase):
   def test_pad(self):
     t = Tensor.full((2,2), 3.0)
+    np.testing.assert_allclose(t.numpy(), 3.0)
     t = t.pad(((1, 1), (1, 1))) 
     with Knobs(DEBUG=4): 
       print(t.numpy())
-      print(t.thunk.vt)

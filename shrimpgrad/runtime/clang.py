@@ -1,10 +1,12 @@
 from __future__ import annotations
 import ctypes, pathlib, tempfile, subprocess
-from typing import DefaultDict, Dict, List
+from typing import DefaultDict, Dict, List, Tuple, cast
 from shrimpgrad.device import Device, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
 from shrimpgrad.dtype import dtypes
-from shrimpgrad.engine.lower import ALUNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
+from shrimpgrad.engine.lower import ALUNode, AddressNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
+from shrimpgrad.symbolic import Expr, render
+from shrimpgrad.view import ViewTracker
 
 c_alu = {
   UnaryOps.LOG2: lambda x: f'log2({x})',
@@ -117,7 +119,6 @@ class ClangCodeGen:
     param += ' ' + g[0]
     return param
 
-
   def _name(self):
     return f"f_{id(self.irgs[0])}" if self.func_name is None else self.func_name
 
@@ -169,6 +170,12 @@ class ClangCodeGen:
           self.src.append(f"{self.spaces}for (; {s.name} < {e}; {s.name}++) {{ ")
           self.indent += 2
         elif instr.op is LowIR.ADDRESS:
+          instr = cast(AddressNode, instr)
+          if instr.vt is not None:
+            exprs = instr.vt.to_symbolic([ix.name for ix in instr.idx if isinstance(ix, LocalNode)]) 
+            self.instr_to_src[instr] = exprs 
+            i+=1
+            continue
           addr = ''
           for idx, stride in zip(instr.idx, instr.stride):
             val = idx.name if isinstance(idx, LocalNode) else idx
@@ -204,12 +211,17 @@ class ClangCodeGen:
     return self
 
   def store(self, instr):
+    bexpr = None
     idx = instr.ancestors[1]
     if isinstance(idx, ConstNode):
       idx = idx.val
     else:
       if idx is not None:
         idx = self.instr_to_src[idx]
+        if isinstance(idx, Tuple):
+          idx = cast(Tuple[Expr,Expr],idx)
+          iexpr, bexpr = render(idx[0]), render(idx[1])
+          idx = iexpr
 
     lhs = instr.ancestors[0]
     rhs = self.instr_to_src[instr.ancestors[2]]
@@ -217,6 +229,8 @@ class ClangCodeGen:
     if isinstance(lhs, GlobalNode):
       if lhs.ptr:
         r = f"{lhs.name}[{idx if idx is not None else 0}] = {rhs}"
+        if bexpr is not None:
+          r = f"if (!({bexpr})) {{ {r}; }}"
       else:
         r = f"*{lhs.name} = {rhs}"
     else:

@@ -57,10 +57,10 @@ class ViewTracker:
   def shrink(self, arg: Tuple[Tuple[int,int], ...]) -> ViewTracker:
     return ViewTracker.from_views(self.views + [self.view.shrink(arg)])
   
-  def to_symbolic(self) -> Tuple[Expr, Expr]:
+  def to_symbolic(self, idx_names: Optional[List[str]]=None) -> Tuple[Expr, Expr]:
     """ Create a symbolic expression for the final view.
     """
-    return self.view.to_symbolic()
+    return self.view.to_symbolic(idx_names)
   
   def render(self) -> Tuple[str, str]:
     """ Render strings for the symbolic expression for the final view.
@@ -190,7 +190,7 @@ class View:
                   if self.mask is not None else None
     return create_view(tuple([e-s for s,e in arg]), mask=nmsk)
 
-  def to_symbolic(self) -> Tuple[Expr, Expr]: 
+  def to_symbolic(self, idx_names: Optional[List[str]]=None) -> Tuple[Expr, Expr]: 
     """
     Create symbolic expressions for the indeces and
     boundaries of the final view. 
@@ -198,7 +198,8 @@ class View:
     strides = [Lit(st) for st in self.strides]
     mask = self.mask
     offset = self.offset
-    idxs = [Symbol(f"idx{i}", Interval(0,s)) for i, s in enumerate(self.shape)]
+    if idx_names is None: idxs = [Symbol(f"idx{i}", Interval(0,s)) for i, s in enumerate(self.shape)]
+    else: idxs = [Symbol(idx_name, Interval(0,s)) for idx_name, s in zip(idx_names, self.shape)]
     iexpr = Lit(offset) 
     for idx, stride in zip(idxs, strides): iexpr += idx*stride
     bexpr = []

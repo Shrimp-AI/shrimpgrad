@@ -25,7 +25,6 @@ class TestThunk(unittest.TestCase):
     self.assertTrue(src.realized is not None)
     self.assertEqual(src.device, ClangDevice())
 
-
   def test_load_empty_double_reshape(self):
     x = Tensor((2,2), [2.0]*4).reshape(*(1,2,2,)).reshape(*(2,2))
     self.assertEqual(x.thunk._op, None)
@@ -41,6 +40,7 @@ class TestThunk(unittest.TestCase):
     t1 = t.pad(((1,1),(1,1),(1,1)), 0.0)
     self.assertEqual((4,4,4), t1.shape)
     self.assertEqual(0.0, t1.arg)
+    self.assertEqual(t1._op, LoadOps.PAD)
   
 class TestLoads(unittest.TestCase):
   def test_load_const_function_nd(self):
@@ -63,7 +63,6 @@ class TestLoads(unittest.TestCase):
     self.assertEqual(4, t.base.buff.nbytes)
     self.assertEqual(True, t.base.buff.allocated)
     self.assertEqual(ClangDevice(), t.device)
-    
 
   def test_load_const(self):
     x = Tensor.full((2,2,2), 3.0)

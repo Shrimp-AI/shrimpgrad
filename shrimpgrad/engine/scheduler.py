@@ -41,7 +41,7 @@ class FusedKernelBuilder:
           # Assign thunks can be realized in forward passes as their backing buffer
           # is realized. This is useful for optimizer updates to params.
           is_realized = thunk.realized is not None
-          if is_realized and thunk._op is not LoadOps.ASSIGN: continue 
+          if is_realized and thunk._op is not LoadOps.ASSIGN and thunk._op is not LoadOps.PAD: continue 
           if thunk._op is LoadOps.ASSIGN and thunk._operands[1].realized is not None : 
             assert  is_realized, 'assign target must be realized'
             continue
@@ -53,7 +53,7 @@ class FusedKernelBuilder:
           fused_unrealized = []
           # If a thunk in this fusion group is already realized, there's no
           # need to schedule it again, it's backing buffer already has
-          # the result that we would compute again causing a doubling of the buffer .
+          # the result that we would compute again causing a doubling of the buffer
           # This is vital when running
           # backward passes because backward functions sometimes use input thunks that
           # become realized in the forward pass. When backward includes those thunks

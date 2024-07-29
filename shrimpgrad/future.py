@@ -114,10 +114,7 @@ class Thunk:
     return create_thunk(self.device, self.dtype, self.vt.expand(shape), (), base=self.base)
   
   def pad(self, pad_width: Tuple[Tuple[int, int],...], value: ConstType=0.0):
-    thunk = create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), base=self.base, arg=value)
-    # TODO: Hack to fix a test so I can commit
-    self.base.buff = Buffer(self.device, prod(thunk.shape), thunk.dtype)
-    return thunk
+    return create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), op=LoadOps.PAD, base=self.base, arg=value)
 
   def shrink(self, shrink_width: Tuple[Tuple[int, int],...]):
     return create_thunk(self.device, self.dtype, self.vt.shrink(shrink_width), (), base=self.base)
@@ -129,6 +126,7 @@ class Thunk:
   def load_const(val: ConstType, shape: Tuple[int,...], dtype: DType, device: Device):
     assert isinstance(val, ConstType), f'load_const expects const val, got {val}'
     thunk =  Thunk.loadop(LoadOps.CONST, (), dtype, device, arg=val) 
+    # Allocate so we don't schedule the load
     thunk.buff.allocate(with_data=val)
     return thunk.reshape((1,)*len(shape)).expand(shape)
 
