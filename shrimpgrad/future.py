@@ -114,7 +114,7 @@ class Thunk:
     return create_thunk(self.device, self.dtype, self.vt.expand(shape), (), base=self.base)
   
   def pad(self, pad_width: Tuple[Tuple[int, int],...], value: ConstType=0.0):
-    return create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), op=LoadOps.PAD, base=self.base, arg=value)
+    return create_thunk(self.device, self.dtype, self.vt.pad(pad_width), (), base=self.base, arg=value)
 
   def shrink(self, shrink_width: Tuple[Tuple[int, int],...]):
     return create_thunk(self.device, self.dtype, self.vt.shrink(shrink_width), (), base=self.base)
@@ -167,8 +167,7 @@ class Thunk:
 
   def contiguous(self) -> Thunk:
     if not self.vt.contiguous or self.base._op is LoadOps.CONST:
-      ret = Thunk.loadop(LoadOps.CONTIGUOUS, self.shape, self.dtype, self.device, self.base.arg)
-      return ret
+      return Thunk.loadop(LoadOps.CONTIGUOUS, self.shape, self.dtype, self.device, self.base.arg, (self,))
     return self
 
   def __str__(self) -> str: return f"<THUNK id={id(self)} {self.device} {self.vt} {str(self.dtype)[7:]} {self._op}>"

@@ -476,19 +476,13 @@ class LowerFusedKernel:
     arg = fused_kernel.computation.args[0]
     if op is LoadOps.CONST or op is LoadOps.CONTIGUOUS:
       gout = self.lower_io(output, is_input=False)
+      gin = self.lower_io(inputs[0], True)
       loops, idxs = self.lower_start_loops(output.vt.ndim, output.vt.shape)
-      val = self.g.const(output.buff.dtype, arg)
-      addr0 = self.g.address(idxs, output.vt.strides, 1)
-      self.lower_store(gout, addr0, val) 
+      rhs = self.lower_load(gin, self.g.address(idxs, (), 0, inputs[0].vt))
+      addr = self.g.address(idxs, output.vt.strides, 1)
+      self.lower_store(gout, addr, rhs) 
       self.lower_end_loops(loops)
       return
-    if op is LoadOps.PAD:
-      gout = self.lower_io(output, is_input=False)
-      loops, idxs = self.lower_start_loops(output.vt.ndim, output.vt.shape)
-      val = self.g.const(output.buff.dtype, arg)
-      addr = self.g.address(idxs, (), 0, output.vt)
-      self.lower_store(gout, addr, val) 
-      self.lower_end_loops(loops)
     if op in LoadOps and op is not LoadOps.ASSIGN:
       self.lower_io(output, is_input=True)
       return

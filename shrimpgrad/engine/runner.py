@@ -38,6 +38,8 @@ def realize(out: Thunk, batched=True):
   buffers = map_buffers_to_kernel(unkerned)
   func_names = name_kernels(unkerned)
   ir_graphs = _lower(unkerned)
+  if DEBUG >= 4: 
+    for irg in ir_graphs: irg.print()
   k = [CompiledKernel(irg, out.device, buff_to_name, buffs, name=name, 
     batched=batched) for irg, buffs, name in zip(ir_graphs, buffers, 
     func_names)]
@@ -60,7 +62,7 @@ def name_kernels(kernels: List[FusedKernel]) -> List[str]:
     func_name for func_name in (
       '_'.join(
         [op.name.lower() for op in s.computation.ops] +
-        ['0' if s.computation.ops[0] in [LoadOps.CONST,LoadOps.CONTIGUOUS, LoadOps.PAD] else '_'.join(
+        ['0' if s.computation.ops[0] in [LoadOps.CONST,LoadOps.CONTIGUOUS] else '_'.join(
           map(str, s.computation.ins[0][0].vt.shape))] +
         ['_'.join(map(str, s.computation.out[-1].vt.shape))] +
         [str(i)]
@@ -71,7 +73,7 @@ def _gen_load_kernels(schedule: List[FusedKernel]) -> Tuple[List[BufferCopy], Li
   l, u = [], []
   for fk in schedule:
     c = fk.computation
-    # if c.ops[0] == LoadOps.CONST and c.out[0].buff.allocated: continue
+    if c.ops[0] == LoadOps.CONST and c.out[0].buff.allocated: continue
     if len(c.ins) == 1 and c.ops[0] == LoadOps.COPY:
       l.append(BufferCopy(c.out[0], c.ins[0][0], c.args[0]))
     else: u.append(fk)

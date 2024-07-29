@@ -41,7 +41,7 @@ class FusedKernelBuilder:
           # Assign thunks can be realized in forward passes as their backing buffer
           # is realized. This is useful for optimizer updates to params.
           is_realized = thunk.realized is not None
-          if is_realized and thunk._op is not LoadOps.ASSIGN and thunk._op is not LoadOps.PAD: continue 
+          if is_realized and thunk._op is not LoadOps.ASSIGN: continue 
           if thunk._op is LoadOps.ASSIGN and thunk._operands[1].realized is not None : 
             assert  is_realized, 'assign target must be realized'
             continue

@@ -245,11 +245,11 @@ class Tensor:
   def permute(self, order: Tuple[int,...]) -> Tensor:
     from shrimpgrad.autograd.function import Permute
     return Permute.apply(self, order=order)
-  
+
   def pad(self, pad_width: Tuple[Tuple[int,int],...], value:ConstType=0.0) -> Tensor:
     from shrimpgrad.autograd.function import Pad 
     return Pad.apply(self, pad_width=pad_width, value=value)
-    
+
   def shrink(self, shrink_width: Tuple[Tuple[int,int],...]) -> Tensor:
     from shrimpgrad.autograd.function import Shrink 
     return Shrink.apply(self, shrink_width=shrink_width)

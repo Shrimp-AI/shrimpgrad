@@ -1,4 +1,3 @@
-from shrimpgrad.knobs import Knobs
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.dtype import dtypes
 import unittest
@@ -87,6 +86,21 @@ class TestPadAndShrink(unittest.TestCase):
   def test_pad(self):
     t = Tensor.full((2,2), 3.0)
     np.testing.assert_allclose(t.numpy(), 3.0)
-    t = t.pad(((1, 1), (1, 1))) 
-    with Knobs(DEBUG=4): 
-      print(t.numpy())
+    t = t.pad(((1, 1), (1, 1))).contiguous()
+    expected = np.pad(np.full((2,2),3.0), ((1,1), (1,1)))
+    np.testing.assert_allclose(t.numpy(), expected)
+  
+  def test_pad_add(self):
+    t = Tensor.full((2,2), 3.0)
+    np.testing.assert_allclose(t.numpy(), 3.0)
+    t = t.pad(((1, 1), (1, 1))).contiguous()
+    u = Tensor.full((4,4), 5.0)
+    s = t + u
+
+    a = np.pad(np.full((2,2), 3.0), ((1,1),(1,1)))
+    b = np.full((4,4), 5.0)
+    c = a + b
+
+    np.testing.assert_allclose(s.numpy(), c)
+
+

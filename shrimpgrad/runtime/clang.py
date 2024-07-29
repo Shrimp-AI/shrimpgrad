@@ -6,7 +6,6 @@ from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import ALUNode, AddressNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 from shrimpgrad.symbolic import Expr, render
-from shrimpgrad.view import ViewTracker
 
 c_alu = {
   UnaryOps.LOG2: lambda x: f'log2({x})',
@@ -181,25 +180,8 @@ class ClangCodeGen:
             val = idx.name if isinstance(idx, LocalNode) else idx
             addr += f"{val}*{stride}+"
           self.instr_to_src[instr] = addr[:-1] if addr else 0
-        elif instr.op is LowIR.LOAD:
-          g = instr.ancestors[0]
-          # Ensure the global is defined. Since all LowIRGraph's share the same symbol table
-          # sometimes a later IR won't define a global already defined in a previous IR.
-          # Here we define it to ensure it ends up in the parameter list.
-          if g.__class__ is GlobalNode:
-            is_defined = any(g_[0] == g.name for g_ in self.gs)
-            if not is_defined: self.gs.append((g.name, g.ptr, g.pos, g.mutable, g.dtype))
-            addr = instr.ancestors[1]
-            if addr is not None:
-              idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
-              self.instr_to_src[instr] = f"{g.name}[{idx}]"
-            else:
-              self.instr_to_src[instr] = "(*"+g.name+")"
-          else:
-            self.instr_to_src[instr] = "("+g.name+")"
-
-        elif instr.op is LowIR.ALU:
-          self.exec_alu(instr)
+        elif instr.op is LowIR.LOAD: self.load(instr)
+        elif instr.op is LowIR.ALU: self.exec_alu(instr)
         elif instr.op is LowIR.STORE: self.store(instr)
         elif instr.op is LowIR.OFFSET: self.offset(instr)
         elif instr.op is LowIR.INC:
@@ -209,6 +191,29 @@ class ClangCodeGen:
           raise TypeError(f"{instr} is not a valid instr")
         i+=1
     return self
+  
+  def load(self, instr):
+    g = instr.ancestors[0]
+    # Ensure the global is defined. Since all LowIRGraph's share the same symbol table
+    # sometimes a later IR won't define a global already defined in a previous IR.
+    # Here we define it to ensure it ends up in the parameter list.
+    if g.__class__ is GlobalNode:
+      is_defined = any(g_[0] == g.name for g_ in self.gs)
+      if not is_defined: self.gs.append((g.name, g.ptr, g.pos, g.mutable, g.dtype))
+      addr = instr.ancestors[1]
+      if addr is not None:
+        idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
+        if isinstance(idx, Tuple):
+          idx = cast(Tuple[Expr,Expr],idx)
+          iexpr, bexpr = render(idx[0]), render(idx[1])
+          self.instr_to_src[instr] = f"({bexpr}) ? {g.name}[{iexpr}] : 0.0f"
+          return
+        idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
+        self.instr_to_src[instr] = f"{g.name}[{idx}]"
+      else:
+        self.instr_to_src[instr] = "(*"+g.name+")"
+    else:
+      self.instr_to_src[instr] = "("+g.name+")"
 
   def store(self, instr):
     bexpr = None

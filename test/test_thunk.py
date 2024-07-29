@@ -40,7 +40,6 @@ class TestThunk(unittest.TestCase):
     t1 = t.pad(((1,1),(1,1),(1,1)), 0.0)
     self.assertEqual((4,4,4), t1.shape)
     self.assertEqual(0.0, t1.arg)
-    self.assertEqual(t1._op, LoadOps.PAD)
   
 class TestLoads(unittest.TestCase):
   def test_load_const_function_nd(self):
