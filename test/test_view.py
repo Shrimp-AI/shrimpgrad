@@ -147,20 +147,20 @@ class TestView(unittest.TestCase):
     vt = ViewTracker.from_shape((3,))
     i, b = vt.render()
     self.assertEqual("0 + (idx0 * 1)", i)
-    self.assertEqual("(idx0 < 3) && (idx0 >= 0)", b)
+    self.assertIsNone(b)
   
   def test_unmasked_2D_symbolic_render(self):
     vt = ViewTracker.from_shape((3,3))
     i, b = vt.render()
     self.assertEqual("(0 + (idx0 * 3)) + (idx1 * 1)", i)
-    self.assertEqual("(((idx0 < 3) && (idx0 >= 0)) && (idx1 < 3)) && (idx1 >= 0)", b)
+    self.assertIsNone(b)
   
   def test_shrink_symbolic_render(self):
     vt = ViewTracker.from_shape((3,3))
     vt = vt.shrink(((1,3),(2,3)))
     i, b = vt.render()
-    self.assertEqual("(0 + (idx0 * 1)) + (idx1 * 0)", i)
-    self.assertEqual("(((idx0 < 2) && (idx0 >= 0)) && (idx1 < 1)) && (idx1 >= 0)", b)
+    self.assertEqual("(5 + (idx0 * 3)) + (idx1 * 0)", i)
+    self.assertIsNone(b)
   
   def test_pad_symbolic_render(self):
     vt = ViewTracker.from_shape((2,2))
@@ -174,7 +174,6 @@ class TestView(unittest.TestCase):
     vt = vt.pad(((1,1),(1,1)))
     vt = vt.shrink(((1,3),(2,3)))
     i, b = vt.render()
-    print(vt.view)
-    # shape=(2,1) stride=(1,0) mask=((0,2), (0,2))
-    self.assertEqual("(0 + (idx0 * 1)) + (idx1 * 0)", i)
+    # shape=(2,1) stride=(2,0) mask=((0,2), (0,2)) offset=1
+    self.assertEqual("(1 + (idx0 * 2)) + (idx1 * 0)", i)
     self.assertEqual("(((idx0 < 2) && (idx0 >= 0)) && (idx1 < 2)) && (idx1 >= 0)", b)

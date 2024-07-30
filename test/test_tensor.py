@@ -103,4 +103,43 @@ class TestPadAndShrink(unittest.TestCase):
 
     np.testing.assert_allclose(s.numpy(), c)
 
-
+  def test_shrink(self):
+    x = Tensor.full((4,4), 3.0)
+    tile = x.shrink(((0,2),(0,2)))
+    np.testing.assert_allclose(tile.numpy(), np.full((2,2), 3.0))
+  
+  def test_shrink_1d(self):
+    x = Tensor.arange(0, 10)
+    assert x.shape == (10,)
+    y = x.shrink(((4,9),)).contiguous()
+    np.testing.assert_allclose(y.numpy(), np.arange(10)[4:9])
+  
+  def test_pad_shrink_back(self):
+    x = Tensor.full((2,2), 3.0)
+    x = x.pad(((1,1), (1,1))).contiguous()
+    x = x.shrink(((1,3), (1,3))).contiguous()
+    np.testing.assert_allclose(x.numpy(), np.full((2,2), 3.0))
+  
+  def test_pad_shrink_from_copy(self):
+    x = Tensor.arange(0, 4).reshape(2,2)
+    x = x.pad(((1,1),(1,1)))
+    x = x.shrink(((1,3),(1,3)))
+    np.testing.assert_allclose(x.numpy(), np.arange(4).reshape(2,2))
+  
+  def test_one_dim_pad(self):
+    x = Tensor.arange(0, 4).reshape(2,2)
+    x = x.pad(((1,1),(0,0))).contiguous()
+    np.testing.assert_allclose(x.numpy(), np.pad(np.arange(4).reshape(2,2), ((1,1),(0,0)))) 
+  
+  def test_one_dim_big_pad(self):
+    x = Tensor.arange(0, 4).reshape(2,2)
+    x = x.pad(((100,0),(0,0))).contiguous()
+    np.testing.assert_allclose(x.numpy(), np.pad(np.arange(4).reshape(2,2), ((100,0),(0,0)))) 
+  
+class TestConv2d(unittest.TestCase):
+  def test_conv(self):
+    kernel = Tensor.full((2,2), 10)
+    x = Tensor.full((4,4), 1.0).contiguous()
+    tile = x.shrink(((0,2),(0,2)))
+    s = (kernel*tile).sum()
+    np.testing.assert_allclose(s.numpy(), 40.0)

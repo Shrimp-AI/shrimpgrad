@@ -31,20 +31,17 @@ def alu2str(op:BinaryOps|UnaryOps|TernaryOps) -> str:
   raise ValueError(f"{op} is not a valid alu op")
 
 class LowIR(Enum):
-  GLOBAL = auto()
-  ACC = auto()
-  ADDRESS = auto()
-  INC = auto()
-  OFFSET = auto()
-  LOCAL = auto()
-  LOAD = auto()
-  CONST = auto()
-  STORE = auto()
-  ALU = auto()
-  BEGIN_LOOP = auto()
-  END_LOOP = auto()
-  IF = auto()
-  ENDIF = auto()
+  # Variables
+  GLOBAL = auto(); LOCAL = auto(); ACC = auto(); CONST=auto()
+  # Indexing 
+  ADDRESS = auto(); OFFSET = auto()
+  # Memory load and store 
+  LOAD = auto(); STORE = auto()
+  # ALU
+  INC = auto(); ALU = auto()
+  # Control Flow
+  BEGIN_LOOP = auto(); END_LOOP = auto()
+  IF = auto(); ENDIF = auto()
 
 @dataclass(frozen=True, eq=True)
 class Node:

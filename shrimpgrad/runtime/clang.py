@@ -1,6 +1,6 @@
 from __future__ import annotations
 import ctypes, pathlib, tempfile, subprocess
-from typing import DefaultDict, Dict, List, Tuple, cast
+from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 from shrimpgrad.device import Device, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
 from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.lower import ALUNode, AddressNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
@@ -204,9 +204,12 @@ class ClangCodeGen:
       if addr is not None:
         idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
         if isinstance(idx, Tuple):
-          idx = cast(Tuple[Expr,Expr],idx)
-          iexpr, bexpr = render(idx[0]), render(idx[1])
-          self.instr_to_src[instr] = f"({bexpr}) ? {g.name}[{iexpr}] : 0.0f"
+          idx = cast(Tuple[Expr,Optional[Expr]],idx)
+          iexpr, bexpr = render(idx[0]), render(idx[1]) if idx[1] is not None else None
+          if bexpr is not None:
+            self.instr_to_src[instr] = f"({bexpr}) ? {g.name}[{iexpr}] : 0.0f"
+          else:
+            self.instr_to_src[instr] = f"{g.name}[{iexpr}]"
           return
         idx = self.instr_to_src[addr] if not isinstance(addr, ConstNode) else addr.val
         self.instr_to_src[instr] = f"{g.name}[{idx}]"
@@ -224,8 +227,8 @@ class ClangCodeGen:
       if idx is not None:
         idx = self.instr_to_src[idx]
         if isinstance(idx, Tuple):
-          idx = cast(Tuple[Expr,Expr],idx)
-          iexpr, bexpr = render(idx[0]), render(idx[1])
+          idx = cast(Tuple[Expr,Optional[Expr]],idx)
+          iexpr, bexpr = render(idx[0]), render(idx[1]) if idx[1] is not None else None
           idx = iexpr
 
     lhs = instr.ancestors[0]
