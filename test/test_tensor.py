@@ -1,3 +1,4 @@
+from shrimpgrad.knobs import Knobs
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.dtype import dtypes
 import unittest
@@ -41,6 +42,16 @@ class TestTensor(unittest.TestCase):
 
     np.testing.assert_allclose(out.data(), np.array([1,0,0,1]).reshape(2,2))
     np.testing.assert_allclose(out2.data(), np.array([1,0,0,1]).reshape(2,2))
+  
+  def test_flatten(self):
+    x = Tensor.arange(0,100).reshape(10,10)
+    np.testing.assert_allclose(x.numpy(), y:=np.arange(100).reshape(10,10))
+    np.testing.assert_allclose(x.flatten().numpy(), y.flatten())
+
+  def test_flatten_non_contiguous(self):
+    x = Tensor.arange(0,100).reshape(10,10).transpose().contiguous()
+    np.testing.assert_allclose(x.numpy(), y:=np.arange(100).reshape(10,10).transpose())
+    np.testing.assert_allclose(x.flatten().numpy(), y.flatten())
 
 def measure_speed(func, *args, **kwargs):
   start_time = time.time()
@@ -50,7 +61,6 @@ def measure_speed(func, *args, **kwargs):
 
 N = 16384 
 class TestCreationSpeed(unittest.TestCase):
-
   def test_full(self):
     e, s,  x_shrimp = measure_speed(lambda : Tensor.full((10_000,10_000), 3.0).realize())
     virtual_nbytes =  10_000**2 * 4
@@ -143,3 +153,26 @@ class TestConv2d(unittest.TestCase):
     tile = x.shrink(((0,2),(0,2)))
     s = (kernel*tile).sum()
     np.testing.assert_allclose(s.numpy(), 40.0)
+  
+  def test_conv2d(self):
+    # (minibatch, in_channels, iH, iW)
+    x = Tensor.full((1,1,10,10), 2.0)
+    y = Tensor.full((1,1,2,2), 10.0) 
+    with Knobs(DEBUG=4):
+      print(x.conv2d(y).numpy())
+    
+  def test_pool_inputs(self):
+    # assume 4d input (B, C, H, W)
+    # Assume B=C=1
+    # (1,1,10,10)
+    # kernel is (2,2)
+    # kernel.repeat()
+    # (kH,kW)
+
+    x = (x_:=Tensor.arange(0, 16).reshape(4,4))
+    top_ = x.shrink(((0, 2),(0,4)))
+    print(top_.thunk.vt)
+    # bot_ = x.shrink(((2,4), (0,4))).transpose()
+    print(top_.numpy())
+    
+    pass

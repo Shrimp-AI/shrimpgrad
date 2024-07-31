@@ -259,11 +259,36 @@ class Tensor:
     order = [i for i in range(self.ndim)]
     order[ax0], order[ax1] = order[ax1], order[ax0]
     return self.permute(tuple(order))
+  
+  def flatten(self, start_dim=0, end_dim=-1) -> Tensor:
+    end_dim = end_dim if end_dim >=0 else end_dim + self.ndim 
+    new_dim = prod(self.shape[start_dim:end_dim+1]) 
+    new_shape = tuple([*self.shape[:start_dim], new_dim, *self.shape[end_dim+1:]])
+    return self.reshape(*new_shape)
 
   # Neural Network Layer Functions
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
     return self.dot(w) + bias if bias else self.dot(w)
 
+  def conv2d(self, kernel: Tensor, bias: Optional[Tensor]=None,
+             stride:int|Tuple[int,int]=1, 
+             padding:int|Tuple[Tuple[int,int],...]=0,
+             dilation:int=1, groups:int=1) -> Tensor: 
+    """
+    self.shape: (minibatch,in_channels,iH,iW)
+    kernel.shape: (out_channels, in_channels/groups, kH, kW)
+    bias.shape: (out_channels,) or None
+    stride: int or tuple (sH, sW)
+    padding: int or tuple of tuples for each dimension
+    dilation: int or (dH, dW)
+    groups: int (in_channels and out_channels must be divisible by groups)
+    """
+    assert self.ndim == 4, "conv2d supports only 4D shapes for now"
+    assert kernel.shape[1] == self.shape[-3]//groups, f"kernel shape {kernel.shape} dim 1 is invalid"
+    assert bias is None or bias.shape == (kernel.shape[1], ), f"bias shape is invalid"
+
+    return self
+    
   # TODO: from tinygrad nice impl, see what we can change here
   def sequential(self, ll:List[Callable[[Tensor], Tensor]]): return functools.reduce(lambda x,f: f(x), ll, self)
 
@@ -346,7 +371,7 @@ class Tensor:
     base = self.thunk.base
     if hasattr(base, 'buff'):
       data = base.buff.pointer(ctypes.c_float)
-      if not self.thunk.vt.contiguous:
+      if not self.thunk.vt.contiguous or self.thunk.base.buff.size > self.numel:
         strides = tuple([s*4 for s in self.thunk.vt.strides])
         arr = np.frombuffer(data, dtype=np.float32)
         arr = np.lib.stride_tricks.as_strided(arr, shape=self.shape, strides=strides)
