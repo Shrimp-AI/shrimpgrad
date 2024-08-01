@@ -93,6 +93,16 @@ class TestTensorManipulationRoutines(unittest.TestCase):
     exp = np.tile(c, (4,1))
     act = c_.tile((4,1)).numpy()
     np.testing.assert_allclose(exp, act)
+  
+  def test_groupby(self):
+    x = Tensor.arange(0,16).reshape(4,4)
+    k = Tensor((2,2), [1,2,3,4])
+    y = x.groupby(k.shape)
+    # 3,3,2,2
+    print(f"{y.shape = }")
+    print(y.numpy())
+
+
 
 def measure_speed(func, *args, **kwargs):
   start_time = time.time()
@@ -209,4 +219,5 @@ class TestConv2d(unittest.TestCase):
     # k_ = (2,2)
     # s_, d_ = (1,1), (1,1) 
     x = Tensor.arange(0,16).reshape(4,4)
-    print(x.numpy())
+    y = x.conv2d(Tensor.ones((2,2)))
+    print(y.numpy())

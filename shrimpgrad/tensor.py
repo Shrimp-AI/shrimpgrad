@@ -297,6 +297,31 @@ class Tensor:
     y = self.reshape(*new_shape).expand(*expand_shape).contiguous()
     combine_shape = tuple([r*s for r,s in zip(reps, local_shape)])
     return y.reshape(*combine_shape) 
+  
+  def groupby(self, kernel_shape: Tuple[int, ...], dilation=1, stride=1, padding=0):
+    """
+    Given a kernel shape, group the input tensor by the kernel shape based on the
+    dilation and stride. Useful in pooling operations such as Conv2D.
+    """
+    # Assuming 4D input
+    iH, iW = self.shape[-2:]
+    kH, kW = kernel_shape[-2:]
+    if isinstance(stride, Tuple): sH, sW = stride
+    else: sH, sW = stride, stride
+
+    oH = (iH - (dilation*(kH-1))) // sH
+    oW = (iW - (dilation*(kW-1))) // sW
+
+    y = self.tile((oH, oW))
+    print(y.numpy())
+    y = y.shrink(((0,kH*(iH+dilation)),(0,kW*(iW+dilation)))).contiguous().reshape(kH, iH+dilation, kW, iW+dilation)
+    print(y.numpy())
+    y = y.shrink((((0,kH), (0,oH*stride), (0,kW),(0,oW*stride)))).reshape(*(kH,oH,stride, kW,oW, stride))
+    print(y.numpy())
+    y = y.shrink(((0,kH), (0,oH), (0,1), (0,kW),(0,oW), (0,1))).reshape(kH,oH, kW, oW)
+    print(y.numpy())
+    return y.permute(tuple([i*2+1 for i in range(len(self.shape))]  + [i*2 for i in range(len(self.shape))]))
+
 
   # Neural Network Layer Functions
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
@@ -318,8 +343,19 @@ class Tensor:
     assert self.ndim == 4, "conv2d supports only 4D shapes for now"
     assert kernel.shape[1] == self.shape[-3]//groups, f"kernel shape {kernel.shape} dim 1 is invalid"
     assert bias is None or bias.shape == (kernel.shape[1], ), f"bias shape is invalid {bias.shape = }"
-    # TODO: Implement
-    return self
+
+    # Assuming 4D input
+    B, C, iH, iW = self.shape
+    B, C, kH, kW = kernel.shape
+    if isinstance(stride, Tuple): sH, sW = stride
+    else: sH, sW = stride, stride
+
+    oH = (iH - (dilation*(kH-1))) // sH
+    oW = (iW - (dilation*(kW-1))) // sW
+
+    y = self.tile((oH, oW))    
+
+    return y
     
   # TODO: from tinygrad nice impl, see what we can change here
   def sequential(self, ll:List[Callable[[Tensor], Tensor]]): return functools.reduce(lambda x,f: f(x), ll, self)
