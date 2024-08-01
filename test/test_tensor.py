@@ -42,7 +42,8 @@ class TestTensor(unittest.TestCase):
 
     np.testing.assert_allclose(out.data(), np.array([1,0,0,1]).reshape(2,2))
     np.testing.assert_allclose(out2.data(), np.array([1,0,0,1]).reshape(2,2))
-  
+
+class TestTensorManipulationRoutines(unittest.TestCase): 
   def test_flatten(self):
     x = Tensor.arange(0,100).reshape(10,10)
     np.testing.assert_allclose(x.numpy(), y:=np.arange(100).reshape(10,10))
@@ -52,6 +53,46 @@ class TestTensor(unittest.TestCase):
     x = Tensor.arange(0,100).reshape(10,10).transpose().contiguous()
     np.testing.assert_allclose(x.numpy(), y:=np.arange(100).reshape(10,10).transpose())
     np.testing.assert_allclose(x.flatten().numpy(), y.flatten())
+  
+  def test_tile(self):
+    x = Tensor((3,),[0,1,2])
+    y = x.tile((2,))
+    np.testing.assert_allclose(y.numpy(), np.tile(np.array([0,1,2]),2))
+  
+  def test_tile_1d_to_2d(self):
+    x = Tensor((3,),[0,1,2])
+    y = x.tile((2,2))
+    np.testing.assert_allclose(y.numpy(), np.tile(np.array([0,1,2]),(2,2)))
+
+  def test_tile_1d_to_3d(self):
+    x = Tensor((3,),[0,1,2])
+    y = x.tile((2,1,2))
+    np.testing.assert_allclose(y.numpy(), np.tile(np.array([0,1,2]),(2,1,2)))
+  
+  def test_tile_2d(self):
+    x = Tensor((2,2),[0,1,2,3])
+    y = x.tile((2,2))
+    exp = np.array([0,1,2,3]).reshape(2,2)
+    exp = np.tile(exp, (2,2))
+    np.testing.assert_allclose(y.numpy(), exp)
+  
+  def test_tile_various(self):
+    x = Tensor((2,2), [1,2,3,4])
+    x_ = np.array([[1,2],[3,4]])
+
+    exp = np.tile(x_, 2)
+    act = x.tile((2,)).numpy()
+    np.testing.assert_allclose(exp, act)
+
+    exp = np.tile(x_, (2,1))
+    act = x.tile((2,1)).numpy()
+    np.testing.assert_allclose(exp, act)
+
+    c = np.array([1,2,3,4])
+    c_ = Tensor((4,), [1,2,3,4])
+    exp = np.tile(c, (4,1))
+    act = c_.tile((4,1)).numpy()
+    np.testing.assert_allclose(exp, act)
 
 def measure_speed(func, *args, **kwargs):
   start_time = time.time()
@@ -162,17 +203,10 @@ class TestConv2d(unittest.TestCase):
       print(x.conv2d(y).numpy())
     
   def test_pool_inputs(self):
-    # assume 4d input (B, C, H, W)
-    # Assume B=C=1
-    # (1,1,10,10)
-    # kernel is (2,2)
-    # kernel.repeat()
-    # (kH,kW)
-
-    x = (x_:=Tensor.arange(0, 16).reshape(4,4))
-    top_ = x.shrink(((0, 2),(0,4)))
-    print(top_.thunk.vt)
-    # bot_ = x.shrink(((2,4), (0,4))).transpose()
-    print(top_.numpy())
-    
-    pass
+    # (4,4)
+    # (3,3,2,2)
+    # shape = (4,4)
+    # k_ = (2,2)
+    # s_, d_ = (1,1), (1,1) 
+    x = Tensor.arange(0,16).reshape(4,4)
+    print(x.numpy())

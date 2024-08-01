@@ -229,7 +229,6 @@ class Tensor:
 
   # Loss Functions
   def binary_cross_entropy(self, y: Tensor) -> Tensor: return ((-y)*self.log() - (1.0-y)*((1.0-self).log())).mean()
-
   def hinge_loss(self, target: Tensor) -> Tensor: return (1.0 + -target*self).relu().sum() * (1.0/target.shape[0])
   def mse(self, target: Tensor) -> Tensor: return (self-target).square().mean()
 
@@ -265,6 +264,39 @@ class Tensor:
     new_dim = prod(self.shape[start_dim:end_dim+1]) 
     new_shape = tuple([*self.shape[:start_dim], new_dim, *self.shape[end_dim+1:]])
     return self.reshape(*new_shape)
+  
+  def tile(self, reps: Tuple[int, ...]) -> Tensor:
+    """
+    Construct a tensor by repeating self the number of times given by reps.
+
+    If reps has length d, the result will have dimension of max(d, self.ndim).
+
+    If self.ndim < d, self is promoted to be d-dimensional by prepending
+    new axes. So a shape (3,) tensor is promoted to (1, 3) for 2-D replication,
+    or shape (1, 1, 3) for 3-D replication. If this is not the
+    desired behavior, promote self to d-dimensions manually before calling this function.
+
+    If self.ndim > d, reps is promoted to self.ndim by prepending 1s to it.
+    Thus for self of shape (2, 3, 4, 5), a reps of (2, 2) is treated as (1, 1, 2, 2).
+
+    Note: This currently forces a contiguous operation (copy) after expand
+    to increase the size of the data buffer.
+    """
+    local_shape = self.shape
+    if len(reps) < len(local_shape): reps = pad_left(reps, local_shape)[0]
+    if len(reps) > len(local_shape): local_shape = pad_left(local_shape, reps)[0]
+    new_shape, expand_shape = [], []
+    for (r, sh) in zip(reps, local_shape):
+      if r > 0:
+        new_shape.append(1)
+        expand_shape.append(r)
+      new_shape.append(sh)
+      expand_shape.append(sh)
+    new_shape = tuple(new_shape)
+    expand_shape = tuple(expand_shape)
+    y = self.reshape(*new_shape).expand(*expand_shape).contiguous()
+    combine_shape = tuple([r*s for r,s in zip(reps, local_shape)])
+    return y.reshape(*combine_shape) 
 
   # Neural Network Layer Functions
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
@@ -285,8 +317,8 @@ class Tensor:
     """
     assert self.ndim == 4, "conv2d supports only 4D shapes for now"
     assert kernel.shape[1] == self.shape[-3]//groups, f"kernel shape {kernel.shape} dim 1 is invalid"
-    assert bias is None or bias.shape == (kernel.shape[1], ), f"bias shape is invalid"
-
+    assert bias is None or bias.shape == (kernel.shape[1], ), f"bias shape is invalid {bias.shape = }"
+    # TODO: Implement
     return self
     
   # TODO: from tinygrad nice impl, see what we can change here
