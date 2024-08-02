@@ -98,11 +98,14 @@ class TestTensorManipulationRoutines(unittest.TestCase):
     x = Tensor.arange(0,16).reshape(4,4)
     k = Tensor((2,2), [1,2,3,4])
     y = x.groupby(k.shape)
-    # 3,3,2,2
-    print(f"{y.shape = }")
+  
+  def test_groupby_4d(self):
+    x = Tensor.arange(0,64).reshape(2,2,4,4)
+    k = Tensor.ones((1, 2, 2, 2))
+
+    y = x.groupby(k.shape)
     print(y.numpy())
-
-
+    print(y.shape)
 
 def measure_speed(func, *args, **kwargs):
   start_time = time.time()

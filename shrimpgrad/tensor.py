@@ -304,24 +304,20 @@ class Tensor:
     dilation and stride. Useful in pooling operations such as Conv2D.
     """
     # Assuming 4D input
+    # TODO: Simplify, change, ndim support
     iH, iW = self.shape[-2:]
     kH, kW = kernel_shape[-2:]
     if isinstance(stride, Tuple): sH, sW = stride
     else: sH, sW = stride, stride
-
     oH = (iH - (dilation*(kH-1))) // sH
     oW = (iW - (dilation*(kW-1))) // sW
-
-    y = self.tile((oH, oW))
-    print(y.numpy())
-    y = y.shrink(((0,kH*(iH+dilation)),(0,kW*(iW+dilation)))).contiguous().reshape(kH, iH+dilation, kW, iW+dilation)
-    print(y.numpy())
-    y = y.shrink((((0,kH), (0,oH*stride), (0,kW),(0,oW*stride)))).reshape(*(kH,oH,stride, kW,oW, stride))
-    print(y.numpy())
-    y = y.shrink(((0,kH), (0,oH), (0,1), (0,kW),(0,oW), (0,1))).reshape(kH,oH, kW, oW)
-    print(y.numpy())
-    return y.permute(tuple([i*2+1 for i in range(len(self.shape))]  + [i*2 for i in range(len(self.shape))]))
-
+    noop = [1]*len(self.shape[:-2])
+    noop_shrinks = [(0,1) for _ in range(len(noop))]
+    y = self.tile(tuple(noop + [oH, oW]))
+    y = y.shrink((*noop_shrinks, (0,kH*(iH+dilation)),(0,kW*(iW+dilation)))).contiguous().reshape(*noop, kH, iH+dilation, kW, iW+dilation)
+    y = y.shrink((*noop_shrinks, (0,kH), (0,oH*stride), (0,kW),(0,oW*stride))).reshape(*noop, *(kH,oH,stride, kW,oW, stride))
+    y = y.shrink((*noop_shrinks, (0,kH), (0,oH), (0,1), (0,kW),(0,oW), (0,1))).reshape(*noop, kH,oH, kW, oW)
+    return y.permute(tuple([i for i in range(len(noop))] + [len(noop)+i*2+1 for i in range(2)]  + [len(noop)+i*2 for i in range(2)]))
 
   # Neural Network Layer Functions
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
@@ -343,17 +339,11 @@ class Tensor:
     assert self.ndim == 4, "conv2d supports only 4D shapes for now"
     assert kernel.shape[1] == self.shape[-3]//groups, f"kernel shape {kernel.shape} dim 1 is invalid"
     assert bias is None or bias.shape == (kernel.shape[1], ), f"bias shape is invalid {bias.shape = }"
+    
+    y = self.groupby(kernel.shape, dilation)
 
-    # Assuming 4D input
-    B, C, iH, iW = self.shape
-    B, C, kH, kW = kernel.shape
-    if isinstance(stride, Tuple): sH, sW = stride
-    else: sH, sW = stride, stride
-
-    oH = (iH - (dilation*(kH-1))) // sH
-    oW = (iW - (dilation*(kW-1))) // sW
-
-    y = self.tile((oH, oW))    
+    
+    
 
     return y
     
