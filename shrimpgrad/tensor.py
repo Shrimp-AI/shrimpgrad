@@ -298,7 +298,7 @@ class Tensor:
     combine_shape = tuple([r*s for r,s in zip(reps, local_shape)])
     return y.reshape(*combine_shape) 
   
-  def groupby(self, kernel_shape: Tuple[int, ...], dilation=1, stride=1, padding=0):
+  def groupby(self, kernel_shape: Tuple[int, ...], dilation=1, stride: int|Tuple[int,int]=1):
     """
     Given a kernel shape, group the input tensor by the kernel shape based on the
     dilation and stride. Useful in pooling operations such as Conv2D.
@@ -309,13 +309,14 @@ class Tensor:
     kH, kW = kernel_shape[-2:]
     if isinstance(stride, Tuple): sH, sW = stride
     else: sH, sW = stride, stride
-    oH = (iH - (dilation*(kH-1))) // sH
-    oW = (iW - (dilation*(kW-1))) // sW
+    oH = math.ceil((iH - (dilation*(kH-1))) / sH)
+    oW = math.ceil((iW - (dilation*(kW-1))) / sW)
     noop = [1]*len(self.shape[:-2])
     noop_shrinks = [(0,1) for _ in range(len(noop))]
-    y = self.tile(tuple(noop + [oH, oW]))
+    # Expand maximally to cover a kernel for each dim and each dilation
+    y = self.tile(tuple(noop + [math.ceil(kH*(iH+dilation)/iH), math.ceil(kW*(iW+dilation)/iW)]))
     y = y.shrink((*noop_shrinks, (0,kH*(iH+dilation)),(0,kW*(iW+dilation)))).contiguous().reshape(*noop, kH, iH+dilation, kW, iW+dilation)
-    y = y.shrink((*noop_shrinks, (0,kH), (0,oH*stride), (0,kW),(0,oW*stride))).reshape(*noop, *(kH,oH,stride, kW,oW, stride))
+    y = y.shrink((*noop_shrinks, (0,kH), (0,oH*sH), (0,kW),(0,oW*sW))).reshape(*noop, *(kH,oH,sH, kW,oW, sW))
     y = y.shrink((*noop_shrinks, (0,kH), (0,oH), (0,1), (0,kW),(0,oW), (0,1))).reshape(*noop, kH,oH, kW, oW)
     return y.permute(tuple([i for i in range(len(noop))] + [len(noop)+i*2+1 for i in range(2)]  + [len(noop)+i*2 for i in range(2)]))
 
@@ -323,7 +324,7 @@ class Tensor:
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
     return self.dot(w) + bias if bias else self.dot(w)
 
-  def conv2d(self, kernel: Tensor, bias: Optional[Tensor]=None,
+  def conv2d(self, w: Tensor, bias: Optional[Tensor]=None,
              stride:int|Tuple[int,int]=1, 
              padding:int|Tuple[Tuple[int,int],...]=0,
              dilation:int=1, groups:int=1) -> Tensor: 
@@ -337,17 +338,21 @@ class Tensor:
     groups: int (in_channels and out_channels must be divisible by groups)
     """
     assert self.ndim == 4, "conv2d supports only 4D shapes for now"
-    assert kernel.shape[1] == self.shape[-3]//groups, f"kernel shape {kernel.shape} dim 1 is invalid"
-    assert bias is None or bias.shape == (kernel.shape[1], ), f"bias shape is invalid {bias.shape = }"
+    assert w.shape[1] == self.shape[-3]//groups, f"kernel shape {w.shape} dim 1 is invalid"
+    assert bias is None or bias.shape == (w.shape[1], ), f"bias shape is invalid {bias.shape = }"
+    B = self.shape[0]
+    kH, kW = w.shape[-2:]
+    HW = (kH,kW)
+    cO = w.shape[0] 
+    cI = self.shape[1]
+    if isinstance(padding, int):
+      padding = tuple([(padding,padding) for _ in range(self.ndim)])
+    x = self.pad(padding).groupby((kH,kW),dilation, stride)
+    rcout, oyx = cO //groups, x.shape[2:-2]
+    x = x.reshape(B, groups, cI, 1, *oyx, *HW).expand(B, groups, cI, rcout, *oyx, *HW).permute((0,1,3,*[4+i for i in range(len(oyx))],2,*[4+len(oyx)+i for i in range(len(HW))]))
+    ret = (x * w.reshape(1, groups, rcout, *[1] * len(oyx), cI, *HW)).sum(tuple([-1-i for i in range(1+len(oyx))]), keepdim=True).reshape(B, cO, *oyx)
+    return ret if bias is None else ret.add(bias.reshape(1, -1, *[1] * len(HW)))
     
-    y = self.groupby(kernel.shape, dilation)
-
-    
-    
-
-    return y
-    
-  # TODO: from tinygrad nice impl, see what we can change here
   def sequential(self, ll:List[Callable[[Tensor], Tensor]]): return functools.reduce(lambda x,f: f(x), ll, self)
 
   # Creation Functions

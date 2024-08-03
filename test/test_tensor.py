@@ -94,19 +94,6 @@ class TestTensorManipulationRoutines(unittest.TestCase):
     act = c_.tile((4,1)).numpy()
     np.testing.assert_allclose(exp, act)
   
-  def test_groupby(self):
-    x = Tensor.arange(0,16).reshape(4,4)
-    k = Tensor((2,2), [1,2,3,4])
-    y = x.groupby(k.shape)
-  
-  def test_groupby_4d(self):
-    x = Tensor.arange(0,64).reshape(2,2,4,4)
-    k = Tensor.ones((1, 2, 2, 2))
-
-    y = x.groupby(k.shape)
-    print(y.numpy())
-    print(y.shape)
-
 def measure_speed(func, *args, **kwargs):
   start_time = time.time()
   result = func(*args, **kwargs)
@@ -212,15 +199,11 @@ class TestConv2d(unittest.TestCase):
     # (minibatch, in_channels, iH, iW)
     x = Tensor.full((1,1,10,10), 2.0)
     y = Tensor.full((1,1,2,2), 10.0) 
-    with Knobs(DEBUG=4):
-      print(x.conv2d(y).numpy())
+    sz = x.conv2d(y).numpy()
+
+    tx = torch.full((1,1,10,10),2.0)
+    ty = torch.full((1,1,2,2), 10.0) 
+    tz = torch.nn.functional.conv2d(tx, ty)
+
+    np.testing.assert_allclose(sz, tz.numpy())
     
-  def test_pool_inputs(self):
-    # (4,4)
-    # (3,3,2,2)
-    # shape = (4,4)
-    # k_ = (2,2)
-    # s_, d_ = (1,1), (1,1) 
-    x = Tensor.arange(0,16).reshape(4,4)
-    y = x.conv2d(Tensor.ones((2,2)))
-    print(y.numpy())
