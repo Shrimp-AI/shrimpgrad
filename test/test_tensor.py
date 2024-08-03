@@ -186,24 +186,56 @@ class TestPadAndShrink(unittest.TestCase):
     x = Tensor.arange(0, 4).reshape(2,2)
     x = x.pad(((100,0),(0,0))).contiguous()
     np.testing.assert_allclose(x.numpy(), np.pad(np.arange(4).reshape(2,2), ((100,0),(0,0)))) 
-  
+
+def torch_conv(in_shape, w_shape, b=None, d=1,s=1,g=1,p=0):  
+  tx = torch.full(in_shape, 2.0)
+  tw = torch.full(w_shape, 10.0) 
+  tb = b
+  if b is not None:
+    tb = torch.full(b,3.0)
+  tz = torch.nn.functional.conv2d(tx, tw, tb, s,p,d,g)
+  return tz.numpy()
+
 class TestConv2d(unittest.TestCase):
-  def test_conv(self):
-    kernel = Tensor.full((2,2), 10)
-    x = Tensor.full((4,4), 1.0).contiguous()
-    tile = x.shrink(((0,2),(0,2)))
-    s = (kernel*tile).sum()
-    np.testing.assert_allclose(s.numpy(), 40.0)
-  
   def test_conv2d(self):
     # (minibatch, in_channels, iH, iW)
-    x = Tensor.full((1,1,10,10), 2.0)
-    y = Tensor.full((1,1,2,2), 10.0) 
+    x = Tensor.full(in_shape:=(1,1,10,10), 2.0)
+    y = Tensor.full(w_shape:=(1,1,2,2), 10.0) 
     sz = x.conv2d(y).numpy()
+    np.testing.assert_allclose(sz, torch_conv(in_shape, w_shape))
+  
+  def test_conv2d_bias(self):
+    x = Tensor.full(in_shape:=(1,1,10,10), 2.0)
+    y = Tensor.full(w_shape:=(1,1,2,2), 10.0) 
+    b = Tensor.full(bs:=(w_shape[0],),3.0)
+    sz = x.conv2d(y,b).numpy()
+    np.testing.assert_allclose(sz, torch_conv(in_shape, w_shape,bs))
 
-    tx = torch.full((1,1,10,10),2.0)
-    ty = torch.full((1,1,2,2), 10.0) 
-    tz = torch.nn.functional.conv2d(tx, ty)
+  def test_conv2d_bias_dilation(self):
+    x = Tensor.full(in_shape:=(1,1,10,10), 2.0)
+    y = Tensor.full(w_shape:=(1,1,2,2), 10.0) 
+    b = Tensor.full(bs:=(w_shape[0],),3.0)
+    sz = x.conv2d(y,b,dilation=2).numpy()
+    np.testing.assert_allclose(sz, torch_conv(in_shape, w_shape,bs,d=2))
 
-    np.testing.assert_allclose(sz, tz.numpy())
-    
+  def test_conv2d_bias_dilation_stride(self):
+    x = Tensor.full(in_shape:=(1,1,10,10), 2.0)
+    y = Tensor.full(w_shape:=(1,1,2,2), 10.0) 
+    b = Tensor.full(bs:=(w_shape[0],),3.0)
+    sz = x.conv2d(y,b,dilation=2, stride=2).numpy()
+    np.testing.assert_allclose(sz, torch_conv(in_shape, w_shape,bs,d=2, s=2))
+  
+  def test_conv2d_bias_dilation_stride_padded(self):
+    x = Tensor.full(in_shape:=(1,1,10,10), 2.0)
+    y = Tensor.full(w_shape:=(1,1,2,2), 10.0) 
+    b = Tensor.full(bs:=(w_shape[0],),3.0)
+    sz = x.conv2d(y,b,dilation=2, stride=2, padding=1).numpy()
+    np.testing.assert_allclose(sz, torch_conv(in_shape, w_shape,bs,d=2, s=2,p=1))
+  
+  def test_conv2d_image(self):
+    x = Tensor.full(in_shape:=(100,3,120,120), 2.0)
+    y = Tensor.full(w_shape:=(2,3,2,2), 10.0) 
+    b = Tensor.full(bs:=(w_shape[0],),3.0)
+    with Knobs(DEBUG=4):
+      sz = x.conv2d(y,b,dilation=2, stride=2, padding=1).numpy()
+    np.testing.assert_allclose(sz, torch_conv(in_shape, w_shape,bs,d=2, s=2,p=1))
