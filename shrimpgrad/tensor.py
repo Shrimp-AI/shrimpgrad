@@ -237,9 +237,13 @@ class Tensor:
     from shrimpgrad.autograd.function import Expand
     return Expand.apply(self, shape=tuple(shps))
 
-  def reshape(self, *shps) -> Tensor:
+  def reshape(self, *dims) -> Tensor:
     from shrimpgrad.autograd.function import Reshape
-    return Reshape.apply(self, shape=tuple(shps))
+    new_shape = tuple([s if s is not None else self.shape[i] for i,s in enumerate(dims)])
+    # resolve -1
+    if (c := new_shape.count(-1)) > 1: raise RuntimeError(f"only one dimension can be inferred using -1, getting {new_shape}")
+    if c: new_shape = tuple([-prod(self.shape) // prod(new_shape) if s == -1 else s for s in new_shape])
+    return Reshape.apply(self, shape=new_shape)
 
   def permute(self, order: Tuple[int,...]) -> Tensor:
     from shrimpgrad.autograd.function import Permute
@@ -249,9 +253,11 @@ class Tensor:
     from shrimpgrad.autograd.function import Pad 
     return Pad.apply(self, pad_width=pad_width, value=value)
 
-  def shrink(self, shrink_width: Tuple[Tuple[int,int],...]) -> Tensor:
+  def shrink(self, shrink_width: Tuple[Tuple[int,int]|None,...]) -> Tensor:
     from shrimpgrad.autograd.function import Shrink 
-    return Shrink.apply(self, shrink_width=shrink_width)
+    if all(x is None or x == (0,s) for x,s in zip(shrink_width, self.shape)): return self
+    return Shrink.apply(self, shrink_width=tuple(x if x is not None else (0,s) for x,s in zip(shrink_width, self.shape)))
+
 
   def transpose(self, ax0=1, ax1=0):
     ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
@@ -297,12 +303,33 @@ class Tensor:
     y = self.reshape(*new_shape).expand(*expand_shape).contiguous()
     combine_shape = tuple([r*s for r,s in zip(reps, local_shape)])
     return y.reshape(*combine_shape) 
+  
+  def groupby(self, kernel_shape: Tuple[int, ...], dilation=1, stride: int|Tuple[int,int]=1):
+    """
+    Given a kernel shape, group the input tensor by the kernel shape based on the
+    dilation and stride. Useful in pooling operations such as Conv2D.
+    """
+    # Assuming 4D input
+    # TODO: Simplify, change, ndim support
+    iH, iW = self.shape[-2:]
+    kH, kW = kernel_shape[-2:]
+    if isinstance(stride, Tuple): sH, sW = stride
+    else: sH, sW = stride, stride
+    oH = math.ceil((iH - (dilation*(kH-1))) / sH)
+    oW = math.ceil((iW - (dilation*(kW-1))) / sW)
+    noop = [None]*len(self.shape[:-2])
+    # Expand maximally to cover a kernel for each dim and each dilation
+    y = self.tile(tuple([1]*len(noop)+ [math.ceil(kH*(iH+dilation)/iH), math.ceil(kW*(iW+dilation)/iW)]))
+    y = y.shrink((*noop, (0,kH*(iH+dilation)),(0,kW*(iW+dilation)))).contiguous().reshape(*noop, kH, iH+dilation, kW, iW+dilation)
+    y = y.shrink((*noop, (0,kH), (0,oH*sH), (0,kW),(0,oW*sW))).reshape(*noop, *(kH,oH,sH, kW,oW, sW))
+    y = y.shrink((*noop, (0,kH), (0,oH), (0,1), (0,kW),(0,oW), (0,1))).reshape(*noop, kH,oH, kW, oW)
+    return y.permute(tuple([i for i in range(len(noop))] + [len(noop)+i*2+1 for i in range(2)]  + [len(noop)+i*2 for i in range(2)]))
 
   # Neural Network Layer Functions
   def linear(self, w: Tensor, bias:Optional[Tensor]=None) -> Tensor:
     return self.dot(w) + bias if bias else self.dot(w)
 
-  def conv2d(self, kernel: Tensor, bias: Optional[Tensor]=None,
+  def conv2d(self, w: Tensor, bias: Optional[Tensor]=None,
              stride:int|Tuple[int,int]=1, 
              padding:int|Tuple[Tuple[int,int],...]=0,
              dilation:int=1, groups:int=1) -> Tensor: 
@@ -316,12 +343,21 @@ class Tensor:
     groups: int (in_channels and out_channels must be divisible by groups)
     """
     assert self.ndim == 4, "conv2d supports only 4D shapes for now"
-    assert kernel.shape[1] == self.shape[-3]//groups, f"kernel shape {kernel.shape} dim 1 is invalid"
-    assert bias is None or bias.shape == (kernel.shape[1], ), f"bias shape is invalid {bias.shape = }"
-    # TODO: Implement
-    return self
+    assert w.shape[1] == self.shape[-3]//groups, f"kernel shape {w.shape} dim 1 is invalid"
+    assert bias is None or bias.shape == (w.shape[0], ), f"bias shape is invalid {bias.shape = }"
+    B = self.shape[0]
+    kH, kW = w.shape[-2:]
+    HW = (kH,kW)
+    cO = w.shape[0] 
+    cI = self.shape[1]
+    if isinstance(padding, int):
+      padding = tuple([(0,0),(0,0)]+[(padding,padding) for _ in range(self.ndim-2)])
+    x = self.pad(padding).contiguous().groupby((kH,kW),dilation, stride)
+    rcout, oyx = cO //groups, x.shape[2:-2]
+    x = x.reshape(B, groups, cI, 1, *oyx, *HW).expand(B, groups, cI, rcout, *oyx, *HW).permute((0,1,3,*[4+i for i in range(len(oyx))],2,*[4+len(oyx)+i for i in range(len(HW))]))
+    ret = (x * w.reshape(1, groups, rcout, *[1] * len(oyx), cI, *HW)).sum(tuple([-1-i for i in range(1+len(oyx))]), keepdim=True).reshape(B, cO, *oyx)
+    return ret if bias is None else ret.add(bias.reshape(1, -1, *[1] * len(HW)))
     
-  # TODO: from tinygrad nice impl, see what we can change here
   def sequential(self, ll:List[Callable[[Tensor], Tensor]]): return functools.reduce(lambda x,f: f(x), ll, self)
 
   # Creation Functions
