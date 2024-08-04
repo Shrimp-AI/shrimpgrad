@@ -1,9 +1,10 @@
 from __future__ import annotations
 import ctypes, pathlib, tempfile, subprocess
 from typing import DefaultDict, Dict, List, Optional, Tuple, cast
-from shrimpgrad.device import Device, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
-from shrimpgrad.dtype import dtypes
-from shrimpgrad.engine.lower import ALUNode, AddressNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
+from shrimpgrad.device import Buffer, Device, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
+from shrimpgrad.dtype import DType, dtypes, to_ctype
+from shrimpgrad.engine.lower import ALUNode, AddressNode, BeginLoopNode, ConstNode, GlobalNode, LocalNode, LowIR, LowIRGraph, alu2str
+from shrimpgrad.engine.runner import CompiledKernel
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps
 from shrimpgrad.symbolic import Expr, render
 
@@ -19,6 +20,12 @@ c_alu = {
   BinaryOps.DIV: lambda x,y: f'{x}/{y}',
   TernaryOps.WHERE: lambda x,y,z: f'{x} ? {y} : {z}'}
 
+def render_type(dtype: DType) -> str:
+  if dtype == dtypes.float32: return 'float'
+  if dtype == dtypes.int32: return 'int'
+  if dtype == dtypes.bool_: return '_Bool'
+  raise TypeError(f"dtype {dtype} is not supported.")
+
 class ClangDevice(Device, Jitable):
   def __init__(self) -> None:
     super().__init__("CLANG", MallocAllocator, ClangRenderer, ClangCompiler, ClangRuntime)
@@ -27,9 +34,8 @@ class ClangDevice(Device, Jitable):
   def compiler(self): return self.compiler_
   def runtime(self): return self._runtime()
   def renderer(self): return self._renderer()
-  def jitify(self, kernels, input_buffers):
+  def jitify(self, kernels: List[CompiledKernel], input_buffers: List[Buffer]):
     native_src = []
-    persist = {}
     prgs: List[ClangProgram] = [ck.prg for ck in kernels]
     buffs = [ck.buffs for ck in kernels]
     buff2names = [ck.buff2name for ck in kernels]
@@ -43,31 +49,22 @@ class ClangDevice(Device, Jitable):
       func_sigs.add(prg.fsig)
       fsrc = f"{prg.fsig} {{\n{prg.fbdy}}}\n"
       native_src.append(fsrc)
-    args = [f"float* arg{i}" for i in range(len(input_buffers))]
+    args = [f"{render_type(input_buffers[i].dtype)}* arg{i}" for i in range(len(input_buffers))]
     body = {}
     native_src.append(f"\nvoid batched({','.join(args)}) {{ \n")
     in_names = {}
     declared = set()
     for i,buff in enumerate(buffs):
       for buff_ in buff['input'] + buff['output']:
-        if buff_.__class__ is MemBuffer:
-          if buff_.buff not in input_buffers:
-            if (name:=f"{buff2names[i][buff_]}{i}") in declared: continue
-            declared.add(name)
-            body[name] = (f"  float* {name} = (float*)0x{ctypes.addressof(buff_.buff._pointer(ctypes.c_float)):X};\n")
-          else:
-            in_names[buff2names[i][buff_]] = input_buffers.index(buff_.buff)
+        assert isinstance(buff_, MemBuffer), f"invalid buffer in clang.jitify {buff_}"
+        real_buff = buff_.buff
+        if real_buff not in input_buffers:
+          if (name:=f"{buff2names[i][buff_]}{i}") in declared: continue
+          declared.add(name)
+          body[name] = (f"  {render_type(real_buff.dtype)}* {name} = ({render_type(real_buff.dtype)}*)0x{ctypes.addressof(real_buff._pointer(to_ctype(real_buff.dtype))):X};\n")
         else:
-          if buff_ not in input_buffers:
-            if (name:=f"{buff2names[i][buff_]}{i}") in declared: continue
-            declared.add(name)
-            f=ctypes.c_float(buff_.value)
-            persist[name]=f
-            addr = ctypes.addressof(persist[name])
-            body[name] = (f"  float* {name} =  (float*)0x{addr:X};\n")
-          else:
-            in_names[buff2names[i][buff_]] = input_buffers.index(buff_)
-
+          in_names[buff2names[i][buff_]] = input_buffers.index(real_buff)
+ 
     for i,prg in enumerate(prgs):
       args = []
       for n, _ in prg.args2pos.items():
@@ -111,9 +108,7 @@ class ClangCodeGen:
   def spaces(self): return ' ' * self.indent
 
   def param2src(self, g):
-    param = 'float'
-    if g[4]== dtypes.int32:
-      param = 'int'
+    param = render_type(g[4]) 
     param += '*'
     param += ' ' + g[0]
     return param
@@ -154,17 +149,23 @@ class ClangCodeGen:
           else: self.instr_to_src[instr] = instr.val
           continue
         elif instr.op is LowIR.LOCAL:
+          assert isinstance(instr, LocalNode)
           self.instr_to_src[instr] = instr.name
-          typ = 'float' if instr.dtype == dtypes.float32 else 'int'
+          typ = render_type(instr.dtype)
           if instr.ancestors[0].op is LowIR.ALU:
             alu_node = instr.ancestors[0]
             rhs = self.instr_to_src[alu_node]
             self.src.append(f"{self.spaces}{typ} {instr.name} = {rhs};")
           else: # const
-            self.src.append(f"{self.spaces}{typ} {instr.name} = {instr.ancestors[0].val};")
+            assert isinstance(const_node:=instr.ancestors[0], ConstNode)
+            self.src.append(f"{self.spaces}{typ} {instr.name} = {const_node.val};")
         elif instr.op is LowIR.GLOBAL:
+          assert isinstance(instr, GlobalNode)
           self.gs.append((instr.name, instr.ptr, instr.pos, instr.mutable, instr.dtype))
         elif instr.op is LowIR.BEGIN_LOOP:
+          assert isinstance(instr, BeginLoopNode), "invalid instr for node type"
+          assert isinstance(instr.ancestors[0], LocalNode), "invalid loop variable" 
+          assert isinstance(instr.ancestors[1], ConstNode), "invalid loop bound" 
           s, e = instr.ancestors[0], instr.ancestors[1].val
           self.src.append(f"{self.spaces}for (; {s.name} < {e}; {s.name}++) {{ ")
           self.indent += 2
@@ -298,12 +299,12 @@ class ClangRuntime(Runtime):
         for buff in buffs[i]['output']:
           name = buff2name[buff]
           if name not in name2pos[i]: continue
-          vin[name2pos[i][name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
+          vin[name2pos[i][name]] = (ctypes.byref(buff.buff._pointer(to_ctype(buff.buff.dtype))))
 
         for buff in buffs[i]['input']:
           name = buff2name[buff]
           if name not in name2pos[i]: continue
-          vin[name2pos[i][name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
+          vin[name2pos[i][name]] = (ctypes.byref(buff.buff._pointer(to_ctype(buff.buff.dtype))))
         slib[func_name](*vin)
 
   def exec(self, lib: bytes, func_name:str, buffs: DefaultDict[str, List[MemBuffer]], buff2name, name2pos):
@@ -315,11 +316,11 @@ class ClangRuntime(Runtime):
     for buff in buffs['output']:
       name = buff2name[buff]
       if name not in name2pos: continue
-      vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
+      vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(to_ctype(buff.buff.dtype))))
 
     for buff in buffs['input']:
       name = buff2name[buff]
       if name not in name2pos: continue
-      vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(ctypes.c_float)))
+      vin[name2pos[name]] = (ctypes.byref(buff.buff._pointer(to_ctype(buff.buff.dtype))))
 
     self._exec(func_name, *vin)

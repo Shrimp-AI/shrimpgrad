@@ -4,6 +4,7 @@ import ctypes
 from typing import Callable, Generic, Iterable, List, TypeVar, Union, cast
 from shrimpgrad import Tensor
 from shrimpgrad.device import Buffer, Device, Jitable, MemBuffer
+from shrimpgrad.dtype import to_ctype
 from shrimpgrad.engine.runner import CompiledKernel, shrimp_jit
 from shrimpgrad.util import SupportsGetItem
 
@@ -60,7 +61,7 @@ class ShrimpJit(Generic[ReturnType]):
       #  jit exec
       print("[JIT_EXEC]")
       assert self.native_fxn is not None, 'Native function failed to compile!'
-      self.native_fxn(*[ctypes.byref(b._pointer(ctypes.c_float)) for b in self.input_buffers])
+      self.native_fxn(*[ctypes.byref(b._pointer(to_ctype(b.dtype))) for b in self.input_buffers])
     self.exec_cnt += 1
     return self.ret
 

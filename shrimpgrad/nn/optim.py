@@ -32,7 +32,7 @@ class SGD(Optimizer):
         g += self.weight_decay*t
       if self.momentum != 0:
         if i > 0:
-          b = b*self.momentum + (1 - self.dampening)*g
+          b = b*self.momentum + (1. - self.dampening)*g
         else:
           b = g
         if self.nesterov:

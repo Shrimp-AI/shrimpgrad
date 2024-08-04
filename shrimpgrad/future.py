@@ -98,7 +98,7 @@ class Thunk:
     return create_thunk(device, dtype, vt, tuple(operands), op)
 
   def alu(self, op: Union[UnaryOps, BinaryOps, TernaryOps], *in_thunks: Thunk) -> Thunk:
-    return Thunk.from_compute(op, (self, *in_thunks), ViewTracker.from_shape(self.vt.shape), self.device, self.dtype)
+    return Thunk.from_compute(op, (self, *in_thunks), ViewTracker.from_shape(self.vt.shape), self.device, self.dtype if not op is TernaryOps.WHERE else in_thunks[0].dtype)
 
   def reduce(self, op: ReduceOps, axis: Tuple[int,...]) -> Thunk:
     new_shape = tuple([1 if i in axis else s for i,s in enumerate(self.shape)])

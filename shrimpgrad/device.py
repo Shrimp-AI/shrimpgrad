@@ -3,7 +3,7 @@ from __future__ import annotations
 import ctypes
 from dataclasses import dataclass
 from typing import Optional, Type
-from shrimpgrad.dtype import ConstType, DType, dtypes
+from shrimpgrad.dtype import ConstType, DType, to_numpy
 from shrimpgrad.meta.singleton import Singleton
 from shrimpgrad.view import ViewTracker
 import numpy as np
@@ -106,11 +106,7 @@ class Buffer:
     if with_data is None: # Alloc empty buffer
       self._buf = self.allocator.alloc(self.dtype.bytes * self.size)
     else:
-      if self.dtype == dtypes.bool:
-        np_dtype = np.bool_
-      else:
-        np_dtype = np.float32
-      self._buf = np.array(with_data, np_dtype)
+      self._buf = np.array(with_data, to_numpy(self.dtype))
     return self
 
   def as_buffer(self ) -> memoryview: return self.copyout(memoryview(bytearray(self.nbytes)))

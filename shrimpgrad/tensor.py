@@ -4,7 +4,7 @@ import functools
 import math
 from typing import Callable, List, Optional, Type, TypeAlias, Union, Tuple
 from shrimpgrad.device import Device
-from shrimpgrad.dtype import DType, dtypes, ConstType
+from shrimpgrad.dtype import DType, dtypes, ConstType, to_ctype, to_numpy
 from random import uniform, gauss
 from shrimpgrad.engine.runner import realize
 from shrimpgrad.future import Thunk
@@ -87,6 +87,7 @@ class Tensor:
     if not isinstance(y, Tensor):
       assert isinstance(y, ConstType), f'type(y)={type(y)} is not a ConstType'
       y = Tensor((), data=y, dtype=dtypes.from_py(y))
+      print(f"{y.dtype = }")
     new_shapes = pad_left(self.shape, y.shape)
     assert all(x == y or x == 1 or y == 1 for x, y in zip(*new_shapes)), f'invalid shapes for broadcasting {self.shape} and {y.shape}'
     bs = broadcast_shape(*new_shapes)
@@ -102,6 +103,7 @@ class Tensor:
   def assign(self, x: Tensor) -> Tensor:
     assert x.shape == self.shape, f'shape mismatch on assign {self.shape} != {x.shape}'
     assert x.dtype == self.dtype, f'dtype mismatch on assign {self.dtype} != {x.dtype}'
+    print(f"{x.dtype = } {self.dtype = }")
     if self.thunk.base.realized is None: 
       return self.replace(x)
     self.thunk = self.thunk.assign(x.thunk)
@@ -119,11 +121,11 @@ class Tensor:
   def clamp(self, min_val=0.0, max_val=1.0) -> Tensor:
     return self.where((self.detach() > min_val), min_val).where(self.detach() < max_val, max_val)
 
-  def where(self, condition: Tensor, y: Tensor|ConstType ) -> Tensor:
+  def where(self, x: Tensor, y: Tensor|ConstType ) -> Tensor:
     from shrimpgrad.autograd.function import Where
-    cond, x = condition.__broadcast(self)
+    cond, x = self.__broadcast(x)
     cond, y_ = cond.__broadcast(y)
-    return Where.apply(cond.cast(dtypes.bool), *x.__broadcast(y_))
+    return Where.apply(cond.cast(dtypes.bool_), *x.__broadcast(y_))
 
   def detach(self) -> Tensor:
     return Tensor(self.shape, self.thunk, self.dtype, requires_grad=False)
@@ -213,7 +215,7 @@ class Tensor:
   def __rmul__(self, other): return self.mul(other, reverse=True)
   def __add__(self, other: Tensor|ConstType) -> Tensor: return self.add(other)
   def __radd__(self, other): return self.add(other, reverse=True)
-  def __neg__(self): return self.mul(-1)
+  def __neg__(self): return self.mul(-1.)
   def __sub__(self, other): return self.sub(other)
   def __rsub__(self, other): return self.sub(other, True)
   def __truediv__(self, other): return self.div(other)
@@ -374,7 +376,8 @@ class Tensor:
   def zeros(shape: Shape, dtype:DType=dtypes.float32, **kwargs) -> Tensor: return Tensor.full(shape, fill_value=0.0, dtype=dtype, **kwargs)
 
   @staticmethod
-  def ones(shape: Shape, dtype:DType=dtypes.float32, **kwargs) -> Tensor:  return Tensor.full(shape, fill_value=1.0, dtype=dtype, **kwargs)
+  def ones(shape: Shape, dtype:DType=dtypes.float32, **kwargs) -> Tensor:
+    return Tensor.full(shape, fill_value=dtypes.cast(dtype, 1.0), dtype=dtype, **kwargs)
 
   @staticmethod
   def arange(start: int, stop:int, step:int=1, dtype:DType=dtypes.float32, **kwargs) -> Tensor: return Tensor(((stop - start) // step,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype, **kwargs)
@@ -447,17 +450,17 @@ class Tensor:
     # TODO: Change this to something worthy
     base = self.thunk.base
     if hasattr(base, 'buff'):
-      data = base.buff.pointer(ctypes.c_float if self.dtype == dtypes.float32 else ctypes.c_bool)
+      data = base.buff.pointer(to_ctype(self.dtype))
       if not self.thunk.vt.contiguous or self.thunk.base.buff.size > self.numel:
-        strides = tuple([s*4 for s in self.thunk.vt.strides])
-        arr = np.frombuffer(data, dtype=np.float32)
+        strides = tuple([s*self.dtype.bytes for s in self.thunk.vt.strides])
+        arr = np.frombuffer(data, dtype=to_numpy(self.dtype))
         arr = np.lib.stride_tricks.as_strided(arr, shape=self.shape, strides=strides)
         return arr
       if base.shape == ():
-        return np.frombuffer(data, dtype=np.float32).reshape(())
+        return np.frombuffer(data, dtype=to_numpy(self.dtype)).reshape(())
     else:
       raise TypeError("self is not realized where is the buff")
-    return np.frombuffer(data, dtype=np.float32).reshape(self.shape)
+    return np.frombuffer(data, dtype=to_numpy(self.dtype)).reshape(self.shape)
 
   def numpy(self): return self.realize().data()
 

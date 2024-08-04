@@ -1,8 +1,8 @@
 import unittest
 import numpy as np
 from shrimpgrad import Tensor
+from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.jit import ShrimpJit
-
 
 class TestAssign(unittest.TestCase):
   def test_unrealized_assign(self):
@@ -35,7 +35,7 @@ class TestAssign(unittest.TestCase):
 
   def test_scalar_assign(self):
     x = Tensor.ones(())
-    x += 1
+    x += 1.
     x.realize()
     np.testing.assert_array_equal(x.data(), 2.0)
 
@@ -48,13 +48,13 @@ class TestAssign(unittest.TestCase):
     np.testing.assert_allclose(a.data(), 1)
 
   def test_assign_add_double(self):
-    def f(x):
+    def f(x: Tensor):
       x += 1
       x.realize()
-    x = Tensor((1,), [0])
+    x = Tensor((1,), [0], dtype=dtypes.int32)
     f(x)
     np.testing.assert_allclose(x.data(), 1)
-    x = Tensor((1,), [0])
+    x = Tensor((1,), [0], dtype=dtypes.int32)
     f(x)
     np.testing.assert_allclose(x.data(), 1)
 
@@ -88,57 +88,57 @@ class TestAssign(unittest.TestCase):
 
   def test_assign_diamond_cycle(self):
     a = Tensor.ones((4,)).contiguous().realize()
-    times_a = a*3 # 3
+    times_a = a*3.0 # 3
     # TODO: How can we force realize in the engine?
     times_a.realize()
-    a.assign(Tensor.full((4,), 2.).contiguous()) # a=2
+    a.assign(Tensor.full((4,), 2.0).contiguous()) # a=2
     # Now times_a will be 2*3
-    new = a + (times_a-1) # 2 + (3-1) =  4
-    np.testing.assert_allclose(new.numpy(), 4)
+    new = a + (times_a-1.0) # 2 + (3-1) =  4
+    np.testing.assert_allclose(new.numpy(), 4.0)
 
   def test_assign_diamond_possible(self):
     # TODO: Torch returns 4 here
     a = Tensor.ones((4,)).contiguous().realize()
-    times_a = a*3
+    times_a = a*3.0
     times_a.realize()
-    a.assign(Tensor.full((4,), 2.).contiguous())
+    a.assign(Tensor.full((4,), 2.0).contiguous())
     # times_a = 6, a = 2
-    new = a + (times_a-1)
-    np.testing.assert_allclose(new.numpy(), 4)
+    new = a + (times_a-1.)
+    np.testing.assert_allclose(new.numpy(), 4.)
 
   def test_assign_diamond_alt(self):
     a = Tensor.ones((4,)).contiguous().realize()
     a.assign(Tensor.full((4,), 2.).contiguous())
-    times_a = a*3
+    times_a = a*3.
     new = a + times_a
-    np.testing.assert_allclose(new.numpy(), 8)
+    np.testing.assert_allclose(new.numpy(), 8.)
 
   def test_double_assign(self):
     a = Tensor.ones((4,)).contiguous().realize()
-    a += 1
-    a += 1
-    np.testing.assert_allclose(a.numpy(),3)
+    a += 1.
+    a += 1.
+    np.testing.assert_allclose(a.numpy(),3.)
 
   def test_crossover_assign(self):
-    a = Tensor.full((4,), 2).contiguous().realize()
-    b = Tensor.full((4,), 3).contiguous().realize()
+    a = Tensor.full((4,), 2.).contiguous().realize()
+    b = Tensor.full((4,), 3.).contiguous().realize()
     a += b
     b += a
     a.realize()
     b.realize()
-    np.testing.assert_allclose(a.data(), 5)
-    np.testing.assert_allclose(b.data(), 8)
+    np.testing.assert_allclose(a.data(), 5.)
+    np.testing.assert_allclose(b.data(), 8.)
 
   def test_assign_double_diamond(self):
-    a = Tensor.full((4,), 2).contiguous().realize()
-    b = Tensor.full((4,), 3).contiguous().realize()
-    a_prev = a*4
-    b_prev = b+3
+    a = Tensor.full((4,), 2.).contiguous().realize()
+    b = Tensor.full((4,), 3.).contiguous().realize()
+    a_prev = a*4.
+    b_prev = b+3.
     b_prev.realize()
     b += a_prev.contiguous()
     a += b_prev.contiguous()
-    np.testing.assert_equal(b.numpy(), 11)
-    np.testing.assert_equal(a.numpy(), 8)
+    np.testing.assert_equal(b.numpy(), 11.)
+    np.testing.assert_equal(a.numpy(), 8.)
 
   def test_assign_double_diamond_reduce(self):
     # TODO: Issue 7 - Double diamond causes certain sub-expression to be evaluated twice
@@ -158,7 +158,7 @@ class TestAssign(unittest.TestCase):
   def test_crossunder_assign(self):
     a = Tensor.full((4,), 2).contiguous().realize()
     b = Tensor.full((4,), 3).contiguous().realize()
-    c = a+9
+    c = a+9.
     c.realize()
     # Referentially Opaque:
     # For instance, a now has two meanings in the text. a = 2 or a = 2 + 3
@@ -178,7 +178,7 @@ class TestAssign(unittest.TestCase):
   def test_crossunder_assign_merge(self):
     a = Tensor.full((4,), 2).contiguous().realize()
     b = Tensor.full((4,), 3).contiguous().realize()
-    c = a+9
+    c = a+9.
     c.realize()
     a += b
     b += c
@@ -217,7 +217,7 @@ class TestAssign(unittest.TestCase):
   def test_assign_add_jit(self):
     @ShrimpJit
     def f(x):
-      x += 1
+      x += 1.
       return x.realize()
 
     x = Tensor((1,),[0])
@@ -227,7 +227,7 @@ class TestAssign(unittest.TestCase):
   def test_assign_add_jit_other(self):
     @ShrimpJit
     def f(x):
-      x += 1
+      x += 1.
       return x.realize()
     x = Tensor((1,),[0])
     for _ in range(5): f(x)

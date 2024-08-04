@@ -73,10 +73,10 @@ class TestFusedKernelBuilder(unittest.TestCase):
     self.assertEqual(1, len(sched))
   
   def test_where(self):
+    cond = Tensor((2,2), [True,False,True,False], dtype=dtypes.bool_)
     a = Tensor.full((2,2), 1.0)
-    cond = Tensor((2,2), [True,False,True,False], dtype=dtypes.bool)
     b = Tensor.full((2,2), 0.0)
-    out = a.where(cond,b)
+    out = cond.where(a, b)
     print(out.thunk)
     fkb = FusedKernelBuilder(out.thunk)
     sched = fkb.schedule()

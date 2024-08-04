@@ -3,7 +3,7 @@ from ctypes import Union
 from dataclasses import dataclass
 from enum import Enum, auto
 import functools
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 from shrimpgrad.device import MemBuffer
 from shrimpgrad.dtype import ConstType, DType, dtypes
 from shrimpgrad.engine.scheduler import FusedKernel
@@ -47,7 +47,7 @@ class LowIR(Enum):
 @dataclass(frozen=True, eq=True)
 class Node:
   op: LowIR
-  ancestors: Tuple[Node,...]
+  ancestors: Tuple[Node|None,...]
 
 @dataclass(frozen=True, eq=True)
 class ConstNode(Node):
@@ -76,6 +76,7 @@ class LocalNode(Node):
   name: str
   dtype: DType
   def __repr__(self) -> str:
+    assert self.ancestors[0] is not None, "local cant be None"
     return f"{'DEFINE_LOCAL':<15}{self.name:<10}{self.ancestors[0].op:<10}"
   @functools.cached_property
   def hash(self): return hash((self.op, self.ancestors))
@@ -102,6 +103,7 @@ class AddressNode(Node):
 @dataclass(frozen=True, eq=True)
 class LoadNode(Node):
   def __repr__(self) -> str:
+    assert self.ancestors[1] is not None 
     op = '' if not self.ancestors[0].ptr else str(self.ancestors[1].op)
     return f"{'LOAD':<15}{self.ancestors[0].name:<10}{str(self.ancestors[0].dtype):<20}{op:<10}"
   @functools.cached_property
@@ -206,14 +208,14 @@ class LowIRGraph:
     self.G.append(node:=AccumulatorNode(LowIR.ACC, tuple(operands), name, dtype, alu))
     return node
 
-  def store(self, lhs: Union[GlobalNode, LocalNode],
+  def store(self, lhs: GlobalNode|LocalNode,
             address: AddressNode|OffsetNode|None|ViewTracker,
-            rhs: Union[LoadNode, ConstNode, LocalNode]) -> Node:
+            rhs: LoadNode|ConstNode|LocalNode) -> Node:
     self.G.append(node:=StoreNode(LowIR.STORE, (lhs, address, rhs)))
     return node
 
-  def alu(self, alu: Union[BinaryOps, UnaryOps, TernaryOps], dtype: DType, *operands) -> Node:
-    self.G.append(node:=ALUNode(LowIR.ALU, tuple(operands), alu, type))
+  def alu(self, alu: BinaryOps|UnaryOps|TernaryOps, dtype: DType, *operands) -> Node:
+    self.G.append(node:=ALUNode(LowIR.ALU, tuple(operands), alu, dtype))
     return node
 
   def begin_loop(self, start: LocalNode, end: ConstNode):
@@ -224,7 +226,7 @@ class LowIRGraph:
     self.G.append(node:=EndLoopNode(LowIR.END_LOOP, (loop, )))
     return node
 
-  def offset(self, val: Union[ConstNode, LocalNode, ALUNode]) -> Node:
+  def offset(self, val: ConstNode|LocalNode|ALUNode) -> Node:
     self.G.append(node:=OffsetNode(LowIR.OFFSET, (val,)))
     return node
 
@@ -276,10 +278,10 @@ class LowerFusedKernel:
     return name
 
   # Lower a buffer input or output into a global
-  def lower_buffer(self, mbuff: MemBuffer, is_input: bool, dtype: Optional[DType]=None) -> GlobalNode:
-    if mbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[mbuff]]
+  def lower_buffer(self, mbuff: MemBuffer, is_input: bool) -> GlobalNode:
+    if mbuff in self.node_to_symbol: return cast(GlobalNode, self.symbol_table[self.node_to_symbol[mbuff]])
     prefix, mutable = ("out", True) if not is_input else ("data", False)
-    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype if dtype is None else dtype, mutable, self.arg_count - 1, True)
+    g0 = self.g.define_global(name:=self.global_name(prefix), mbuff.buff.dtype, mutable, self.arg_count - 1, True)
     self.symbol_table[name] = g0
     self.node_to_symbol[mbuff] = name
     return g0
@@ -313,14 +315,14 @@ class LowerFusedKernel:
                 step: int,
                 alu: BinaryOps):
     # Define a global for the output
-    out = self.lower_io(out0, is_input=False)
+    out = self.lower_io(out0, False)
 
     # Load the two inputs
-    g0 = self.lower_io(in0, is_input=True)
+    g0 = self.lower_io(in0, True)
     addr0 = self.g.address(idxs, strides0, step)
     l0 = self.lower_load(g0, addr0)
 
-    g1 = self.lower_io(in1, is_input=True)
+    g1 = self.lower_io(in1, True)
     addr1 = self.g.address(idxs, strides1, step)
     l1 = self.lower_load(g1, addr1)
 
@@ -339,7 +341,7 @@ class LowerFusedKernel:
                 step: int,
                 alu: UnaryOps):
     # Define a global for the output
-    out = self.lower_io(out0, is_input=False)
+    out = self.lower_io(out0, False)
 
     g0 = self.lower_io(in0, is_input=True)
     addr0 = self.g.address(idxs, strd0, step)
@@ -351,22 +353,22 @@ class LowerFusedKernel:
     self.lower_store(out, addr2, alu0)
 
   def lower_top(self, 
-                a: MemBuffer,
                 cond: MemBuffer,
+                a: MemBuffer,
                 b: MemBuffer,
                 out: MemBuffer,
                 idxs: List[LocalNode],
                 vt0: ViewTracker, vt1: ViewTracker, vt2: ViewTracker, vtout: ViewTracker):
     # Define a global for the output
     gout = self.lower_io(out, False)
-    ga = self.lower_io(a, True)
     gcond = self.lower_io(cond, True)
+    ga = self.lower_io(a, True)
     gb = self.lower_io(b, True)
     addr0 = self.g.address(idxs, (), 0, vt0)
-    la = self.lower_load(ga, addr0)
     addr1 = self.g.address(idxs, (), 0, vt1)
-    lc = self.lower_load(gcond, addr1)
     addr2 = self.g.address(idxs, (), 0, vt2)
+    lc = self.lower_load(gcond, addr0)
+    la = self.lower_load(ga, addr1)
     lb = self.lower_load(gb, addr2)
     alu0 = self.lower_alu(TernaryOps.WHERE, lc, la, lb)
     addr3 = self.g.address(idxs, (), 0, vtout)
@@ -382,10 +384,11 @@ class LowerFusedKernel:
     out = self.lower_io(out0, False)
     # Define a global for the input
     g_in = self.lower_io(in0, True)
+    rdtype = in0.buff.dtype
     if len(axis) == len(in_shape) and in0.vt.contiguous:
       zero = self.g.const(dtypes.int32, 0)
       out_off = self.g.offset(zero)
-      acc = self.lower_local(dtypes.float32, 0.0)
+      acc = self.lower_local(rdtype, 0.0)
       loop, idx = self.lower_begin_for(0, prod(in0.vt.shape))
       in_off = self.g.offset(idx)
       rhs = self.lower_load(g_in, idx)
@@ -395,7 +398,7 @@ class LowerFusedKernel:
       self.lower_store(out, out_off, acc)
     else:
       # Move reduce axes to the end via creating a permutation order
-      order = tuple([i for i,s in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,s in enumerate(in_shape) if out_shape[i] != in_shape[i]])
+      order = tuple([i for i,_ in enumerate(in_shape) if in_shape[i] == out_shape[i]] + [i for i,_ in enumerate(in_shape) if out_shape[i] != in_shape[i]])
       in0_vt = in0.vt.permute(order)
       in_shape = in0_vt.shape
       # add an output offset
@@ -406,7 +409,7 @@ class LowerFusedKernel:
       loops, idxs, dim_offs = [], [], []
       for i in range(len(in_shape) - 1):
         loop, idx = self.lower_begin_for(0, in_shape[i])
-        if i+1 == len(in_shape) - num_axis: acc = self.lower_local(dtypes.float32, 0.0)
+        if i+1 == len(in_shape) - num_axis: acc = self.lower_local(rdtype, 0.0)
         idxs.append(idx)
         loops.append(loop)
         # Compute the dimension offset l0*strides[i]
@@ -415,7 +418,7 @@ class LowerFusedKernel:
         dim_off = self.lower_local(dtypes.int32, alu)
         dim_offs.append(dim_off)
       if acc is None:
-        acc = self.lower_local(dtypes.float32, 0.0)
+        acc = self.lower_local(rdtype, 0.0)
       # Create the inner loop
       loop, idx = self.lower_begin_for(0, in_shape[-1])
       idxs.append(idx)
@@ -543,10 +546,10 @@ class LowerFusedKernel:
 
     if op in TernaryOps:
       assert len(inputs) == 3, 'ternary op requires three inputs'
-      a, cond, b = inputs[0], inputs[1], inputs[2]
-      vt0 = a.vt
+      cond, a, b = inputs[0], inputs[1], inputs[2]
+      vt0 = cond.vt
       loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
-      self.lower_top(a, cond, b, output, idxs, vt0, cond.vt, b.vt, output.vt)
+      self.lower_top(cond, a, b, output, idxs, cond.vt, a.vt, b.vt, output.vt)
       self.lower_end_loops(loops)
       return
     if op in ReduceOps:
@@ -586,8 +589,8 @@ class LowerFusedKernel:
       if op in TernaryOps:
         vt0, vt1, vt2, vtout = i[0].vt, i[1].vt, i[2].vt, o.vt
         assert len(i) == 3, 'ternary op requires three inputs'
-        a, cond, b = i[0], i[1], i[2]
-        self.lower_top(a, cond, b, o, idxs, vt0, vt1, vt2, vtout)
+        cond, a, b = i[0], i[1], i[2]
+        self.lower_top(cond, a, b, o, idxs, vt0, vt1, vt2, vtout)
         return
       if op in ReduceOps:
         assert len(i) == 1, "reduce only has 1 input"

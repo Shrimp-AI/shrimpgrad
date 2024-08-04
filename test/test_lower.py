@@ -189,7 +189,7 @@ class TestLower(unittest.TestCase):
     
   def test_where(self):
     a = Tensor.full((2,2), 1.0)
-    cond = Tensor((2,2), [True,False,True,False], dtype=dtypes.bool)
+    cond = Tensor((2,2), [True,False,True,False], dtype=dtypes.bool_)
     b = Tensor.full((2,2), 0.0)
     out = a.where(cond,b)
     fkb = FusedKernelBuilder(out.thunk)

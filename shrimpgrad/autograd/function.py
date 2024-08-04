@@ -45,6 +45,7 @@ class Function(FunctionContext):
 class Add(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, y: Thunk) -> Thunk:
+    print(f"ADD FWD {x.dtype = } {y.dtype = }")
     return x.alu(BinaryOps.ADD, y)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
