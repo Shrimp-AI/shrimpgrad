@@ -122,6 +122,16 @@ class Sum(Function):
     x = ctx.load('x')
     return grad_out.expand(x.shape)
 
+class Max(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x: Thunk, axis: Tuple[int,...]=(0,)) -> Thunk:
+    ctx.save('x', x)
+    return x.reduce(ReduceOps.MAX, axis=axis)
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
+    x = ctx.load('x')
+    return grad_out.expand(x.shape)
+
 class Log(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, axis: Tuple[int,...]=(0,)) -> Thunk:

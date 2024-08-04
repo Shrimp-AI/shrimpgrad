@@ -120,7 +120,7 @@ class Thunk:
     return create_thunk(self.device, self.dtype, self.vt.shrink(shrink_width), (), base=self.base)
 
   def cast(self, dtype: DType) -> Thunk:
-    return create_thunk(self.device, dtype, self.vt, (self,))
+    return create_thunk(self.device, dtype, self.vt, (self,), UnaryOps.CAST)
   
   @staticmethod
   def load_const(val: ConstType, shape: Tuple[int,...], dtype: DType, device: Device):

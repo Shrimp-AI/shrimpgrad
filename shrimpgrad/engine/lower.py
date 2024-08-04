@@ -12,7 +12,7 @@ from shrimpgrad.util import prod
 from shrimpgrad.view import ViewTracker
 
 def alu2str(op:BinaryOps|UnaryOps|TernaryOps) -> str:
-  assert op in BinaryOps or op in UnaryOps, f"{op} is not a binary/unary alu op"
+  assert op in BinaryOps or op in UnaryOps or op in TernaryOps, f"{op} is not a binary/unary/ternary alu op"
   if op is BinaryOps.ADD: return '+'
   if op is BinaryOps.CMPEQ: return '=='
   if op is BinaryOps.CMPLT: return '<'
@@ -28,6 +28,7 @@ def alu2str(op:BinaryOps|UnaryOps|TernaryOps) -> str:
   if op is UnaryOps.NEG: return '-'
   if op is UnaryOps.SIN: return 'sin'
   if op is UnaryOps.SQRT: return 'sqrt'
+  if op is TernaryOps.WHERE: return 'where'
   raise ValueError(f"{op} is not a valid alu op")
 
 class LowIR(Enum):
@@ -275,10 +276,10 @@ class LowerFusedKernel:
     return name
 
   # Lower a buffer input or output into a global
-  def lower_buffer(self, mbuff: MemBuffer, is_input: bool) -> GlobalNode:
+  def lower_buffer(self, mbuff: MemBuffer, is_input: bool, dtype: Optional[DType]=None) -> GlobalNode:
     if mbuff in self.node_to_symbol: return self.symbol_table[self.node_to_symbol[mbuff]]
     prefix, mutable = ("out", True) if not is_input else ("data", False)
-    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype, mutable, self.arg_count - 1, True)
+    g0 = self.g.define_global(name:=self.global_name(prefix), self.dtype if dtype is None else dtype, mutable, self.arg_count - 1, True)
     self.symbol_table[name] = g0
     self.node_to_symbol[mbuff] = name
     return g0
@@ -349,8 +350,27 @@ class LowerFusedKernel:
     addr2 = self.g.address(idxs, strd1, step)
     self.lower_store(out, addr2, alu0)
 
-  def lower_top(self, top):
-    pass
+  def lower_top(self, 
+                a: MemBuffer,
+                cond: MemBuffer,
+                b: MemBuffer,
+                out: MemBuffer,
+                idxs: List[LocalNode],
+                vt0: ViewTracker, vt1: ViewTracker, vt2: ViewTracker, vtout: ViewTracker):
+    # Define a global for the output
+    gout = self.lower_io(out, False)
+    ga = self.lower_io(a, True)
+    gcond = self.lower_io(cond, True)
+    gb = self.lower_io(b, True)
+    addr0 = self.g.address(idxs, (), 0, vt0)
+    la = self.lower_load(ga, addr0)
+    addr1 = self.g.address(idxs, (), 0, vt1)
+    lc = self.lower_load(gcond, addr1)
+    addr2 = self.g.address(idxs, (), 0, vt2)
+    lb = self.lower_load(gb, addr2)
+    alu0 = self.lower_alu(TernaryOps.WHERE, lc, la, lb)
+    addr3 = self.g.address(idxs, (), 0, vtout)
+    self.lower_store(gout, addr3, alu0)
 
   def lower_rop(self,
                 in0: MemBuffer,
@@ -522,6 +542,12 @@ class LowerFusedKernel:
       return
 
     if op in TernaryOps:
+      assert len(inputs) == 3, 'ternary op requires three inputs'
+      a, cond, b = inputs[0], inputs[1], inputs[2]
+      vt0 = a.vt
+      loops, idxs = self.lower_start_loops(vt0.ndim, vt0.shape)
+      self.lower_top(a, cond, b, output, idxs, vt0, cond.vt, b.vt, output.vt)
+      self.lower_end_loops(loops)
       return
     if op in ReduceOps:
       self.lower_rop(inputs[0], output, arg, op)
@@ -557,6 +583,12 @@ class LowerFusedKernel:
         strd1 = vt1.strides
         self.lower_uop(i[0], o, idxs, strd0, strd1, 1, op)
         continue
+      if op in TernaryOps:
+        vt0, vt1, vt2, vtout = i[0].vt, i[1].vt, i[2].vt, o.vt
+        assert len(i) == 3, 'ternary op requires three inputs'
+        a, cond, b = i[0], i[1], i[2]
+        self.lower_top(a, cond, b, o, idxs, vt0, vt1, vt2, vtout)
+        return
       if op in ReduceOps:
         assert len(i) == 1, "reduce only has 1 input"
         # Terminate the loops since reduce occurs after them

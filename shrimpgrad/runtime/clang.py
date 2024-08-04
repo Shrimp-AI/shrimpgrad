@@ -264,7 +264,7 @@ class ClangCodeGen:
         vals.append(operand.name)
       else:
         vals.append(self.instr_to_src[operand])
-    if len(vals) > 2:
+    if len(vals) > 2 and alu_node.alu not in TernaryOps:
       op = alu2str(alu_node.alu)
       code = ''
       for i in range(len(vals)):

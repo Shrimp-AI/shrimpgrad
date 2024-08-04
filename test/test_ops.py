@@ -1,4 +1,5 @@
 from shrimpgrad import Tensor
+from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.graph import log_thunk
 import unittest
 import torch
@@ -20,12 +21,16 @@ class TestOps(unittest.TestCase):
     torch_ts, shrimp_ts = prepare_tensors(shapes, low, high)
     for x in torch_ts:
       x.retain_grad()
+
     torch_fwd_s = time.monotonic()
     tr = torch_op(*torch_ts)
     torch_fwd_t = time.monotonic() - torch_fwd_s
 
     shrimp_fwd_s = time.monotonic()
-    sr = shrimp_op(*shrimp_ts)
+    if shrimp_op is Tensor.where:
+      sr = shrimp_op(shrimp_ts[1], shrimp_ts[0], shrimp_ts[2])
+    else:
+      sr = shrimp_op(*shrimp_ts)
     sr.realize()
     shrimp_fwd_t = time.monotonic() - shrimp_fwd_s
 
@@ -310,6 +315,13 @@ class TestOps(unittest.TestCase):
 
   def test_dot_(self):
     self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias, fwd_only=False)
+  
+  def test_where(self):
+    cond = Tensor((2,2), [True, False, True, False], dtype=dtypes.bool)
+    a = Tensor((2,2), [1.0]*4)
+    b = Tensor((2,2), [0.0]*4)
+    out = a.where(cond, b)
+    print(out.numpy())
 
   def test_linear(self):
     x = Tensor.ones((10,20))

@@ -113,6 +113,7 @@ class Tensor:
 
   def cast(self, dtype: DType) -> Tensor:
     from shrimpgrad.autograd.function import Cast
+    if self.dtype == dtype: return self
     return Cast.apply(self, dtype=dtype)
 
   def clamp(self, min_val=0.0, max_val=1.0) -> Tensor:
@@ -155,6 +156,7 @@ class Tensor:
   def square(self) -> Tensor: return self * self
 
   def _canonicalize_axis(self, axis):
+    axis = axis if axis != None else tuple(i for i in range(self.ndim))
     return tuple(ax if ax >= 0 else ax + self.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,)))
 
   def mean(self, axis=None) -> Tensor:
@@ -164,10 +166,16 @@ class Tensor:
 
   def sum(self, axis:Optional[Union[int,Tuple[int,...]]]=None, keepdim=False) -> Tensor:
     from shrimpgrad.autograd.function import Sum
-    axis = axis if axis != None else tuple(i for i in range(self.ndim))
     axis_ = self._canonicalize_axis(axis)
     shape = tuple(s for i, s in enumerate(self.shape) if i not in axis_)
     ret = Sum.apply(self, axis=axis_)
+    return ret if keepdim else ret.reshape(*shape)
+  
+  def max(self, axis: Optional[Union[int,Tuple[int,...]]]=None, keepdim=False) -> Tensor:
+    from shrimpgrad.autograd.function import Max 
+    axis_ = self._canonicalize_axis(axis)
+    shape = tuple(s for i, s in enumerate(self.shape) if i not in axis_)
+    ret = Max.apply(self, axis=axis_) 
     return ret if keepdim else ret.reshape(*shape)
 
   def dot(self, w) -> Tensor:
@@ -258,7 +266,6 @@ class Tensor:
     if all(x is None or x == (0,s) for x,s in zip(shrink_width, self.shape)): return self
     return Shrink.apply(self, shrink_width=tuple(x if x is not None else (0,s) for x,s in zip(shrink_width, self.shape)))
 
-
   def transpose(self, ax0=1, ax1=0):
     ax0, ax1 = (ax0 + self.ndim if ax0 < 0 else ax0), (ax1 + self.ndim if ax1 < 0 else ax1)
     order = [i for i in range(self.ndim)]
@@ -309,6 +316,7 @@ class Tensor:
     Given a kernel shape, group the input tensor by the kernel shape based on the
     dilation and stride. Useful in pooling operations such as Conv2D.
     """
+    # From https://github.com/tinygrad/tinygrad/blob/master/tinygrad/tensor.py (_pool)
     # Assuming 4D input
     # TODO: Simplify, change, ndim support
     iH, iW = self.shape[-2:]
@@ -342,6 +350,7 @@ class Tensor:
     dilation: int or (dH, dW)
     groups: int (in_channels and out_channels must be divisible by groups)
     """
+    # From https://github.com/tinygrad/tinygrad/blob/master/tinygrad/tensor.py (conv2s normal conv)
     assert self.ndim == 4, "conv2d supports only 4D shapes for now"
     assert w.shape[1] == self.shape[-3]//groups, f"kernel shape {w.shape} dim 1 is invalid"
     assert bias is None or bias.shape == (w.shape[0], ), f"bias shape is invalid {bias.shape = }"
@@ -352,8 +361,8 @@ class Tensor:
     cI = self.shape[1]
     if isinstance(padding, int):
       padding = tuple([(0,0),(0,0)]+[(padding,padding) for _ in range(self.ndim-2)])
-    x = self.pad(padding).contiguous().groupby((kH,kW),dilation, stride)
-    rcout, oyx = cO //groups, x.shape[2:-2]
+    x = self.pad(padding).contiguous().groupby((kH,kW), dilation, stride)
+    rcout, oyx = cO // groups, x.shape[2:-2]
     x = x.reshape(B, groups, cI, 1, *oyx, *HW).expand(B, groups, cI, rcout, *oyx, *HW).permute((0,1,3,*[4+i for i in range(len(oyx))],2,*[4+len(oyx)+i for i in range(len(HW))]))
     ret = (x * w.reshape(1, groups, rcout, *[1] * len(oyx), cI, *HW)).sum(tuple([-1-i for i in range(1+len(oyx))]), keepdim=True).reshape(B, cO, *oyx)
     return ret if bias is None else ret.add(bias.reshape(1, -1, *[1] * len(HW)))
@@ -438,7 +447,7 @@ class Tensor:
     # TODO: Change this to something worthy
     base = self.thunk.base
     if hasattr(base, 'buff'):
-      data = base.buff.pointer(ctypes.c_float)
+      data = base.buff.pointer(ctypes.c_float if self.dtype == dtypes.float32 else ctypes.c_bool)
       if not self.thunk.vt.contiguous or self.thunk.base.buff.size > self.numel:
         strides = tuple([s*4 for s in self.thunk.vt.strides])
         arr = np.frombuffer(data, dtype=np.float32)
