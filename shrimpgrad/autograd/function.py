@@ -5,7 +5,7 @@ from shrimpgrad.device import Device
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps, ReduceOps
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.dtype import ConstType, DType
-from shrimpgrad.util import argsort, prod
+from shrimpgrad.util import argsort
 from shrimpgrad.future import Thunk
 
 OptionalGradients: TypeAlias = Tuple[Optional[Thunk], ...]
@@ -135,8 +135,8 @@ class Max(Function):
     x: Thunk = ctx.load('x')
     ret: Thunk = ctx.load('ret')
     axis: Tuple[int, ...] = ctx.load('axis')
-    reduce_count = prod([x.shape[ax] for ax in axis])
     # dL/dx = grad_out * [0 if not max, 1 if max]; max can occur multiple times in a Tensor
+    # spread over all locations where max
     ret = ret.expand(x.shape)
     dx = ret.alu(BinaryOps.CMPEQ, x).alu(TernaryOps.WHERE, ret.const(1.), ret.const(0.))
     cnt = dx.reduce(ReduceOps.SUM, axis)
