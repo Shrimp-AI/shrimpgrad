@@ -269,6 +269,50 @@ class TestOps(unittest.TestCase):
     y.backward()
     assert x.grad is not None, "x.grad should not be None" 
     self.assertEqual(x.grad.shape, x.shape)
+  
+  def test_max_1d(self):
+    x = Tensor((4,), [1.,2.,3.,4.], requires_grad=True)
+    y = x.max(axis=0, keepdim=False)
+    self.assertEqual(y.shape, ())
+    expected = np.array([1,2,3,4]).max(axis=0)
+    np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
+    y.backward()
+    assert x.grad is not None, "gradient must be set for x"
+    np.testing.assert_allclose(x.grad.numpy(), np.array([0.,0.,0.,1.]))
+  
+  def test_max_2d(self):
+    x = Tensor((4,4), [1.,2.,3.,4.]*4)
+    y = x.max(axis=0, keepdim=False)
+    self.assertEqual(y.shape, (4,))
+    expected = np.array([1,2,3,4]*4).reshape(4,4).max(axis=0)
+    np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
+
+  def test_max_2d_multi_axis(self):
+    x = Tensor((4,4), [1.,2.,3.,4.]*4, requires_grad=True)
+    y = x.max((0,1), keepdim=False)
+    self.assertEqual(y.shape, ())
+    expected = np.array([1,2,3,4]*4).reshape(4,4).max(axis=(0,1))
+    np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
+    y.backward()
+    assert x.grad is not None, "x grad should not be None"
+    np.testing.assert_array_equal(x.grad.numpy(), np.array([0,0,0,1]*4).reshape(4,4))
+    
+  def test_max_4d_multiaxis_keepdim(self):
+    x = Tensor((4,4,2,2), [1.,2.,3.,4.]*4*2*2, requires_grad=True)
+    y = x.max((0,1), keepdim=True)
+    self.assertEqual(y.shape, (1,1,2,2))
+    x_ = torch.tensor([1.,2.,3.,4.]*4*2*2, requires_grad=True).reshape(4,4,2,2)
+    x_.retain_grad()
+    y_ = x_.amax(dim=(0,1), keepdim=True)
+    y_.retain_grad()
+    np.testing.assert_allclose(y_.detach().numpy(), y.numpy())
+    yy = y.sum()
+    yy_ = y_.sum()
+    yy.backward()
+    yy_.backward()
+    assert x.grad is not None 
+    assert x_.grad is not None
+    np.testing.assert_allclose(x.grad.numpy(), x_.grad.numpy())
 
   def test_transpose(self):
     y = Tensor((2,2), [4,1,

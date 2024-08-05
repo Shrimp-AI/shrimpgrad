@@ -5,7 +5,7 @@ from shrimpgrad.device import Device
 from shrimpgrad.runtime.ops import UnaryOps, BinaryOps, TernaryOps, ReduceOps
 from shrimpgrad.tensor import Tensor
 from shrimpgrad.dtype import ConstType, DType
-from shrimpgrad.util import argsort
+from shrimpgrad.util import argsort, prod
 from shrimpgrad.future import Thunk
 
 OptionalGradients: TypeAlias = Tuple[Optional[Thunk], ...]
@@ -45,7 +45,6 @@ class Function(FunctionContext):
 class Add(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, y: Thunk) -> Thunk:
-    print(f"ADD FWD {x.dtype = } {y.dtype = }")
     return x.alu(BinaryOps.ADD, y)
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> OptionalGradients:
@@ -127,11 +126,20 @@ class Max(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, axis: Tuple[int,...]=(0,)) -> Thunk:
     ctx.save('x', x)
-    return x.reduce(ReduceOps.MAX, axis=axis)
+    ctx.save('axis', axis)
+    ret = x.reduce(ReduceOps.MAX, axis=axis)
+    ctx.save('ret', ret)
+    return ret
   @staticmethod
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
-    x = ctx.load('x')
-    return grad_out.expand(x.shape)
+    x: Thunk = ctx.load('x')
+    ret: Thunk = ctx.load('ret')
+    axis: Tuple[int, ...] = ctx.load('axis')
+    reduce_count = prod([x.shape[ax] for ax in axis])
+    # dL/dx = grad_out * [0 if not max, 1 if max]; max can occur multiple times in a Tensor
+    ret = ret.expand(x.shape)
+    dx = ret.alu(BinaryOps.CMPEQ, x).alu(TernaryOps.WHERE, ret.const(1.), ret.const(0.)).alu(BinaryOps.DIV, ret.const(reduce_count))
+    return grad_out.expand(x.shape).alu(BinaryOps.MUL, dx)
 
 class Log(Function):
   @staticmethod

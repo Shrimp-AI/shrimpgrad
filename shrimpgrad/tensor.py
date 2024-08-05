@@ -87,7 +87,6 @@ class Tensor:
     if not isinstance(y, Tensor):
       assert isinstance(y, ConstType), f'type(y)={type(y)} is not a ConstType'
       y = Tensor((), data=y, dtype=dtypes.from_py(y))
-      print(f"{y.dtype = }")
     new_shapes = pad_left(self.shape, y.shape)
     assert all(x == y or x == 1 or y == 1 for x, y in zip(*new_shapes)), f'invalid shapes for broadcasting {self.shape} and {y.shape}'
     bs = broadcast_shape(*new_shapes)
@@ -103,7 +102,6 @@ class Tensor:
   def assign(self, x: Tensor) -> Tensor:
     assert x.shape == self.shape, f'shape mismatch on assign {self.shape} != {x.shape}'
     assert x.dtype == self.dtype, f'dtype mismatch on assign {self.dtype} != {x.dtype}'
-    print(f"{x.dtype = } {self.dtype = }")
     if self.thunk.base.realized is None: 
       return self.replace(x)
     self.thunk = self.thunk.assign(x.thunk)
