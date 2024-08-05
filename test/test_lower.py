@@ -186,3 +186,15 @@ class TestLower(unittest.TestCase):
     ir_graphs = lfk.lower()
     for ir_graph in ir_graphs:
       ir_graph.print()
+    
+  def test_where(self):
+    a = Tensor.full((2,2), 1.0)
+    cond = Tensor((2,2), [True,False,True,False], dtype=dtypes.bool_)
+    b = Tensor.full((2,2), 0.0)
+    out = a.where(cond,b)
+    fkb = FusedKernelBuilder(out.thunk)
+    schedule = fkb.schedule() 
+    lfk = LowerFusedKernel(schedule)
+    ir_graphs = lfk.lower()
+    for ir_graph in ir_graphs:
+      ir_graph.print()

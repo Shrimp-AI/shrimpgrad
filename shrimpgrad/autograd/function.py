@@ -122,6 +122,27 @@ class Sum(Function):
     x = ctx.load('x')
     return grad_out.expand(x.shape)
 
+class Max(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x: Thunk, axis: Tuple[int,...]=(0,)) -> Thunk:
+    ctx.save('x', x)
+    ctx.save('axis', axis)
+    ret = x.reduce(ReduceOps.MAX, axis=axis)
+    ctx.save('ret', ret)
+    return ret
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
+    x: Thunk = ctx.load('x')
+    ret: Thunk = ctx.load('ret')
+    axis: Tuple[int, ...] = ctx.load('axis')
+    # dL/dx = grad_out * [0 if not max, 1 if max]; max can occur multiple times in a Tensor
+    # spread over all locations where max
+    ret = ret.expand(x.shape)
+    dx = ret.alu(BinaryOps.CMPEQ, x).alu(TernaryOps.WHERE, ret.const(1.), ret.const(0.))
+    cnt = dx.reduce(ReduceOps.SUM, axis)
+    dx = dx.alu(BinaryOps.DIV, cnt)
+    return grad_out.expand(x.shape).alu(BinaryOps.MUL, dx)
+
 class Log(Function):
   @staticmethod
   def forward(ctx: FunctionContext, x: Thunk, axis: Tuple[int,...]=(0,)) -> Thunk:

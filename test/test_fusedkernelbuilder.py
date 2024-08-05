@@ -1,9 +1,11 @@
 from typing import Callable, List
 import unittest
+from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.graph import log_thunk
 import shrimpgrad.nn as nn
 
 from shrimpgrad.engine.scheduler import FusedKernelBuilder, print_schedule
+from shrimpgrad.runtime.ops import TernaryOps
 from shrimpgrad.tensor import Tensor
 
 class TestFusedKernelBuilder(unittest.TestCase):
@@ -69,3 +71,14 @@ class TestFusedKernelBuilder(unittest.TestCase):
     fkb = FusedKernelBuilder(out.thunk)
     sched = fkb.schedule()
     self.assertEqual(1, len(sched))
+  
+  def test_where(self):
+    cond = Tensor((2,2), [True,False,True,False], dtype=dtypes.bool_)
+    a = Tensor.full((2,2), 1.0)
+    b = Tensor.full((2,2), 0.0)
+    out = cond.where(a, b)
+    print(out.thunk)
+    fkb = FusedKernelBuilder(out.thunk)
+    sched = fkb.schedule()
+    self.assertEqual(2, len(sched))
+    self.assertEqual(sched[1].computation.ops[0], TernaryOps.WHERE)

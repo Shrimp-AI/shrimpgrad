@@ -1,6 +1,9 @@
+from typing import cast
 from shrimpgrad import Tensor
+from shrimpgrad.dtype import dtypes
 from shrimpgrad.engine.graph import log_thunk
 import unittest
+from shrimpgrad.knobs import Knobs
 import torch
 import numpy as np
 import time
@@ -20,12 +23,16 @@ class TestOps(unittest.TestCase):
     torch_ts, shrimp_ts = prepare_tensors(shapes, low, high)
     for x in torch_ts:
       x.retain_grad()
+
     torch_fwd_s = time.monotonic()
     tr = torch_op(*torch_ts)
     torch_fwd_t = time.monotonic() - torch_fwd_s
 
     shrimp_fwd_s = time.monotonic()
-    sr = shrimp_op(*shrimp_ts)
+    if shrimp_op is Tensor.where:
+      sr = shrimp_op(shrimp_ts[1], shrimp_ts[0], shrimp_ts[2])
+    else:
+      sr = shrimp_op(*shrimp_ts)
     sr.realize()
     shrimp_fwd_t = time.monotonic() - shrimp_fwd_s
 
@@ -39,7 +46,8 @@ class TestOps(unittest.TestCase):
 
       shrimp_bs = time.monotonic()
       sr.backward()
-      for t in shrimp_ts: t.grad.realize()
+      for t in shrimp_ts: 
+        if t.grad is not None: t.grad.realize()
       shrimp_bt = time.monotonic() - shrimp_bs
 
       [self.compare(xt.grad, xs.grad, rtol=grad_rtol, atol=grad_atol) for xt, xs in zip(torch_ts, shrimp_ts)]
@@ -74,6 +82,7 @@ class TestOps(unittest.TestCase):
     z = x + y
     z.realize()
     z.backward()
+    assert x.grad is not None and y.grad is not None, "gradients are None"
     x.grad.realize()
     y.grad.realize()
     np.testing.assert_array_equal(x.grad.data(), np.array([1]*4).reshape(2,2))
@@ -115,6 +124,7 @@ class TestOps(unittest.TestCase):
     x = 1.0
     y = Tensor.ones((2,2))
     z = x == y
+    z = cast(Tensor, z)
     z.realize()
     np.testing.assert_array_equal(np.array([True]*4).reshape(2,2), z.data())
     x = Tensor.zeros((2,2))
@@ -139,8 +149,11 @@ class TestOps(unittest.TestCase):
   def test_ge(self):
     x = Tensor.ones((2,2))
     y = Tensor.zeros((2,2))
-    np.testing.assert_array_equal((x>=y).realize().data(), np.array([True]*4).reshape(2,2))
-    np.testing.assert_array_equal((y>=x).realize().data(), np.array([False]*4).reshape(2,2))
+    z = x >= y
+    print(z.thunk.buff)
+    with Knobs(DEBUG=4):
+      np.testing.assert_array_equal((x>=y).numpy(), np.array([True]*4).reshape(2,2))
+    np.testing.assert_array_equal((y>=x).numpy(), np.array([False]*4).reshape(2,2))
     y = Tensor.ones((2,2))
     np.testing.assert_array_equal((x>=y).realize().data(), np.array([True]*4).reshape(2,2))
 
@@ -150,25 +163,21 @@ class TestOps(unittest.TestCase):
     c = a + b
     c.realize()
     self.assertEqual(c.data(), -2.0)
-
     d = a * b + (b*b*b)
     d.realize()
-
     self.assertEqual(d.data(), -4.0*2+2.0*2.0*2.0)
-
-    c = c + c + 1
+    c = c + c + 1.
     c.realize()
     self.assertEqual(c.data(), -3.0)
-    c = c + 1 + c + (-a)
+    c = c + 1. + c + (-a)
     c.realize()
-    print(c.data())
     self.assertEqual(c.data(),  -3.0+(1+-3.0+4.0))
-    d = d + d * 2 + (b + a).relu()
+    d = d + d * 2. + (b + a).relu()
     d.realize()
-    self.assertEqual(d.data(), -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3))
-    d = d + 3 * d + (b - a).relu()
+    self.assertEqual(d.data(), -4.0*2.+2.0**3. + 2.*(-4.0*2.+2.0**3))
+    d = d + 3. * d + (b - a).relu()
     d.realize()
-    self.assertEqual(d.data(), 3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0)
+    self.assertEqual(d.data(), 3.*( -4.0*2.+2.0**3 + 2*(-4.0*2.+2.0**3)) + 6.0)
     e = c - d
     e.realize()
     self.assertEqual(e.data(), (-3.0+(1+-3.0+4.0)) - (3*( -4.0*2+2.0**3 + 2*(-4.0*2+2.0**3)) + 6.0))
@@ -180,8 +189,10 @@ class TestOps(unittest.TestCase):
     g.realize()
     np.testing.assert_allclose(g.data(), 24.7040163265306, rtol=1e-5, atol=1e-5)
     g.backward()
+    assert a.grad is not None, "a.grad should not be None"
     a.grad.realize()
     np.testing.assert_allclose(138.83381924198252, a.grad.data(), rtol=1e-5, atol=1e-5)
+    assert b.grad is not None, "b.grad should not be None"
     b.grad.realize()
     np.testing.assert_allclose(645.5772594752186, b.grad.data(), rtol=1e-5, atol=1e-5)
 
@@ -256,7 +267,52 @@ class TestOps(unittest.TestCase):
     y.realize()
     np.testing.assert_array_equal(y.data(), np.array([3]*(5*5*5)).reshape(5,1,5,5)) # pylint: disable=too-many-function-args
     y.backward()
+    assert x.grad is not None, "x.grad should not be None" 
     self.assertEqual(x.grad.shape, x.shape)
+  
+  def test_max_1d(self):
+    x = Tensor((4,), [1.,2.,3.,4.], requires_grad=True)
+    y = x.max(axis=0, keepdim=False)
+    self.assertEqual(y.shape, ())
+    expected = np.array([1,2,3,4]).max(axis=0)
+    np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
+    y.backward()
+    assert x.grad is not None, "gradient must be set for x"
+    np.testing.assert_allclose(x.grad.numpy(), np.array([0.,0.,0.,1.]))
+  
+  def test_max_2d(self):
+    x = Tensor((4,4), [1.,2.,3.,4.]*4)
+    y = x.max(axis=0, keepdim=False)
+    self.assertEqual(y.shape, (4,))
+    expected = np.array([1,2,3,4]*4).reshape(4,4).max(axis=0)
+    np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
+
+  def test_max_2d_multi_axis(self):
+    x = Tensor((4,4), [1.,2.,3.,4.]*4, requires_grad=True)
+    y = x.max((0,1), keepdim=False)
+    self.assertEqual(y.shape, ())
+    expected = np.array([1,2,3,4]*4).reshape(4,4).max(axis=(0,1))
+    np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
+    y.backward()
+    assert x.grad is not None, "x grad should not be None"
+    np.testing.assert_array_equal(x.grad.numpy(), np.array([0,0,0,.25]*4).reshape(4,4))
+    
+  def test_max_4d_multiaxis_keepdim(self):
+    x = Tensor((4,4,2,2), [1.,2.,3.,4.]*4*2*2, requires_grad=True)
+    y = x.max((0,1), keepdim=True)
+    self.assertEqual(y.shape, (1,1,2,2))
+    x_ = torch.tensor([1.,2.,3.,4.]*4*2*2, requires_grad=True).reshape(4,4,2,2)
+    x_.retain_grad()
+    y_ = x_.amax(dim=(0,1), keepdim=True)
+    y_.retain_grad()
+    np.testing.assert_allclose(y_.detach().numpy(), y.numpy())
+    yy = y.sum()
+    yy_ = y_.sum()
+    yy.backward()
+    yy_.backward()
+    assert x.grad is not None 
+    assert x_.grad is not None
+    np.testing.assert_allclose(x.grad.numpy(), x_.grad.numpy())
 
   def test_transpose(self):
     y = Tensor((2,2), [4,1,
@@ -310,6 +366,13 @@ class TestOps(unittest.TestCase):
 
   def test_dot_(self):
     self.helper_test_ops([(45,65), (45,65), (45,)],lambda x, w, bias: torch.matmul(x, w.transpose(0,1)) + bias, lambda x,w,bias: x.dot(w.transpose())+bias, fwd_only=False)
+  
+  def test_where(self):
+    cond = Tensor((2,2), [True, False, False, True], dtype=dtypes.bool_)
+    a = Tensor((2,2), [1.0]*4)
+    b = Tensor((2,2), [0.0]*4)
+    out = cond.where(a, b)
+    np.testing.assert_allclose(out.numpy(), np.array([1.0,0.0,0.0,1.]).reshape(2,2))
 
   def test_linear(self):
     x = Tensor.ones((10,20))
@@ -325,6 +388,7 @@ class TestOps(unittest.TestCase):
     sout.realize()
     sout.backward()
     sgrad = out.grad
+    assert sgrad is not None, "sgrad should not be None"
     sgrad.realize()
 
     out = torch.tensor([1.0,0.0,1.0,1.0,2.0], requires_grad=True)
