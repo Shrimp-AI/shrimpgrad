@@ -138,7 +138,9 @@ class Max(Function):
     reduce_count = prod([x.shape[ax] for ax in axis])
     # dL/dx = grad_out * [0 if not max, 1 if max]; max can occur multiple times in a Tensor
     ret = ret.expand(x.shape)
-    dx = ret.alu(BinaryOps.CMPEQ, x).alu(TernaryOps.WHERE, ret.const(1.), ret.const(0.)).alu(BinaryOps.DIV, ret.const(reduce_count))
+    dx = ret.alu(BinaryOps.CMPEQ, x).alu(TernaryOps.WHERE, ret.const(1.), ret.const(0.))
+    cnt = dx.reduce(ReduceOps.SUM, axis)
+    dx = dx.alu(BinaryOps.DIV, cnt)
     return grad_out.expand(x.shape).alu(BinaryOps.MUL, dx)
 
 class Log(Function):

@@ -295,7 +295,7 @@ class TestOps(unittest.TestCase):
     np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
     y.backward()
     assert x.grad is not None, "x grad should not be None"
-    np.testing.assert_array_equal(x.grad.numpy(), np.array([0,0,0,1]*4).reshape(4,4))
+    np.testing.assert_array_equal(x.grad.numpy(), np.array([0,0,0,.25]*4).reshape(4,4))
     
   def test_max_4d_multiaxis_keepdim(self):
     x = Tensor((4,4,2,2), [1.,2.,3.,4.]*4*2*2, requires_grad=True)
