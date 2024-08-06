@@ -1,4 +1,5 @@
 from __future__ import annotations
+import math
 import ctypes, pathlib, tempfile, subprocess
 from typing import DefaultDict, Dict, List, Optional, Tuple, cast
 from shrimpgrad.device import Buffer, Device, Compiler, Jitable, MallocAllocator, MemBuffer, Renderer, Runtime
@@ -14,7 +15,7 @@ c_alu = {
   UnaryOps.SQRT: lambda x: f'sqrt({x})', UnaryOps.SIN: lambda x: f'sin({x})',
   UnaryOps.NEG: lambda x: f'-{x}',
   BinaryOps.MUL: lambda x,y: f'{x}*{y}', BinaryOps.ADD: lambda x,y: f'{x}+{y}', BinaryOps.SUB: lambda x,y: f'{x}-{y}', BinaryOps.XOR: lambda x,y: f'{x}^{y}',
-  BinaryOps.MAX: lambda x,y: f'fmax({x}, {y})',
+  BinaryOps.MAX: lambda x,y: f"(({x}>{y})?{x}:{y})",
   BinaryOps.CMPEQ: lambda x,y: f'{x}=={y}', BinaryOps.CMPLT: lambda x,y: f'{x}<{y}',
   BinaryOps.MOD: lambda x,y: f'{x}%{y}',
   BinaryOps.DIV: lambda x,y: f'{x}/{y}',
@@ -146,6 +147,8 @@ class ClangCodeGen:
           assert isinstance(instr, ConstNode), f'invalid const instruction {instr}'
           if isinstance(instr.val, bool):
             self.instr_to_src[instr] = 1.0 if instr.val else 0.0
+          elif math.isinf(instr.val):
+            self.instr_to_src[instr] = '-INFINITY' if instr.val <0 else 'INFINITY' 
           else: self.instr_to_src[instr] = instr.val
           continue
         elif instr.op is LowIR.LOCAL:
@@ -158,7 +161,8 @@ class ClangCodeGen:
             self.src.append(f"{self.spaces}{typ} {instr.name} = {rhs};")
           else: # const
             assert isinstance(const_node:=instr.ancestors[0], ConstNode)
-            self.src.append(f"{self.spaces}{typ} {instr.name} = {const_node.val};")
+            rhs = self.instr_to_src[const_node]
+            self.src.append(f"{self.spaces}{typ} {instr.name} = {rhs};")
         elif instr.op is LowIR.GLOBAL:
           assert isinstance(instr, GlobalNode)
           self.gs.append((instr.name, instr.ptr, instr.pos, instr.mutable, instr.dtype))

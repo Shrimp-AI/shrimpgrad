@@ -196,6 +196,18 @@ def torch_conv(in_shape, w_shape, b=None, d=1,s=1,g=1,p=0):
   tz = torch.nn.functional.conv2d(tx, tw, tb, s,p,d,g)
   return tz.numpy()
 
+def torch_pool(pool_fn, in_shape, ks, s=1, d=1, p=0):
+  tx = torch.full(in_shape, 2.0)
+  ret = pool_fn(tx, ks, s, p, d)
+  return ret.numpy()
+
+def prepare_tensors(shapes, low=-1.5, high=1.5):
+  np.random.seed(0)
+  np_data = [np.random.uniform(low=low, high=high, size=shp).astype(np.float32) for shp in shapes]
+  tts = [torch.tensor(data, requires_grad=True) for data in np_data]
+  sts = [Tensor(shp, data.flatten().tolist() if len(shp) else data.flatten().tolist()[0], requires_grad=True) for shp, data in zip(shapes, np_data)]
+  return tts, sts
+
 class TestConv2d(unittest.TestCase):
   def test_conv2d(self):
     # (minibatch, in_channels, iH, iW)
@@ -239,3 +251,16 @@ class TestConv2d(unittest.TestCase):
     with Knobs(DEBUG=4):
       sz = x.conv2d(y,b,dilation=2, stride=2, padding=1).numpy()
     np.testing.assert_allclose(sz, torch_conv(in_shape, w_shape,bs,d=2, s=2,p=1))
+
+class TestPooling(unittest.TestCase):
+  def test_maxpool2d_basic(self):
+    tts, sts = prepare_tensors([(1,1,10,10)])
+    tr = torch.nn.functional.max_pool2d(tts[0], (2,2), stride=1).detach().numpy()
+    sr = sts[0].maxpool2d((2,2)).numpy()
+    np.testing.assert_allclose(tr, sr)
+  
+  def test_maxpool2d_basic2(self):
+    tts, sts = prepare_tensors([(3,3,100,100)])
+    tr = torch.nn.functional.max_pool2d(tts[0], (2,2), stride=1).detach().numpy()
+    sr = sts[0].maxpool2d((2,2)).numpy()
+    np.testing.assert_allclose(tr, sr)

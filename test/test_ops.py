@@ -280,6 +280,17 @@ class TestOps(unittest.TestCase):
     assert x.grad is not None, "gradient must be set for x"
     np.testing.assert_allclose(x.grad.numpy(), np.array([0.,0.,0.,1.]))
   
+  def test_max_1d_neg(self):
+    x = Tensor((4,), [-1.,-2.,-3.,-4.], requires_grad=True)
+    y = x.max(axis=0, keepdim=False)
+    self.assertEqual(y.shape, ())
+    expected = np.array([-1.,-2.,-3.,-4.]).max(axis=0)
+    with Knobs(DEBUG=4):
+      np.testing.assert_array_equal(expected, y.numpy()) # pylint: disable=too-many-function-args
+    y.backward()
+    assert x.grad is not None, "gradient must be set for x"
+    np.testing.assert_allclose(x.grad.numpy(), np.array([1.,0.,0.,0.]))
+  
   def test_max_2d(self):
     x = Tensor((4,4), [1.,2.,3.,4.]*4)
     y = x.max(axis=0, keepdim=False)

@@ -160,7 +160,6 @@ class Tensor:
     return tuple(ax if ax >= 0 else ax + self.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,)))
 
   def mean(self, axis=None) -> Tensor:
-    axis = axis if axis else tuple(i for i in range(self.ndim))
     axis_ = self._canonicalize_axis(axis)
     return  self.sum(axis=axis) / prod([self.shape[i] for i in axis_])
 
@@ -366,6 +365,14 @@ class Tensor:
     x = x.reshape(B, groups, cI, 1, *oyx, *HW).expand(B, groups, cI, rcout, *oyx, *HW).permute((0,1,3,*[4+i for i in range(len(oyx))],2,*[4+len(oyx)+i for i in range(len(HW))]))
     ret = (x * w.reshape(1, groups, rcout, *[1] * len(oyx), cI, *HW)).sum(tuple([-1-i for i in range(1+len(oyx))]), keepdim=True).reshape(B, cO, *oyx)
     return ret if bias is None else ret.add(bias.reshape(1, -1, *[1] * len(HW)))
+  
+  def maxpool2d(self, kernel_size: int|Tuple[int,...], stride: int|Tuple[int,int]=1, padding: int|Tuple[Tuple[int,int],...]=0, dilation:int|Tuple[int,int]=1) -> Tensor:
+    assert self.ndim == 4, "conv2d supports only 4D shapes for now"
+    kH, kW = kernel_size if isinstance(kernel_size,tuple) else (kernel_size, kernel_size) 
+    if isinstance(padding, int):
+      padding = tuple([(0,0),(0,0)]+[(padding,padding) for _ in range(self.ndim-2)])
+    x = self.pad(padding).contiguous().groupby((kH,kW), dilation, stride)
+    return x.max((-2,-1), keepdim=True).reshape(*x.shape[:-2])
     
   def sequential(self, ll:List[Callable[[Tensor], Tensor]]): return functools.reduce(lambda x,f: f(x), ll, self)
 

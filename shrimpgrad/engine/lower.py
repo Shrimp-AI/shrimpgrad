@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 import functools
+import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple, cast
 from shrimpgrad.device import MemBuffer
 from shrimpgrad.dtype import ConstType, DType, dtypes
@@ -387,11 +388,11 @@ class LowerFusedKernel:
     # Define a global for the input
     g_in = self.lower_io(in0, True)
     rdtype = in0.buff.dtype
-    alu_op = BinaryOps.ADD if rop is ReduceOps.SUM else BinaryOps.MAX
+    alu_op, acc_init = (BinaryOps.ADD, 0.0) if rop is ReduceOps.SUM else (BinaryOps.MAX, -math.inf)
     if len(axis) == len(in_shape) and in0.vt.contiguous:
       zero = self.g.const(dtypes.int32, 0)
       out_off = self.g.offset(zero)
-      acc = self.lower_acc(rdtype, 0.0)
+      acc = self.lower_acc(rdtype, acc_init)
       loop, idx = self.lower_begin_for(0, prod(in0.vt.shape))
       in_off = self.g.offset(idx)
       rhs = self.lower_load(g_in, idx)
@@ -412,7 +413,7 @@ class LowerFusedKernel:
       loops, idxs, dim_offs = [], [], []
       for i in range(len(in_shape) - 1):
         loop, idx = self.lower_begin_for(0, in_shape[i])
-        if i+1 == len(in_shape) - num_axis: acc = self.lower_acc(rdtype, 0.0)
+        if i+1 == len(in_shape) - num_axis: acc = self.lower_acc(rdtype, acc_init)
         idxs.append(idx)
         loops.append(loop)
         # Compute the dimension offset l0*strides[i]
@@ -421,7 +422,7 @@ class LowerFusedKernel:
         dim_off = self.lower_local(dtypes.int32, alu)
         dim_offs.append(dim_off)
       if acc is None:
-        acc = self.lower_acc(rdtype, 0.0)
+        acc = self.lower_acc(rdtype, acc_init)
       # Create the inner loop
       loop, idx = self.lower_begin_for(0, in_shape[-1])
       idxs.append(idx)
