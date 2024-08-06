@@ -362,10 +362,26 @@ class TestOps(unittest.TestCase):
     self.helper_test_ops([(45,65)],torch.mean, Tensor.mean, fwd_only=False)
     # TODO: Lower reducing a constant
     # self.helper_test_ops([()], torch.mean, Tensor.mean)
+  
+  def test_sqrt(self):
+    self.helper_test_ops([(45,65)],torch.sqrt, Tensor.sqrt, fwd_only=False)
+  
+  def test_std(self):
+    with Knobs(DEBUG=4):
+      self.helper_test_ops([(45,65)],torch.std, Tensor.std, fwd_only=False)
 
   def test_square(self):
     self.helper_test_ops([(45,65)],torch.square, Tensor.square, fwd_only=False)
     self.helper_test_ops([()], torch.square, Tensor.square, fwd_only=False)
+  
+  def test_squeeze(self):
+    self.helper_test_ops([(1,45,1,1,1,1,65,1)],torch.squeeze, Tensor.squeeze, fwd_only=False)
+    self.helper_test_ops([()], torch.squeeze, Tensor.squeeze, fwd_only=False)
+    self.helper_test_ops([(1,45,1,1,1,1,65,1)], lambda x: torch.squeeze(x, 3), lambda x: Tensor.squeeze(x, 3), fwd_only=False)
+  
+  def test_unsqueeze(self):
+    self.helper_test_ops([(4,)], lambda x: torch.unsqueeze(x, 0), lambda x: Tensor.unsqueeze(x, 0))
+    self.helper_test_ops([(4,)], lambda x: torch.unsqueeze(x, 1), lambda x: Tensor.unsqueeze(x, 1))
 
   def test_square_mean(self):
     self.helper_test_ops([(45,65)],lambda x: torch.square(x).mean(), lambda x: x.square().mean(), fwd_only=False)

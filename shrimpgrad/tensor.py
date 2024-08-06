@@ -155,13 +155,23 @@ class Tensor:
 
   def square(self) -> Tensor: return self * self
 
-  def _canonicalize_axis(self, axis):
+  def sqrt(self) -> Tensor:
+    from shrimpgrad.autograd.function import Sqrt
+    return Sqrt.apply(self)
+
+  def _canonicalize_axis(self, axis:Optional[int|Tuple[int,...]]):
     axis = axis if axis != None else tuple(i for i in range(self.ndim))
     return tuple(ax if ax >= 0 else ax + self.ndim for ax in (axis if isinstance(axis, Tuple) else (axis,)))
 
-  def mean(self, axis=None) -> Tensor:
+  def _canonicalize_dim(self, dim: int) -> int:
+    """
+    A dim value within the range [-self.ndim - 1, self.ndim + 1) 
+    """
+    return dim + self.ndim if dim < 0 else dim
+
+  def mean(self, axis: Optional[int|Tuple[int,...]]=None, keepdim=False) -> Tensor:
     axis_ = self._canonicalize_axis(axis)
-    return  self.sum(axis=axis) / prod([self.shape[i] for i in axis_])
+    return  self.sum(axis=axis, keepdim=keepdim) / prod([self.shape[i] for i in axis_])
 
   def sum(self, axis:Optional[Union[int,Tuple[int,...]]]=None, keepdim=False) -> Tensor:
     from shrimpgrad.autograd.function import Sum
@@ -233,6 +243,26 @@ class Tensor:
   def sigmoid(self) -> Tensor:
     from shrimpgrad.autograd.function import Sigmoid
     return Sigmoid.apply(self)
+  
+  def batch_norm(self,  w: Tensor | None, b: Tensor | None,
+                 mean: Tensor, var: Tensor, axis: int|Tuple[int, ...]=1):
+    axis_ = self._canonicalize_axis(axis)
+    shape = tuple(s if ax in axis_ else 1 for ax, s in enumerate(self.shape))
+    x = self - mean.reshape(*shape)
+    if w is not None: x = x * w.reshape(*shape)
+    ret = x.mul(var.reshape(*shape) if len(var.shape) == len(axis_) else var)
+    return (ret + b.reshape(*shape)) if b is not None else ret
+  
+  # Statistic Functions
+  def std(self, axis: Optional[int|Tuple[int,...]]=None, correction: int=1, keepdim=False) -> Tensor:
+    return self.var(axis, correction, keepdim).sqrt()
+
+  def var(self, axis: Optional[int|Tuple[int,...]]=None, correction: int=1, keepdim=False) -> Tensor: 
+    squares = (self - self.mean(axis=axis, keepdim=True)).square()
+    sum_of_squares = squares.sum(axis=axis, keepdim=True) 
+    n = prod([si for si, so in zip(self.shape, sum_of_squares.shape) if si != so])
+    if keepdim: return sum_of_squares.div(max(0, n-correction))
+    return squares.sum(axis=axis, keepdim=keepdim).div(max(0, n-correction))
 
   # Loss Functions
   def binary_cross_entropy(self, y: Tensor) -> Tensor: return ((-y)*self.log() - (1.0-y)*((1.0-self).log())).mean()
@@ -276,7 +306,23 @@ class Tensor:
     new_dim = prod(self.shape[start_dim:end_dim+1]) 
     new_shape = tuple([*self.shape[:start_dim], new_dim, *self.shape[end_dim+1:]])
     return self.reshape(*new_shape)
+
+  def squeeze(self, dim:Optional[int]=None) -> Tensor:
+    if not dim: return self.reshape(*[si for si in self.shape if si != 1]) 
+    dim = self._canonicalize_dim(dim)
+    return self if self.shape[dim] != 1 or not self.ndim else self.reshape(*[*self.shape[:dim], *self.shape[dim+1:]])
   
+  def unsqueeze(self, dim: int) -> Tensor:
+    """
+    Returns a new tensor with a dimension of size one inserted at the specified position.
+
+    The returned tensor shares the same underlying data with this tensor.
+
+    A dim value within the range [-input.ndim - 1, input.ndim + 1) can be used. Negative dim will correspond to unsqueeze() applied at dim = dim + input.ndim + 1.
+    """
+    dim = self._canonicalize_dim(dim)
+    return self.reshape(*[*self.shape[:dim], 1, *self.shape[dim:]])
+
   def tile(self, reps: Tuple[int, ...]) -> Tensor:
     """
     Construct a tensor by repeating self the number of times given by reps.
@@ -310,7 +356,7 @@ class Tensor:
     combine_shape = tuple([r*s for r,s in zip(reps, local_shape)])
     return y.reshape(*combine_shape) 
   
-  def groupby(self, kernel_shape: Tuple[int, ...], dilation=1, stride: int|Tuple[int,int]=1):
+  def groupby(self, kernel_shape: Tuple[int, ...], dilation: int|Tuple[int,int]=1, stride: int|Tuple[int,int]=1):
     """
     Given a kernel shape, group the input tensor by the kernel shape based on the
     dilation and stride. Useful in pooling operations such as Conv2D.
@@ -322,12 +368,14 @@ class Tensor:
     kH, kW = kernel_shape[-2:]
     if isinstance(stride, Tuple): sH, sW = stride
     else: sH, sW = stride, stride
-    oH = math.ceil((iH - (dilation*(kH-1))) / sH)
-    oW = math.ceil((iW - (dilation*(kW-1))) / sW)
+    if isinstance(dilation, Tuple): dH, dW = dilation
+    else: dH, dW = dilation, dilation
+    oH = math.ceil((iH - (dH*(kH-1))) / sH)
+    oW = math.ceil((iW - (dW*(kW-1))) / sW)
     noop = [None]*len(self.shape[:-2])
     # Expand maximally to cover a kernel for each dim and each dilation
-    y = self.tile(tuple([1]*len(noop)+ [math.ceil(kH*(iH+dilation)/iH), math.ceil(kW*(iW+dilation)/iW)]))
-    y = y.shrink((*noop, (0,kH*(iH+dilation)),(0,kW*(iW+dilation)))).contiguous().reshape(*noop, kH, iH+dilation, kW, iW+dilation)
+    y = self.tile(tuple([1]*len(noop)+ [math.ceil(kH*(iH+dH)/iH), math.ceil(kW*(iW+dW)/iW)]))
+    y = y.shrink((*noop, (0,kH*(iH+dH)),(0,kW*(iW+dW)))).contiguous().reshape(*noop, kH, iH+dH, kW, iW+dW)
     y = y.shrink((*noop, (0,kH), (0,oH*sH), (0,kW),(0,oW*sW))).reshape(*noop, *(kH,oH,sH, kW,oW, sW))
     y = y.shrink((*noop, (0,kH), (0,oH), (0,1), (0,kW),(0,oW), (0,1))).reshape(*noop, kH,oH, kW, oW)
     return y.permute(tuple([i for i in range(len(noop))] + [len(noop)+i*2+1 for i in range(2)]  + [len(noop)+i*2 for i in range(2)]))

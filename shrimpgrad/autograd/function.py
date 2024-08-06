@@ -99,6 +99,18 @@ class Exp(Function):
   def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
     # f(x) = e^x then dy/dx = e^x
     return ctx.load('ret').alu(BinaryOps.MUL, grad_out)
+  
+class Sqrt(Function):
+  @staticmethod
+  def forward(ctx: FunctionContext, x: Thunk) -> Thunk:
+    ctx.save('ret', ret:=x.alu(UnaryOps.SQRT))
+    return ret 
+  @staticmethod
+  def backward(ctx: FunctionContext, grad_out: Thunk) -> Thunk:
+    # f(x) = x ^ (1/2) 
+    # dx = 1/2x^1/2 = 1/2*sqrt(x) 
+    ret = ctx.load('ret')
+    return ret.const(1.).alu(BinaryOps.DIV, ret.alu(BinaryOps.MUL, ret.const(2.)))
 
 class ReLU(Function):
   @staticmethod
