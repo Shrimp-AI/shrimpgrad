@@ -110,7 +110,7 @@ class Sqrt(Function):
     # f(x) = x ^ (1/2) 
     # dx = 1/2x^1/2 = 1/2*sqrt(x) 
     ret = ctx.load('ret')
-    return ret.const(1.).alu(BinaryOps.DIV, ret.alu(BinaryOps.MUL, ret.const(2.)))
+    return ret.const(1.).alu(BinaryOps.DIV, ret.alu(BinaryOps.MUL, ret.const(2.))).alu(BinaryOps.MUL, grad_out)
 
 class ReLU(Function):
   @staticmethod

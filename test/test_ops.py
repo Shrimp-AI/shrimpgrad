@@ -367,8 +367,15 @@ class TestOps(unittest.TestCase):
     self.helper_test_ops([(45,65)],torch.sqrt, Tensor.sqrt, fwd_only=False)
   
   def test_std(self):
-    with Knobs(DEBUG=4):
-      self.helper_test_ops([(45,65)],torch.std, Tensor.std, fwd_only=False)
+    self.helper_test_ops([(45,65)],torch.std, Tensor.std, fwd_only=False)
+  
+  def test_pow(self):
+    self.helper_test_ops([(45,65)], lambda x: torch.pow(x,10), lambda x: Tensor.pow(x, 10), fwd_only=False)
+    self.helper_test_ops([(45,65)], lambda x: torch.pow(x,0), lambda x: Tensor.pow(x, 0), fwd_only=False)
+    self.helper_test_ops([(45,65)], lambda x: torch.pow(x,-2), lambda x: Tensor.pow(x, -2), fwd_only=False)
+  
+  def test_rsqrt(self):
+    self.helper_test_ops([(45,65)], torch.rsqrt, Tensor.rsqrt, fwd_only=False)
 
   def test_square(self):
     self.helper_test_ops([(45,65)],torch.square, Tensor.square, fwd_only=False)
@@ -417,7 +424,6 @@ class TestOps(unittest.TestCase):
     sgrad = out.grad
     assert sgrad is not None, "sgrad should not be None"
     sgrad.realize()
-
     out = torch.tensor([1.0,0.0,1.0,1.0,2.0], requires_grad=True)
     out.retain_grad()
     target = torch.Tensor([0,0,0,1,2])
@@ -425,7 +431,6 @@ class TestOps(unittest.TestCase):
     tout = loss(out, target)
     tout.backward()
     tgrad = out.grad
-
     self.compare(tout, sout, atol=1e-6, rtol=1e-3)
     self.compare(tgrad, sgrad, atol=1e-6, rtol=1e-3)
 

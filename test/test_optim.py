@@ -5,7 +5,6 @@ import shrimpgrad.nn.optim as optim
 import torch
 import numpy as np
 
-
 class TestOptimizer(unittest.TestCase):
   def test_zero_grad(self):
     t = Tensor.ones((1,1))

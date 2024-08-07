@@ -2,7 +2,7 @@ from typing import List, Callable
 from shrimpgrad import Tensor, nn
 import unittest
 from shrimpgrad.engine.jit import ShrimpJit
-from shrimpgrad.nn import get_parameters, optim
+from shrimpgrad.nn import BatchNorm, get_parameters, optim
 import torch
 import numpy as np
 
@@ -233,3 +233,47 @@ class TestNN(unittest.TestCase):
     z2_.backward()
 
     np.testing.assert_allclose(w0.grad.numpy(), w0_.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
+  
+  def test_batchnorm2d(self, training=True, threed=False):
+    # From tinygrad
+    if training: 
+      szs = [4, 8, 16, 32]
+      for sz in szs:
+        # create in tinygrad
+        bn = BatchNorm(sz, eps=1e-5, track_running_stats=training)
+        bn.weight = Tensor.randn(sz)
+        bn.bias = Tensor.randn(sz)
+        bn.running_mean = Tensor.randn(sz)
+        bn.running_var = Tensor.randn(sz)
+        bn.running_var.numpy()[bn.running_var.numpy() < 0] = 0
+
+        # create in torch
+        with torch.no_grad():
+          if threed:
+            tbn = torch.nn.BatchNorm3d(sz).eval()
+          else:
+            tbn = torch.nn.BatchNorm2d(sz).eval()
+          tbn.training = training
+          tbn.weight[:] = torch.tensor(bn.weight.numpy())
+          tbn.bias[:] = torch.tensor(bn.bias.numpy())
+          tbn.running_mean[:] = torch.tensor(bn.running_mean.numpy())
+          tbn.running_var[:] = torch.tensor(bn.running_var.numpy())
+
+        np.testing.assert_allclose(bn.running_mean.numpy(), tbn.running_mean.detach().numpy(), rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(bn.running_var.numpy(), tbn.running_var.detach().numpy(), rtol=1e-5, atol=1e-6)
+
+        # trial
+        if threed:
+          inn = Tensor.randn(2, sz, 3, 3, 3)
+        else:
+          inn = Tensor.randn(2, sz, 3, 3)
+
+        outt = bn(inn, training=True)
+
+        # in torch
+        toutt = tbn(torch.tensor(inn.numpy()))
+
+        # close
+        np.testing.assert_allclose(outt.numpy(), toutt.detach().numpy(), rtol=5e-4, atol=1e-6)
+        np.testing.assert_allclose(bn.running_mean.numpy(), tbn.running_mean.detach().numpy(), rtol=1e-5, atol=1e-6)
+        np.testing.assert_allclose(bn.running_var.numpy(), tbn.running_var.detach().numpy(), rtol=1e-5, atol=1e-6)

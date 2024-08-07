@@ -86,7 +86,7 @@ class Tensor:
     x = self
     if not isinstance(y, Tensor):
       assert isinstance(y, ConstType), f'type(y)={type(y)} is not a ConstType'
-      y = Tensor((), data=y, dtype=dtypes.from_py(y))
+      y = Tensor((), data=y, dtype=dtypes.from_py(y), requires_grad=self.requires_grad)
     new_shapes = pad_left(self.shape, y.shape)
     assert all(x == y or x == 1 or y == 1 for x, y in zip(*new_shapes)), f'invalid shapes for broadcasting {self.shape} and {y.shape}'
     bs = broadcast_shape(*new_shapes)
@@ -152,12 +152,30 @@ class Tensor:
   def log(self) -> Tensor:
     from shrimpgrad.autograd.function import Log
     return Log.apply(self)
+  
+  def pow(self, n: Tensor|ConstType) -> Tensor:
+    if not isinstance(n, Tensor):
+      # power of 0
+      if n == 0: return 1. + self*0
+      # power of 1
+      if n == 1: return self
+      # power of negative
+      if n < 0: return 1. / self.pow(-n)
+      # power of int
+      if int(n) == n: 
+        if n % 2 == 0: return self.square().pow(n//2)
+        return self*(self.square().pow((n-1)//2))
+    # power of Tensor
+    # TODO: Tensor exponent and Float exponent
+    return self
 
   def square(self) -> Tensor: return self * self
 
   def sqrt(self) -> Tensor:
     from shrimpgrad.autograd.function import Sqrt
     return Sqrt.apply(self)
+  
+  def rsqrt(self) -> Tensor: return 1.0 / self.sqrt()
 
   def _canonicalize_axis(self, axis:Optional[int|Tuple[int,...]]):
     axis = axis if axis != None else tuple(i for i in range(self.ndim))
