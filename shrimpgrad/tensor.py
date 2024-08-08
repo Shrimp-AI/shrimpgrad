@@ -2,7 +2,7 @@ from __future__ import annotations
 import ctypes
 import functools
 import math
-from typing import Callable, List, Optional, Type, TypeAlias, Union, Tuple
+from typing import Callable, List, Optional, Type, Union, Tuple
 from shrimpgrad.device import Device
 from shrimpgrad.dtype import DType, dtypes, ConstType, to_ctype, to_numpy
 from random import uniform, gauss
@@ -12,13 +12,13 @@ from shrimpgrad.runtime.clang import ClangDevice
 from shrimpgrad.util import calc_fan_in_fan_out, calc_gain, prod
 import numpy as np
 
-Shape: TypeAlias = Tuple[int, ...]
+Shape  = Tuple[int, ...]
 
 def pad_left(*shps: Tuple[int, ...], v=1) -> List[Tuple[int ,...]]: return [tuple((v,)*(max(len(s) for s in shps)-len(s)) + s) for s in shps]
 def broadcast_shape(*shps: Tuple[int, ...]) -> Tuple[int, ...]: return tuple([max([s[dim] for s in shps]) for dim in range(len(shps[0]))])
 
 class Tensor:
-  def __init__(self, shape: Shape, data: Union[List, bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device:Device=ClangDevice(), requires_grad:Optional[bool]=None):
+  def __init__(self, shape: Shape, data: Union[List[ConstType], bytes, ConstType, Thunk], dtype:DType=dtypes.float32, device:Device=ClangDevice(), requires_grad:Optional[bool]=None):
     self.requires_grad = requires_grad
     self.grad: Optional[Tensor] = None
     from shrimpgrad.autograd.function import Function

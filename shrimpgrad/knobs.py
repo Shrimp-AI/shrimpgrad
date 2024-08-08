@@ -2,14 +2,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from functools import total_ordering
 import os
-from typing import Any, ClassVar, Dict,  NotRequired, TypedDict, Unpack
+from typing import Any, ClassVar, Dict 
 from contextlib import ContextDecorator
 
-class KnobArgs(TypedDict):
-  DEBUG: NotRequired[int] 
 
 class Knobs(ContextDecorator):
-  def __init__(self, **knobs: Unpack[KnobArgs]):
+  def __init__(self, **knobs):
     self.pre_ctx_state = {name:k.value for name,k in Knob._knobs.items()} 
     self.knobs = knobs.items()
       

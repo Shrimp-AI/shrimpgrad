@@ -1,6 +1,6 @@
 { pkgs ? import <nixpkgs> {} }:
 
-with pkgs.python312Packages;
+with pkgs.python310Packages;
 
 pkgs.mkShell {
   buildInputs = [
@@ -26,14 +26,14 @@ pkgs.mkShell {
     KERNEL_DISPLAY_NAME="ShrimpGrad Kernel"
 
     if [ ! -d "$VENV_DIR" ]; then
-      python3.12 -m venv $VENV_DIR
+      python3.10 -m venv $VENV_DIR
     fi
     source $VENV_DIR/bin/activate
 
     export PYTHONPATH=$PYTHONPATH:/$(pwd)
 
     # Ensure pip is using the correct Python version
-    pip install --upgrade pip setuptools wheel
+    #pip install --upgrade pip setuptools wheel
 
     # Install the package
     pip install --upgrade --no-deps --force-reinstall -e .

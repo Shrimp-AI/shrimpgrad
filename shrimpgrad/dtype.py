@@ -1,9 +1,9 @@
 import ctypes
 from dataclasses import dataclass
-from typing import Final, TypeAlias, Union
+from typing import Final, Union
 import numpy as np
 
-ConstType: TypeAlias = Union[float, int, bool]
+ConstType = Union[float, int, bool]
 
 @dataclass(frozen=True, order=True)
 class DType:
@@ -17,7 +17,7 @@ class dtypes:
   float32: Final[DType] = DType(4, "float32")
   bool_: Final[DType] = DType(1, "bool")
   @staticmethod
-  def from_py(x: float|int|bool) -> DType:
+  def from_py(x: Union[float,int,bool]) -> DType:
     t = type(x)
     if t == float: return dtypes.float32
     if t == int: return dtypes.int32

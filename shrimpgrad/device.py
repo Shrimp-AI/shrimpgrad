@@ -8,7 +8,7 @@ from shrimpgrad.meta.singleton import Singleton
 from shrimpgrad.view import ViewTracker
 import numpy as np
 from numpy.typing import NDArray
-from collections.abc import Buffer as BufferType
+
 
 """
  Base Classes for Device
@@ -39,7 +39,7 @@ class Device(metaclass=Singleton):
   def __repr__(self): return self.name
 
 class Allocator:
-  def alloc(self, size:int) -> BufferType: raise NotImplementedError('implement alloc')
+  def alloc(self, size:int): raise NotImplementedError('implement alloc')
   def free(self): raise NotImplementedError('implement free')
   def copyin(self, dst, src): raise NotImplementedError('implement copyin')
   def copyout(self, dst, src): raise NotImplementedError('implement copyout')
@@ -94,7 +94,7 @@ class Buffer:
   def __init__(self, device: Device, size:int, dtype: DType):
     self.device = device
     self.allocator, self.dtype, self.size = device.allocator(), dtype, size
-    self._buf: Optional[BufferType] = None
+    self._buf = None
     self._ref_count = 1
   @property
   def allocated(self): return self._buf is not None 
@@ -124,13 +124,13 @@ class Buffer:
   def copyin(self, src: memoryview):
     assert self.allocator is not None, f"device must be an allocator, {self.device.name} is a HostDevice"
     assert self._buf is not None, "buffer is not allocated"
-    src = src.cast("B", shape=(src.nbytes,))
+    src = src.cast("B", shape=(src.nbytes,)) # type: ignore
     self.allocator.copyin(self._buf, src)
     return self._buf
 
   def copyout(self, dst: memoryview):
     assert self.allocator is not None, f"device must be an allocator, {self.device.name} is a HostDevice"
-    dst = dst.cast("B", shape=(dst.nbytes,))
+    dst = dst.cast("B", shape=(dst.nbytes,)) # type: ignore
     self.allocator.copyout(dst, self._buf)
     return dst
 

@@ -117,5 +117,5 @@ def render(expr: Expr, prec:int=0) -> str:
     case _:
       raise ValueError(f"Invalid expression value: {repr(expr)}")
 
-sint: TypeAlias = Symbol|int
-sym: TypeAlias = Symbol
+sint = Symbol|int
+sym = Symbol
