@@ -2,7 +2,7 @@
 from __future__ import annotations
 import ctypes
 from dataclasses import dataclass
-from typing import Optional, Type
+from typing import Type
 from shrimpgrad.dtype import ConstType, DType, to_numpy
 from shrimpgrad.meta.singleton import Singleton
 from shrimpgrad.view import ViewTracker

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from enum import Enum, auto
-from typing import Optional, Tuple, TypeAlias
+from typing import Optional, Tuple
 from dataclasses import dataclass
 
 @dataclass
