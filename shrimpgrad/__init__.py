@@ -7,4 +7,4 @@ from shrimpgrad.dtype import *
 from shrimpgrad.device import *
 from shrimpgrad.engine.graph import *
 from shrimpgrad.knobs import *
-from shrimpgrad.nn.datasets import *
+from . import nn
