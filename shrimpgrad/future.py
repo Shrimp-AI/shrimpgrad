@@ -142,7 +142,7 @@ class Thunk:
     thunk.buff.allocate(with_data=data)
     del thunk._operands
     return thunk
-
+  
   @staticmethod
   def loadop(op: LoadOps, shape, dtype, device, arg=None, srcs=()):
     return create_thunk(device, dtype, ViewTracker.from_shape(shape), srcs, op=op, arg=arg)

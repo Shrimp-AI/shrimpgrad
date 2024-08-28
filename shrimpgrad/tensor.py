@@ -25,6 +25,8 @@ class Tensor:
     self.ctx: Optional[Function] = None
     self.cls: Optional[Type[Function]] = None
     if isinstance(data, Thunk): self.thunk = data
+    elif isinstance(data, bytes): 
+      self.thunk = Thunk.load_from_cpu(np.frombuffer(data, dtype=np.uint8), dtype, shape)
     elif isinstance(data, ConstType): self.thunk = Thunk.load_const(data, shape, dtype, device)
     else:
       if shape == () and not isinstance(data, ConstType) and len(data) == 1: data = data[0]
@@ -455,6 +457,9 @@ class Tensor:
 
   @staticmethod
   def fromlist(shape: Shape, data:List[ConstType], dtype=dtypes.float32, **kwargs): return Tensor(shape, data=data, dtype=dtype, **kwargs)
+
+  @staticmethod
+  def frombytes(shape: Shape, data: bytes, dtype=dtypes.float32, **kwargs): return Tensor(shape, data, dtype)
 
   @staticmethod
   def full(shape: Shape, fill_value: ConstType, dtype=dtypes.float32, **kwargs) -> Tensor:
