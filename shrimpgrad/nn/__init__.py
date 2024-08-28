@@ -3,7 +3,6 @@ import math
 from shrimpgrad import Tensor
 from shrimpgrad.nn.optim import *
 from shrimpgrad.util import prod
-from shrimpgrad.nn.datasets import *
 
 class Linear:
   def __init__(self, in_features: int, out_features: int, bias:bool=True):
