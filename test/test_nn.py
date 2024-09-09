@@ -2,7 +2,7 @@ from typing import List, Callable
 from shrimpgrad import Tensor, nn
 import unittest
 from shrimpgrad.engine.jit import ShrimpJit
-from shrimpgrad.nn import BatchNorm, get_parameters, optim
+from shrimpgrad.nn import BatchNorm, LayerNorm, get_parameters, optim
 import torch
 import numpy as np
 
@@ -235,11 +235,11 @@ class TestNN(unittest.TestCase):
     np.testing.assert_allclose(w0.grad.numpy(), w0_.grad.detach().numpy(), atol=1e-4, rtol=1e-3)
   
   def test_batchnorm2d(self, training=True, threed=False):
-    # From tinygrad
+    # From shrimp
     if training: 
       szs = [4, 8, 16, 32]
       for sz in szs:
-        # create in tinygrad
+        # create in shrimp 
         bn = BatchNorm(sz, eps=1e-5, track_running_stats=training)
         bn.weight = Tensor.randn(sz)
         bn.bias = Tensor.randn(sz)
@@ -277,3 +277,64 @@ class TestNN(unittest.TestCase):
         np.testing.assert_allclose(outt.numpy(), toutt.detach().numpy(), rtol=5e-4, atol=1e-6)
         np.testing.assert_allclose(bn.running_mean.numpy(), tbn.running_mean.detach().numpy(), rtol=1e-5, atol=1e-6)
         np.testing.assert_allclose(bn.running_var.numpy(), tbn.running_var.detach().numpy(), rtol=1e-5, atol=1e-6)
+
+  def test_layer_norm(self):
+    # Create in shrimp
+    ln = LayerNorm(sz:=(2,))
+    ln.weight = Tensor.randn(*sz)
+    ln.bias = Tensor.randn(*sz)
+
+    with torch.no_grad():
+      torch_ln = torch.nn.LayerNorm([2])
+      torch_ln.weight[:] = torch.tensor(ln.weight.numpy())
+      torch_ln.bias[:] = torch.tensor(ln.bias.numpy())
+
+    x = Tensor.randn(2,2)
+    xt = torch.tensor(x.numpy())
+
+    sln = ln(x)
+    tln = torch_ln(xt)
+
+    np.testing.assert_allclose(sln.numpy(), tln.detach().numpy(), rtol=1e-3, atol=1e-3)
+
+  def test_layer_norm_with_more_dims(self):
+    ln = LayerNorm(sz:=(2,3,4))
+    ln.weight = Tensor.randn(*sz)
+    ln.bias = Tensor.randn(*sz)
+
+    with torch.no_grad():
+      torch_ln = torch.nn.LayerNorm([2,3,4])
+      torch_ln.weight[:] = torch.tensor(ln.weight.numpy())
+      torch_ln.bias[:] = torch.tensor(ln.bias.numpy())
+
+    x = Tensor.randn(4,5,2,3,4)
+    xt = torch.tensor(x.numpy())
+
+    sln = ln(x)
+    tln = torch_ln(xt)
+
+    np.testing.assert_allclose(sln.numpy(), tln.detach().numpy(), rtol=1e-3, atol=1e-3)
+  
+  def test_layer_norm_shape_wrong_assert_raise(self):
+    with self.assertRaises(AssertionError):
+      ln = LayerNorm(sz:=(2,3,4))
+      ln.weight = Tensor.randn(*sz)
+      ln.bias = Tensor.randn(*sz)
+      ln(Tensor.randn(5,3,2,3,5))
+  
+  def test_layer_norm_shape_correct_no_assert_raise(self):
+    ln = LayerNorm(sz:=(2,3,4))
+    ln.weight = Tensor.randn(*sz)
+    ln.bias = Tensor.randn(*sz)
+    ln(Tensor.randn(5,3,2,3,4))
+  
+  def test_layer_norm_norm_shape_singleton_norms_last_dim_size_matches(self):
+    ln = LayerNorm(1, elementwise_affine=False)
+    out = ln(Tensor.randn(2,2,1)).numpy()
+    assert out.shape == (2,2,1)
+  
+  def test_layer_norm_norm_shape_singleton_last_dim_doesnt_match_raises(self):
+    with self.assertRaises(AssertionError):
+      ln = LayerNorm(2, elementwise_affine=False)
+      out = ln(Tensor.randn(2,2,1)).numpy()
+      assert out.shape == (2,2,1)

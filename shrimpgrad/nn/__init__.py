@@ -1,9 +1,15 @@
-from typing import List
+from typing import List, Tuple
 import math
 from shrimpgrad import Tensor
 from shrimpgrad.nn.optim import *
 from shrimpgrad.util import prod
-from . import datasets
+
+def get_parameters(model) -> List[Tensor]:
+  params = []
+  for layer in model.layers:
+    if getattr(layer, 'parameters', None):
+      params+=layer.parameters()
+  return params
 
 class Linear:
   def __init__(self, in_features: int, out_features: int, bias:bool=True):
@@ -16,14 +22,25 @@ class Linear:
 
   def parameters(self) -> List[Tensor]:
     return [self.w, self.bias]
+  
+class LayerNorm:
+  def __init__(self, norm_shape: Tuple[int, ...]|int, eps: float = 1e-05, elementwise_affine: bool = True):
+    self.eps = eps
+    self.norm_shape = norm_shape if isinstance(norm_shape, tuple) else (norm_shape,)
+    self.elementwise_affine = elementwise_affine
+    self.weight = Tensor.ones(self.norm_shape) if elementwise_affine else None
+    self.bias = Tensor.zeros(self.norm_shape) if elementwise_affine else None
 
-def get_parameters(model) -> List[Tensor]:
-  params = []
-  for layer in model.layers:
-    if getattr(layer, 'parameters', None):
-      params+=layer.parameters()
-  return params
-
+  def __call__(self, x: Tensor) -> Tensor:
+    assert x.shape[-len(self.norm_shape):] == self.norm_shape, f"expected last {len(self.norm_shape)} dims to be {self.norm_shape} but got {x.shape[-len(self.norm_shape):]}"
+    axis = tuple([-i for i in range(len(self.norm_shape), 0, -1)])
+    x = x - x.mean(axis=axis, keepdim=True)
+    x = x / x.std(axis=axis, keepdim=True, correction=0)
+    if self.elementwise_affine:
+      assert self.weight is not None and self.bias is not None, "affine requires weight and bias"
+      x = x * self.weight
+      x = x + self.bias
+    return x
 
 class BatchNorm:
   def __init__(self, num_features:int, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True):
@@ -49,7 +66,6 @@ class BatchNorm:
         self.num_batches_tracked += 1
     else:
       batch_mean = self.running_mean
-      # NOTE: this can be precomputed for static inference. we expand it here so it fuses
       batch_invstd = self.running_var.reshape(*shape_mask).expand(*x.shape).add(self.eps).rsqrt()
     return x.batch_norm(self.weight, self.bias, batch_mean, batch_invstd)
 BatchNorm2d = BatchNorm3d = BatchNorm
