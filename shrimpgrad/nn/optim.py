@@ -22,27 +22,24 @@ class SGD(Optimizer):
     assert not (momentum < 0.0), 'momentum must be positive'
     assert not (weight_decay < 0.0), 'weight_decay must be positive'
     self.momentum, self.dampening, self.weight_decay, self.nesterov = momentum, dampening, weight_decay, nesterov
+    self.b = [Tensor.zeros(t.shape, dtype=dtypes.float32, device=t.device, requires_grad=False).contiguous() for t in self.params]
 
   def step(self):
-    b = None
     for i,t in enumerate(self.params):
       g = t.grad
       assert g is not None, 'gradient cannot be empty for parameter in SGD'
       if self.weight_decay != 0.0:
         g += self.weight_decay*t
       if self.momentum != 0:
-        if i > 0:
-          b = b*self.momentum + (1. - self.dampening)*g
-        else:
-          b = g
+        # b[i] is zero initialized
+        self.b[i].assign(self.b[i]*self.momentum + (1. - self.dampening)*g)
         if self.nesterov:
-          g += self.momentum*b
+          g += self.momentum*self.b[i]
         else:
-          g = b
+          g = self.b[i]
       g = self.lr * g
       t.assign(t.detach() - g)
       t.realize()
-      if b is not None: b.realize()
 
 class Adam(Optimizer):
   def __init__(self, params: Iterable[Tensor], lr=1e-3, betas=(0.9, 0.999), eps=1e-8, weight_decay:float=0.0, amsgrad:bool=False):
