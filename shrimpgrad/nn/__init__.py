@@ -69,5 +69,3 @@ class BatchNorm:
       batch_invstd = self.running_var.reshape(*shape_mask).expand(*x.shape).add(self.eps).rsqrt()
     return x.batch_norm(self.weight, self.bias, batch_mean, batch_invstd)
 BatchNorm2d = BatchNorm3d = BatchNorm
-
-  

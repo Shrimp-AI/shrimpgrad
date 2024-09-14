@@ -248,6 +248,8 @@ class Tensor:
   def __truediv__(self, other): return self.div(other)
   def __rtruediv__(self, other): return self.div(other, reverse=True)
   def __matmul__(self, other) -> Tensor: return self.matmul(other)
+  def __pow__(self, n: Tensor|ConstType) -> Tensor: return self.pow(n)
+  def __rpow__(self, other): return self.pow(other)
 
   def __iadd__(self, x) -> Tensor: return self.assign(self.add(x))
   def __isub__(self, x) -> Tensor: return self.assign(self.sub(x))
@@ -522,7 +524,7 @@ class Tensor:
     return self
 
   # Extract data
-  def data(self):
+  def data(self) -> np.ndarray:
     # TODO: Change this to something worthy
     base = self.thunk.base
     if hasattr(base, 'buff'):
@@ -538,7 +540,7 @@ class Tensor:
       raise TypeError("self is not realized where is the buff")
     return np.frombuffer(data, dtype=to_numpy(self.dtype)).reshape(self.shape)
 
-  def numpy(self): return self.realize().data()
+  def numpy(self) -> np.ndarray: return self.realize().data()
 
   # Object Representation
   def analyze(self):
