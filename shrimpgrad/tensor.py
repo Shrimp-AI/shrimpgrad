@@ -409,7 +409,7 @@ class Tensor:
   def conv2d(self, w: Tensor, bias: Optional[Tensor]=None,
              stride:int|Tuple[int,int]=1, 
              padding:int|Tuple[Tuple[int,int],...]=0,
-             dilation:int=1, groups:int=1) -> Tensor: 
+             dilation:int|Tuple[int,int]=1, groups:int=1) -> Tensor: 
     """
     self.shape: (minibatch,in_channels,iH,iW)
     kernel.shape: (out_channels, in_channels/groups, kH, kW)

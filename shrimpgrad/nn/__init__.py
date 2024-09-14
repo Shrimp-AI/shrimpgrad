@@ -68,4 +68,21 @@ class BatchNorm:
       batch_mean = self.running_mean
       batch_invstd = self.running_var.reshape(*shape_mask).expand(*x.shape).add(self.eps).rsqrt()
     return x.batch_norm(self.weight, self.bias, batch_mean, batch_invstd)
+  def parameters(self) -> List[Tensor]:
+    return [self.weight, self.bias] if self.weight is not None and self.bias is not None else []
+
 BatchNorm2d = BatchNorm3d = BatchNorm
+
+class Conv2D:
+  def __init__(self, in_channels:int, out_channels:int, kernel_size:int|Tuple[int,int], bias:bool=True, stride:int|Tuple[int,int]=1, padding:int|Tuple[Tuple[int,int],...]=0, dilation:int|Tuple[int,int]=1, groups:int=1):
+    self.kernel_size = (kernel_size, kernel_size) if isinstance(kernel_size, int) else tuple(kernel_size)
+    self.stride, self.padding, self.dilation, self.groups = stride, padding, dilation, groups
+    scale = 1. / math.sqrt(in_channels * prod(self.kernel_size))
+    self.weight = Tensor.uniform(out_channels, in_channels//groups, *self.kernel_size, low=-scale, high=scale)
+    self.bias = Tensor.uniform(out_channels, low=-scale, high=scale) if bias else None
+
+  def __call__(self, x:Tensor) -> Tensor:
+    return x.conv2d(self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
+
+  def parameters(self) -> List[Tensor]:
+    return [self.weight, self.bias] if self.bias is not None else [self.weight]
