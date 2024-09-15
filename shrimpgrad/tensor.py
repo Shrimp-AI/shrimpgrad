@@ -458,7 +458,7 @@ class Tensor:
     return Tensor.full(shape, fill_value=dtypes.cast(dtype, 1.0), dtype=dtype, **kwargs)
 
   @staticmethod
-  def arange(start: int, stop:int, step:int=1, dtype:DType=dtypes.float32, **kwargs) -> Tensor: return Tensor(((stop - start) // step,), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype, **kwargs)
+  def arange(start: int, stop:int, step=1, dtype:DType=dtypes.float32, **kwargs) -> Tensor: return Tensor((math.ceil((stop - start) / step),), [float(i) if dtype == dtypes.float32 else int(i) for i in range(start, stop, step)], dtype, **kwargs)
 
   @staticmethod
   def fromlist(shape: Shape, data:List[ConstType], dtype=dtypes.float32, **kwargs): return Tensor(shape, data=data, dtype=dtype, **kwargs)
