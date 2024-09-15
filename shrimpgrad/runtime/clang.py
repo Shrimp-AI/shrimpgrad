@@ -25,6 +25,7 @@ def render_type(dtype: DType) -> str:
   if dtype == dtypes.float32: return 'float'
   if dtype == dtypes.int32: return 'int'
   if dtype == dtypes.bool_: return '_Bool'
+  if dtype == dtypes.uint8: return 'unsigned char'
   raise TypeError(f"dtype {dtype} is not supported.")
 
 class ClangDevice(Device, Jitable):

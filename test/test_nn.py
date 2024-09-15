@@ -1,10 +1,26 @@
 from typing import List, Callable
-from shrimpgrad import Tensor, nn
+from shrimpgrad import Tensor, nn 
+from shrimpgrad.knobs import Knobs
+from shrimpgrad.nn.datasets import mnist_loader
 import unittest
 from shrimpgrad.engine.jit import ShrimpJit
 from shrimpgrad.nn import BatchNorm, LayerNorm, get_parameters, optim
 import torch
 import numpy as np
+
+maxpool2d = lambda x: Tensor.maxpool2d(x, (2,2),(2,2)) 
+class ConvNet:
+  def __init__(self):
+    self.layers: List[Callable[[Tensor], Tensor]] = [
+      nn.Conv2D(1, 32, 5), Tensor.relu,
+      nn.Conv2D(32, 32, 5), Tensor.relu,
+      nn.BatchNorm(32), maxpool2d, 
+      nn.Conv2D(32, 64, 3), Tensor.relu,
+      nn.Conv2D(64, 64, 3), Tensor.relu,
+      nn.BatchNorm(64), maxpool2d,
+      lambda x: x.flatten(1), nn.Linear(576, 10)]
+
+  def __call__(self, x:Tensor) -> Tensor: return x.sequential(self.layers)
 
 def prepare_tensors(shapes, low=-1.5, high=1.5):
   np.random.seed(0)
@@ -399,3 +415,50 @@ class TestNN(unittest.TestCase):
       ln = LayerNorm(2, elementwise_affine=False)
       out = ln(Tensor.randn(2,2,1)).numpy()
       assert out.shape == (2,2,1)
+  
+  def test_conv2d(self):
+    # Create in shrimp
+    conv = nn.Conv2D(in_channels=3, out_channels=6, kernel_size=(3,3))
+    x = Tensor.randn(1,3,5,5)
+    out = conv(x)
+    assert out.shape == (1,6,3,3) 
+
+    # Create in torch
+    with torch.no_grad():
+      torch_conv = torch.nn.Conv2d(3,6,(3,3))
+      assert torch_conv.bias is not None
+      assert conv.bias is not None
+      torch_conv.weight[:] = torch.tensor(conv.weight.numpy())
+      torch_conv.bias[:] = torch.tensor(conv.bias.numpy())
+
+    xt = torch.tensor(x.numpy())
+    outt = torch_conv(xt)
+    np.testing.assert_allclose(out.numpy(), outt.detach().numpy(), rtol=1e-3, atol=1e-3)
+
+    # Test backward pass
+    out.sum().backward().realize()
+    outt.sum().backward()
+
+    # Check gradients for weights and bias
+    assert conv.weight.grad is not None
+    assert conv.bias.grad is not None
+    assert torch_conv.weight.grad is not None
+    assert torch_conv.bias.grad is not None
+    np.testing.assert_allclose(conv.weight.grad.numpy(), torch_conv.weight.grad.numpy(), rtol=1e-3, atol=1e-3)
+    np.testing.assert_allclose(conv.bias.grad.numpy(), torch_conv.bias.grad.numpy(), rtol=1e-3, atol=1e-3)
+
+  def test_mnist_loader(self):
+    train_images, train_labels, test_images, test_labels = mnist_loader(10)
+    assert train_images.shape == (10, 1, 28, 28)
+    assert train_labels.shape == (10,)
+    assert test_images.shape == (10, 1, 28, 28)
+    assert test_labels.shape == (10,)
+
+  def test_conv2d_mnist(self):
+    train_images, train_labels, test_images, test_labels = mnist_loader(10)
+    model = ConvNet()
+    out = model(train_images)
+    # TODO: We need to add proper dtype promotion for binary operations such that we use
+    # the dtype that can actually store the value of the computation rather than defaulting to
+    # the dtype of the input A 
+

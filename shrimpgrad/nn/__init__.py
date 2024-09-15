@@ -78,8 +78,8 @@ class Conv2D:
     self.kernel_size = (kernel_size, kernel_size) if isinstance(kernel_size, int) else tuple(kernel_size)
     self.stride, self.padding, self.dilation, self.groups = stride, padding, dilation, groups
     scale = 1. / math.sqrt(in_channels * prod(self.kernel_size))
-    self.weight = Tensor.uniform(out_channels, in_channels//groups, *self.kernel_size, low=-scale, high=scale)
-    self.bias = Tensor.uniform(out_channels, low=-scale, high=scale) if bias else None
+    self.weight = Tensor.uniform(out_channels, in_channels//groups, *self.kernel_size, low=-scale, high=scale, requires_grad=True)
+    self.bias = Tensor.uniform(out_channels, low=-scale, high=scale, requires_grad=True) if bias else None
 
   def __call__(self, x:Tensor) -> Tensor:
     return x.conv2d(self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)

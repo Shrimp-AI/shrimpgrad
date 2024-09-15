@@ -28,3 +28,11 @@ def mnist():
     Tensor.frombytes((60000,), load_data(url_training_labels, 8), dtypes.uint8),
     Tensor.frombytes((10000,), load_data(url_test_labels, 8), dtypes.uint8)
   )
+
+def mnist_loader(batch_size:int):
+  train_images, test_images, train_labels, test_labels = mnist()
+  train_images = train_images.shrink(((0,batch_size), None, None, None))
+  test_images = test_images.shrink(((0,batch_size), None, None, None))
+  train_labels = train_labels.shrink(((0,batch_size),))
+  test_labels = test_labels.shrink(((0,batch_size),))
+  return train_images, train_labels, test_images, test_labels

@@ -291,6 +291,9 @@ class Tensor:
   def hinge_loss(self, target: Tensor) -> Tensor: return (1.0 + -target*self).relu().sum() * (1.0/target.shape[0])
   def mse(self, target: Tensor) -> Tensor: return (self-target).square().mean()
 
+  # TODO: This is not a correct implementation (placeholder)
+  def sparse_categorical_cross_entropy(self, y: Tensor) -> Tensor: return (-y.log()*self).sum() * (1.0/y.shape[0])
+
   # Shape Shift Functions
   def expand(self, *shps) -> Tensor:
     from shrimpgrad.autograd.function import Expand
@@ -560,6 +563,6 @@ class Tensor:
       grad_alloc = grad_buffer.allocated
     print(f"{op = } {is_view = } alloc={buffer.allocated} {buffer_addr = } alloc={grad_alloc} {grad_buffer_addr = } {grad_data =  }")
 
-  def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r}>"
+  def __repr__(self): return f"<Tensor {self.thunk!r} on {self.device} with grad {(self.grad.thunk if self.grad is not None else None)!r} {self.dtype} {self.shape}>"
   def __str__(self): return self.__repr__()
   def __hash__(self): return id(self)
