@@ -1,10 +1,10 @@
 from typing import List, Callable
 from shrimpgrad import Tensor, nn 
-from shrimpgrad.knobs import Knobs
 from shrimpgrad.nn.datasets import mnist_loader
 import unittest
 from shrimpgrad.engine.jit import ShrimpJit
 from shrimpgrad.nn import BatchNorm, LayerNorm, get_parameters, optim
+from shrimpgrad.knobs import Knobs
 import torch
 import numpy as np
 
@@ -457,8 +457,10 @@ class TestNN(unittest.TestCase):
   def test_conv2d_mnist(self):
     train_images, train_labels, test_images, test_labels = mnist_loader(10)
     model = ConvNet()
-    out = model(train_images)
-    # TODO: We need to add proper dtype promotion for binary operations such that we use
-    # the dtype that can actually store the value of the computation rather than defaulting to
-    # the dtype of the input A 
+    with Knobs(DEBUG=4):
+      out = model(train_images)
+      # TODO: We need to add proper dtype promotion for binary operations such that we use
+      # the dtype that can actually store the value of the computation rather than defaulting to
+      # the dtype of the input A 
+      print(out.numpy())
 
