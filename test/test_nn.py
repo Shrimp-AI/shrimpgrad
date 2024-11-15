@@ -455,7 +455,7 @@ class TestNN(unittest.TestCase):
     assert test_labels.shape == (10,)
 
   def test_conv2d_mnist(self):
-    train_images, train_labels, test_images, test_labels = mnist_loader(10)
+    train_images, _, _, _= mnist_loader(10)
     model = ConvNet()
     with Knobs(DEBUG=4):
       out = model(train_images)

@@ -14,25 +14,20 @@ class DType:
 
 class dtypes:
   bool_: Final[DType] = DType(1, "bool")
-
   int8: Final[DType] = DType(1, "int8")
   int16: Final[DType] = DType(2, "int16")
   int32: Final[DType] = DType(4, "int32")
   int64: Final[DType] = DType(8, "int64")
-
   uint8: Final[DType] = DType(1, "uint8")
   uint16: Final[DType] = DType(2, "uint16")
   uint32: Final[DType] = DType(4, "uint32")
   uint64: Final[DType] = DType(8, "uint64")
-
   bfloat16: Final[DType] = DType(2, "bfloat16")
   float16: Final[DType] = DType(2, "float16")
   float32: Final[DType] = DType(4, "float32")
   float64: Final[DType] = DType(8, "float64")
-
   complex64: Final[DType] = DType(8, "complex64")
   complex128: Final[DType] = DType(16, "complex128")
-
 
   @staticmethod
   def from_py(x: Union[float,int,bool]) -> DType:
@@ -66,12 +61,12 @@ def to_ctype(dtype: DType):
   if dtype == dtypes.uint8: return ctypes.c_ubyte
   raise TypeError(f"dtype {dtype} is not supported.")
 
-
 _weak_types = [int, float, complex] 
 _unsigned_types = [dtypes.uint8, dtypes.uint16, dtypes.uint32, dtypes.uint64]
 _signed_types = [dtypes.int8, dtypes.int16, dtypes.int32, dtypes.int64]
 _float_types = [dtypes.float16, dtypes.bfloat16, dtypes.float32, dtypes.float64]
 _complex_types = [dtypes.complex64, dtypes.complex128]
+
 b1_ = dtypes.bool_
 i_, f_, c_ = _weak_types
 u8_, u16_, u32_, u64_ = _unsigned_types
@@ -101,8 +96,12 @@ def _make_lattice_upper_bounds() -> dict[ShrimpType, set[ShrimpType]]:
       upper_bounds[n] |= new_upper_bounds
   return upper_bounds
 
-_lattice_upper_bounds: dict[str, dict[ShrimpType, set[ShrimpType]]] = {
-  'standard': _make_lattice_upper_bounds(),
-}
-
-
+def type_promotion(a: ShrimpType, b: ShrimpType) -> ShrimpType:
+  if a == b: return a
+  N = set([a,b])
+  UB = _make_lattice_upper_bounds()
+  CUB = set.intersection(*(UB[n] for n in N)) 
+  LUB = (CUB & N) or {c for c in CUB if CUB.issubset(UB[c])}
+  if len(LUB) == 0:
+    raise TypeError(f"No common type found for {a} and {b}")
+  return LUB.pop()
